@@ -1,4 +1,4 @@
-import { and, desc, eq, max, sql } from "drizzle-orm";
+import { and, count, desc, eq, max, sql } from "drizzle-orm";
 import Link from "next/link";
 import { CategoryBadge, Header } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
@@ -9,6 +9,9 @@ import { formatDate, formatDateTime, hostname, isForeign, readingMinutes } from 
 // "今すぐ取得" runs here as a server action and can take a while.
 export const maxDuration = 300;
 
+// Cards shown per page; a long list is slow to load and render on phones.
+const PAGE_SIZE = 30;
+
 const FILTERS = [
   { key: "all", label: "すべて" },
   { key: "tech", label: "Tech" },
@@ -16,8 +19,10 @@ const FILTERS = [
 ] as const;
 
 export default async function InboxPage({ searchParams }: PageProps<"/">) {
-  const c = (await searchParams).c;
+  const { c, n } = await searchParams;
   const category = c === "tech" || c === "business" ? c : "all";
+  const limit = Math.min(Math.max(Number(n) || PAGE_SIZE, PAGE_SIZE), 500);
+  const where = and(eq(articles.status, "inbox"), category === "all" ? undefined : eq(articles.category, category));
 
   const db = await getDb();
   const rows = await db
@@ -37,12 +42,14 @@ export default async function InboxPage({ searchParams }: PageProps<"/">) {
       started: sql<boolean>`exists (select 1 from messages m where m.article_id = ${articles.id})`,
     })
     .from(articles)
-    .where(
-      and(eq(articles.status, "inbox"), category === "all" ? undefined : eq(articles.category, category)),
-    )
+    .where(where)
     .orderBy(desc(articles.fetchedAt), desc(articles.publishedAt))
-    .limit(200);
-  const [{ lastFetched }] = await db.select({ lastFetched: max(feeds.lastFetchedAt) }).from(feeds);
+    .limit(limit);
+  const [[{ total }], [{ lastFetched }]] = await Promise.all([
+    db.select({ total: count() }).from(articles).where(where),
+    db.select({ lastFetched: max(feeds.lastFetchedAt) }).from(feeds),
+  ]);
+  const moreHref = `/?${new URLSearchParams({ ...(category !== "all" && { c: category }), n: String(limit + PAGE_SIZE) })}`;
 
   return (
     <>
@@ -62,7 +69,7 @@ export default async function InboxPage({ searchParams }: PageProps<"/">) {
             </Link>
           ))}
           <span className="ml-auto self-center text-right text-xs text-muted">
-            {rows.length} 本
+            {total} 本
             {lastFetched && <span className="block">更新 {formatDateTime(lastFetched)}</span>}
           </span>
         </div>
@@ -108,6 +115,15 @@ export default async function InboxPage({ searchParams }: PageProps<"/">) {
               </li>
             ))}
           </ul>
+        )}
+        {rows.length < total && (
+          <Link
+            href={moreHref}
+            scroll={false}
+            className="mx-auto mt-6 block w-fit rounded-full border border-line bg-surface px-5 py-2 text-sm"
+          >
+            もっと見る(残り {total - rows.length} 本)
+          </Link>
         )}
       </main>
     </>

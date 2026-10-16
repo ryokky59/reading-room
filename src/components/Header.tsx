@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export function Header({ active }: { active: "inbox" | "read" | "feeds" }) {
+export function Header({ active }: { active?: "inbox" | "read" | "feeds" }) {
   const tab = (href: string, label: string, on: boolean) => (
     <Link
       href={href}
