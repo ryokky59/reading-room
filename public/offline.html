@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>オフライン | Reading Room</title>
+<style>
+  :root { --bg: #f7f5f0; --text: #1f1d1a; --muted: #6b665e; --accent: #b5532c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161513; --text: #ece8e1; --muted: #a39d93; --accent: #e08a62; } }
+  body { margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text); padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width: 22rem; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 1.25rem; margin: 0; }
+  p { margin: 0; color: var(--muted); line-height: 1.7; }
+  button { align-self: flex-start; margin-top: 8px; border: 0; border-radius: 999px; padding: 10px 18px;
+    background: var(--accent); color: #fff; font-size: 0.95rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>オフラインです</h1>
+  <p>このページはまだ端末に保存されていません。一度開いた記事や一覧は、電波がなくても読めます。</p>
+  <button onclick="location.reload()">もう一度読み込む</button>
+</main>
+</body>
+</html>

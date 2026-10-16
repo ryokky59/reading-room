@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f7f5f0;
+  --surface: #ffffff;
+  --text: #1f1d1a;
+  --muted: #6b665e;
+  --line: #e4dfd5;
+  --accent: #b5532c;
+  --accent-soft: #f6e6dc;
+  --tech: #2f6f8f;
+  --business: #7a5a12;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161513;
+    --surface: #201f1c;
+    --text: #ece8e1;
+    --muted: #a39d93;
+    --line: #34322d;
+    --accent: #e08a62;
+    --accent-soft: #3a2a21;
+    --tech: #7fb6d1;
+    --business: #d6b25e;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-tech: var(--tech);
+  --color-business: var(--business);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+    "Yu Gothic UI", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Article body and AI replies */
+.prose-read {
+  font-size: 1.0625rem;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.prose-read > * + * {
+  margin-top: 1em;
+}
+.prose-read h1,
+.prose-read h2,
+.prose-read h3,
+.prose-read h4 {
+  font-weight: 700;
+  line-height: 1.4;
+  margin-top: 1.6em;
+}
+.prose-read h1,
+.prose-read h2 {
+  font-size: 1.2em;
+}
+.prose-read h3,
+.prose-read h4 {
+  font-size: 1.05em;
+}
+.prose-read a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-read ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.prose-read ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.prose-read li + li {
+  margin-top: 0.3em;
+}
+.prose-read blockquote {
+  border-left: 3px solid var(--line);
+  padding-left: 1em;
+  color: var(--muted);
+}
+.prose-read img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.prose-read pre {
+  overflow-x: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.8em;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+.prose-read code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+.prose-read table {
+  display: block;
+  overflow-x: auto;
+  font-size: 0.9em;
+}
+.prose-read td,
+.prose-read th {
+  border: 1px solid var(--line);
+  padding: 0.3em 0.6em;
+}
+.prose-sm {
+  font-size: 0.95rem;
+  line-height: 1.75;
+}
