@@ -5,6 +5,8 @@ import type { Article } from "./db";
 const client = new Anthropic();
 
 export const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
+// The chat is interactive, so it favors a fast first reply over deep deliberation.
+export const CHAT_MODEL = process.env.ANTHROPIC_CHAT_MODEL ?? "claude-sonnet-5-5";
 // Runs once per fetched article (digest) and per opened foreign article (translation),
 // so it uses the fast, low-cost model.
 export const FAST_MODEL = process.env.ANTHROPIC_FAST_MODEL ?? "claude-haiku-5-5";
@@ -42,7 +44,11 @@ ${body}
 
 function systemFor(a: Article): Anthropic.Beta.BetaTextBlockParam[] {
   return [
-    { type: "text", text: SYSTEM },
+    {
+      type: "text",
+      text: `${SYSTEM}
+- 質問への返答は要点を絞り、長くても 400 字程度に収める。詳しく求められたときだけ長く書く。`,
+    },
     // The article is the stable prefix for every turn on this page, so cache it.
     { type: "text", text: articleBlock(a), cache_control: { type: "ephemeral" } },
   ];
@@ -58,9 +64,9 @@ export function streamChat(article: Article, turns: Turn[], onDone: (text: strin
       let full = "";
       try {
         const stream = client.beta.messages.stream({
-          model: MODEL,
+          model: CHAT_MODEL,
           max_tokens: 64000,
-          output_config: { effort: "medium" },
+          output_config: { effort: "low" },
           system: systemFor(article),
           messages: turns,
           ...FALLBACK,

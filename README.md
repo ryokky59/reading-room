@@ -8,7 +8,7 @@
 - **読了**: 対話をもとに AI が「学び(1行)」と「メモ」を下書きし、編集して保存する。
 - **読了一覧**: 月ごとに学びを一覧でき、「この月を振り返る」で AI が月の振り返りを書く。
 
-構成は Next.js 16 (App Router)、Neon Postgres (Drizzle)、Claude API (`claude-opus-5-5`)、Vercel Cron。
+構成は Next.js 16 (App Router)、Neon Postgres (Drizzle)、Claude API (Opus 5.5 / Sonnet 5.5 / Haiku 5.5)、Vercel Cron。
 
 ## ローカルで動かす
 
@@ -39,4 +39,4 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 
 - フィードは画面の「フィード」タブで管理する。初期セットは `drizzle/0002_seed_feeds.sql`。1回に取る件数 (`item_limit`) と対象日数 (`days`) は DB の列で持つ。
 - スキーマを変えたら `npx drizzle-kit generate` でマイグレーションを作り、`drizzle-kit migrate` で Neon に適用する。
-- モデルは環境変数 `ANTHROPIC_MODEL` で変えられる(既定は `claude-opus-5-5`)。
+- モデルは環境変数で変えられる。読書メモと月の振り返りは `ANTHROPIC_MODEL`(既定 `claude-opus-5-5`)、記事との対話は `ANTHROPIC_CHAT_MODEL`(既定 `claude-sonnet-5-5`)、一覧の要約と日本語まとめは `ANTHROPIC_FAST_MODEL`(既定 `claude-haiku-5-5`)。
