@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { addFeed, type ActionState } from "@/lib/actions";
 
-export function AddFeedForm() {
+export function AddFeedForm({ folders }: { folders: { id: number; name: string }[] }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(addFeed, {});
   return (
     <form action={action} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
@@ -26,11 +26,21 @@ export function AddFeedForm() {
         className="rounded-lg border border-line bg-bg px-3 py-2 text-base"
       />
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <label className="flex items-center gap-1">
-          <input type="radio" name="category" value="tech" defaultChecked /> Tech
-        </label>
-        <label className="flex items-center gap-1">
-          <input type="radio" name="category" value="business" /> Business
+        <label className="flex min-w-0 items-center gap-2">
+          フォルダ
+          <select
+            name="folderId"
+            aria-label="追加先のフォルダ"
+            defaultValue={folders[0]?.id ?? ""}
+            className="min-w-0 rounded-lg border border-line bg-bg px-2 py-1.5 text-base"
+          >
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+            <option value="">未分類</option>
+          </select>
         </label>
         <button
           disabled={pending}

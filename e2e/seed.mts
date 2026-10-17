@@ -47,4 +47,35 @@ await db.insert(schema.messages).values([
   { articleId: talked.id, role: "assistant", content: "要点は E2E テストが通ることです。" },
 ]);
 
-console.log(`seeded ${inserted.length} articles into ${dir}`);
+// The migration has already turned the seeded Tech / Business feeds into folders.
+// These rows let the folder tests change state without touching each other.
+const allFolders = await db.select().from(schema.folders);
+const tech = allFolders.find((f) => f.name === "Tech")!;
+const [, toDelete] = await db
+  .insert(schema.folders)
+  .values([
+    { name: "E2E 移動先", position: 2 },
+    { name: "E2E 消すフォルダ", position: 3 },
+  ])
+  .returning();
+const feed = (slug: string, name: string, folderId: number) => ({
+  name,
+  url: `https://example.com/e2e/feeds/${slug}`,
+  category: "tech",
+  folderId,
+  enabled: false, // never fetched
+});
+const seededFeeds = await db
+  .insert(schema.feeds)
+  .values([
+    feed("move", "E2E 移動するフィード", tech.id),
+    feed("move-mobile", "E2E スマホで移動するフィード", tech.id),
+    feed("keep", "E2E 残るフィード", toDelete.id),
+  ])
+  .returning();
+const kept = seededFeeds.find((f) => f.name === "E2E 残るフィード")!;
+await db.insert(schema.articles).values(
+  article(6, { title: "残るフィードの記事", titleJa: "残るフィードの記事", source: kept.name, feedId: kept.id }),
+);
+
+console.log(`seeded ${inserted.length + 1} articles into ${dir}`);
