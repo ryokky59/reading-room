@@ -1,6 +1,6 @@
 // Builds a fresh database for the E2E tests. No AI or network calls are needed:
 // every article already has its digest, and one has a saved conversation.
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
@@ -10,6 +10,7 @@ const dir = process.env.PGLITE_DIR;
 if (!dir) throw new Error("PGLITE_DIR is required");
 
 rmSync(dir, { recursive: true, force: true });
+mkdirSync(dir, { recursive: true });
 const db = drizzle(new PGlite(dir), { schema });
 await migrate(db, { migrationsFolder: "drizzle" });
 
