@@ -2,39 +2,13 @@
 
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { SESSION_COOKIE, SESSION_MAX_AGE, checkPassword, createSessionToken, verifySessionToken } from "./auth";
 import { articles, feeds, getDb } from "./db";
 import { addUrl, discoverFeed, fetchAllFeeds, fetchFeed } from "./feeds";
 
 export type ActionState = { message?: string; error?: string };
 
-// Server actions can be invoked from any path, including /login which proxy
-// leaves open, so each mutating action checks the session itself.
-async function requireSession() {
-  if (!(await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value))) {
-    throw new Error("unauthorized");
-  }
-}
-
-export async function login(_prev: ActionState, form: FormData): Promise<ActionState> {
-  if (!(await checkPassword(String(form.get("password") ?? "")))) {
-    return { error: "パスワードが違います" };
-  }
-  (await cookies()).set(SESSION_COOKIE, await createSessionToken(), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: SESSION_MAX_AGE,
-    path: "/",
-  });
-  const next = String(form.get("next") ?? "/");
-  redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/");
-}
-
 export async function fetchNow(): Promise<ActionState> {
-  await requireSession();
   const { added, failedFeeds } = await fetchAllFeeds();
   revalidatePath("/");
   const failed = failedFeeds.length ? `(取得失敗: ${failedFeeds.join("、")})` : "";
@@ -42,7 +16,6 @@ export async function fetchNow(): Promise<ActionState> {
 }
 
 export async function addArticle(_prev: ActionState, form: FormData): Promise<ActionState> {
-  await requireSession();
   const raw = String(form.get("url") ?? "").trim();
   let url: URL;
   try {
@@ -57,14 +30,12 @@ export async function addArticle(_prev: ActionState, form: FormData): Promise<Ac
 }
 
 export async function skipArticle(id: number) {
-  await requireSession();
   const db = await getDb();
   await db.update(articles).set({ status: "skipped" }).where(eq(articles.id, id));
   revalidatePath("/");
 }
 
 export async function restoreArticle(id: number) {
-  await requireSession();
   const db = await getDb();
   await db.update(articles).set({ status: "inbox", readAt: null }).where(eq(articles.id, id));
   revalidatePath("/");
@@ -72,7 +43,6 @@ export async function restoreArticle(id: number) {
 }
 
 export async function finishArticle(id: number, learning: string, memo: string) {
-  await requireSession();
   const db = await getDb();
   await db
     .update(articles)
@@ -83,7 +53,6 @@ export async function finishArticle(id: number, learning: string, memo: string) 
 }
 
 export async function updateNote(id: number, learning: string, memo: string) {
-  await requireSession();
   const db = await getDb();
   await db
     .update(articles)
@@ -94,7 +63,6 @@ export async function updateNote(id: number, learning: string, memo: string) {
 }
 
 export async function addFeed(_prev: ActionState, form: FormData): Promise<ActionState> {
-  await requireSession();
   const raw = String(form.get("url") ?? "").trim();
   const category = form.get("category") === "business" ? "business" : "tech";
   try {
@@ -121,14 +89,12 @@ export async function addFeed(_prev: ActionState, form: FormData): Promise<Actio
 }
 
 export async function setFeedEnabled(id: number, enabled: boolean) {
-  await requireSession();
   const db = await getDb();
   await db.update(feeds).set({ enabled }).where(eq(feeds.id, id));
   revalidatePath("/feeds");
 }
 
 export async function deleteFeed(id: number) {
-  await requireSession();
   const db = await getDb();
   // Articles already fetched from the feed stay.
   await db.delete(feeds).where(eq(feeds.id, id));

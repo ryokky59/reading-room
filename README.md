@@ -14,10 +14,11 @@
 
 ```bash
 npm install
-cp .env.example .env.local   # ANTHROPIC_API_KEY, APP_PASSWORD, SESSION_SECRET, CRON_SECRET を埋める
+cp .env.example .env.local   # ANTHROPIC_API_KEY, CRON_SECRET を埋める
 npm run dev
 ```
 
+ローカルにはログインがないので、同じ Wi-Fi の端末からも開ける点に注意。
 `DATABASE_URL` が空なら `.data/pglite` に埋め込み Postgres (PGlite) を作り、自動でマイグレーションする。
 フィードの取得を試すには次を実行する。
 
@@ -29,9 +30,10 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 
 1. `npx vercel login` のあと `npx vercel link` でプロジェクトを作る。
 2. Vercel のダッシュボードで Storage → Neon を追加する(`DATABASE_URL` が自動で入る)。
-3. 環境変数 `ANTHROPIC_API_KEY`、`APP_PASSWORD`、`SESSION_SECRET`、`CRON_SECRET` を Production に追加する。
+3. 環境変数 `ANTHROPIC_API_KEY`、`CRON_SECRET` を Production に追加する。
 4. スキーマを作る: `npx vercel env pull .env.production.local` のあと `DATABASE_URL=... npx drizzle-kit migrate` を実行する。
-5. `npx vercel deploy --prod` でデプロイする。cron は `vercel.json` で設定済み。Hobby プランの cron は1日1回までなので、時刻をずらした24本を並べて毎時取得にしている(実行時刻は ±59 分ずれる)。
+5. Settings → Deployment Protection で Vercel Authentication を「All Deployments」にする。アプリ自体にはログイン機能がなく、本番も含めてこれで守る(cron はそのまま動く)。
+6. `npx vercel deploy --prod` でデプロイする。cron は `vercel.json` で設定済み。Hobby プランの cron は1日1回までなので、時刻をずらした24本を並べて毎時取得にしている(実行時刻は ±59 分ずれる)。
 
 スマホではブラウザで開いて「ホーム画面に追加」するとアプリのように使える。
 
