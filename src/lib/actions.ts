@@ -42,12 +42,9 @@ export async function restoreArticle(id: number) {
   revalidatePath("/read");
 }
 
-export async function finishArticle(id: number, learning: string, memo: string) {
+export async function markRead(id: number) {
   const db = await getDb();
-  await db
-    .update(articles)
-    .set({ status: "read", readAt: new Date(), learning: learning.trim(), memo: memo.trim() })
-    .where(eq(articles.id, id));
+  await db.update(articles).set({ status: "read", readAt: new Date() }).where(eq(articles.id, id));
   revalidatePath("/");
   revalidatePath("/read");
 }

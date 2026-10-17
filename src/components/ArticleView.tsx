@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { finishArticle, restoreArticle, skipArticle, updateNote } from "@/lib/actions";
+import { markRead, restoreArticle, skipArticle, updateNote } from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { CategoryBadge } from "./Header";
@@ -41,7 +41,6 @@ export function ArticleView({ article, initialMessages }: { article: ArticleProp
   // breaks the ゛/゜/小 key, which edits the character just typed.
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [hasInput, setHasInput] = useState(false);
-  const [sheet, setSheet] = useState(false);
   const foreign = isForeign(article.lang, article.title);
   const canTranslate = foreign && article.hasText;
   const [bodyLang, setBodyLang] = useState<"ja" | "original">(canTranslate ? "ja" : "original");
@@ -149,7 +148,10 @@ export function ArticleView({ article, initialMessages }: { article: ArticleProp
         スキップ
       </button>
       <button
-        onClick={() => setSheet(true)}
+        onClick={async () => {
+          await markRead(article.id);
+          router.push("/");
+        }}
         className="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white"
       >
         読了にする
@@ -301,13 +303,6 @@ export function ArticleView({ article, initialMessages }: { article: ArticleProp
         <div className="fixed inset-0 z-20 bg-black/30 lg:hidden" onClick={() => setChatOpen(false)} />
       )}
 
-      {sheet && (
-        <FinishSheet
-          articleId={article.id}
-          onClose={() => setSheet(false)}
-          onSaved={() => router.push("/")}
-        />
-      )}
     </div>
   );
 }
@@ -414,72 +409,5 @@ function NoteFields(p: {
         className="rounded-lg border border-line bg-bg px-3 py-2 text-[0.95rem] leading-relaxed"
       />
     </>
-  );
-}
-
-function FinishSheet({
-  articleId,
-  onClose,
-  onSaved,
-}: {
-  articleId: number;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [learning, setLearning] = useState("");
-  const [memo, setMemo] = useState("");
-  const [state, setState] = useState<"drafting" | "ready" | "saving" | "error">("drafting");
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/articles/${articleId}/finish`, { method: "POST" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((n: { learning: string; memo: string }) => {
-        if (cancelled) return;
-        setLearning(n.learning);
-        setMemo(n.memo);
-        setState("ready");
-      })
-      .catch(() => !cancelled && setState("error"));
-    return () => {
-      cancelled = true;
-    };
-  }, [articleId]);
-
-  return (
-    <div className="fixed inset-0 z-20 flex items-end bg-black/40" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="mx-auto flex max-h-[90dvh] w-full max-w-2xl flex-col gap-2 overflow-y-auto rounded-t-2xl bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
-      >
-        <h2 className="font-bold">読書メモ</h2>
-        {state === "drafting" ? (
-          <p className="animate-pulse py-8 text-center text-sm text-muted">対話をもとにメモを下書きしています…</p>
-        ) : (
-          <>
-            {state === "error" && (
-              <p className="text-sm text-accent">下書きを作れませんでした。自分で書いて保存できます。</p>
-            )}
-            <NoteFields learning={learning} memo={memo} setLearning={setLearning} setMemo={setMemo} />
-            <div className="mt-2 flex gap-2">
-              <button onClick={onClose} className="h-11 rounded-xl border border-line px-4 text-sm">
-                やめる
-              </button>
-              <button
-                disabled={state === "saving"}
-                onClick={async () => {
-                  setState("saving");
-                  await finishArticle(articleId, learning, memo);
-                  onSaved();
-                }}
-                className="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white disabled:opacity-60"
-              >
-                保存して読了
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
   );
 }

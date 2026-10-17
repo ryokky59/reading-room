@@ -94,48 +94,6 @@ export function streamChat(article: Article, turns: Turn[], onDone: (text: strin
   });
 }
 
-async function jsonCall<T>(system: string, prompt: string, schema: Record<string, unknown>): Promise<T> {
-  const stream = client.beta.messages.stream({
-    model: MODEL,
-    max_tokens: 16000,
-    output_config: { effort: "medium", format: { type: "json_schema", schema } },
-    system,
-    messages: [{ role: "user", content: prompt }],
-    ...FALLBACK,
-  });
-  const msg = await stream.finalMessage();
-  if (msg.stop_reason === "refusal") throw new Error("refused");
-  const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-  return JSON.parse(text) as T;
-}
-
-export type FinishNote = { learning: string; memo: string };
-
-/** Drafts the reading memo from the conversation. */
-export function draftFinishNote(article: Article, turns: Turn[]): Promise<FinishNote> {
-  const transcript = turns
-    .map((t) => `${t.role === "user" ? "私" : "AI"}: ${t.content}`)
-    .join("\n\n");
-  return jsonCall<FinishNote>(
-    SYSTEM,
-    `${articleBlock(article)}
-
-<conversation>
-${transcript || "(対話なし)"}
-</conversation>
-
-この記事を読み終えました。記事と対話をもとに、読書メモを作ってください。
-- learning: この記事から得た学びを1行(60字以内)で。対話の中で私が示した関心や意見があれば反映する。
-- memo: 記事の要点と対話で深まった点を Markdown の箇条書き 3〜6 行で。`,
-    {
-      type: "object",
-      properties: { learning: { type: "string" }, memo: { type: "string" } },
-      required: ["learning", "memo"],
-      additionalProperties: false,
-    },
-  );
-}
-
 export type ReviewItem = Pick<Article, "title" | "source" | "category" | "learning" | "memo">;
 
 /** Streams a monthly look-back over everything read that month. */
