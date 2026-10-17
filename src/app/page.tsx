@@ -39,7 +39,8 @@ export default async function InboxPage({ searchParams }: PageProps<"/">) {
       charCount: articles.charCount,
       publishedAt: articles.publishedAt,
       fetchedAt: articles.fetchedAt,
-      started: sql<boolean>`exists (select 1 from messages m where m.article_id = ${articles.id})`,
+      // Spelled out: drizzle renders ${articles.id} here as a bare "id", which would bind to m.id.
+      started: sql<boolean>`exists (select 1 from messages m where m.article_id = articles.id)`,
     })
     .from(articles)
     .where(where)
