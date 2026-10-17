@@ -21,7 +21,7 @@ export function FeedFolderSelect({
         defaultValue={folderId ?? ""}
         onChange={(e) => e.currentTarget.form?.requestSubmit()}
         aria-label={`${feedName} のフォルダ`}
-        className="max-w-full rounded-lg border border-line bg-bg px-2 py-1 text-sm"
+        className="max-w-full rounded-lg border border-line bg-bg px-2 py-1 text-base"
       >
         {folders.map((f) => (
           <option key={f.id} value={f.id}>
