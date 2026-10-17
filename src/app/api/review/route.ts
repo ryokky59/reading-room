@@ -1,6 +1,6 @@
-import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
 import { streamReview } from "@/lib/ai";
-import { articles, getDb, reviews } from "@/lib/db";
+import { articles, getDb, messages, reviews } from "@/lib/db";
 import { monthRange } from "@/lib/format";
 
 export const maxDuration = 300;
@@ -13,9 +13,12 @@ export async function POST(request: Request) {
   }
   const [start, end] = monthRange(month);
   const db = await getDb();
-  const items = await db
+  const read = await db
     .select({
+      id: articles.id,
       title: articles.title,
+      titleJa: articles.titleJa,
+      summary: articles.summary,
       source: articles.source,
       category: articles.category,
       learning: articles.learning,
@@ -24,7 +27,17 @@ export async function POST(request: Request) {
     .from(articles)
     .where(and(eq(articles.status, "read"), gte(articles.readAt, start), lt(articles.readAt, end)))
     .orderBy(asc(articles.readAt));
-  if (items.length === 0) return Response.json({ error: "no articles" }, { status: 400 });
+  if (read.length === 0) return Response.json({ error: "no articles" }, { status: 400 });
+
+  const chats = await db
+    .select({ articleId: messages.articleId, role: messages.role, content: messages.content })
+    .from(messages)
+    .where(inArray(messages.articleId, read.map((a) => a.id)))
+    .orderBy(asc(messages.id));
+  const items = read.map(({ id, ...a }) => ({
+    ...a,
+    chat: chats.filter((m) => m.articleId === id).map(({ role, content }) => ({ role, content })),
+  }));
 
   const stream = streamReview(month, items, async (content) => {
     await db

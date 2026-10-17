@@ -94,12 +94,31 @@ export function streamChat(article: Article, turns: Turn[], onDone: (text: strin
   });
 }
 
-export type ReviewItem = Pick<Article, "title" | "source" | "category" | "learning" | "memo">;
+export type ReviewItem = Pick<Article, "title" | "titleJa" | "source" | "category" | "summary" | "learning" | "memo"> & {
+  chat: { role: "user" | "assistant"; content: string }[];
+};
 
-/** Streams a monthly look-back over everything read that month. */
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+/** Streams a monthly look-back built from that month's articles and the conversations about them. */
 export function streamReview(month: string, items: ReviewItem[], onDone: (text: string) => Promise<void>) {
   const list = items
-    .map((i) => `## ${i.title} (${i.source} / ${i.category})\n学び: ${i.learning ?? "-"}\n${i.memo ?? ""}`)
+    .map((i) => {
+      const lines = [`## ${i.titleJa || i.title} (${i.source} / ${i.category})`];
+      if (i.summary) lines.push(`要約: ${i.summary}`);
+      if (i.learning) lines.push(`学び: ${i.learning}`);
+      if (i.memo) lines.push(`メモ: ${i.memo}`);
+      if (i.chat.length > 0) {
+        lines.push("対話:");
+        // The user's own words say the most about their interest, so they are kept longer.
+        for (const m of i.chat) {
+          lines.push(m.role === "user" ? `- ユーザー: ${clip(m.content, 800)}` : `- AI: ${clip(m.content, 400)}`);
+        }
+      } else {
+        lines.push("(対話なし)");
+      }
+      return lines.join("\n");
+    })
     .join("\n\n");
   const encoder = new TextEncoder();
   return new ReadableStream<Uint8Array>({
@@ -114,13 +133,14 @@ export function streamReview(month: string, items: ReviewItem[], onDone: (text: 
           messages: [
             {
               role: "user",
-              content: `${month} に読んだ記事 ${items.length} 本の読書メモです。
+              content: `${month} に読んだ記事 ${items.length} 本と、それぞれについてあなたと交わした対話です。
 
 ${list}
 
-この月の振り返りを書いてください。
+この月の振り返りを書いてください。対話でユーザーが質問したことや自分の言葉で話したことを特に手がかりにしてください。
 - 関心がどこに向いていたか(テーマの傾向)
-- 記事をまたいで見えてくるつながりや考え
+- 対話から見えるユーザーの問題意識や考えの変化
+- 記事をまたいで見えてくるつながり
 - 来月深掘りするとよさそうなテーマや問い`,
             },
           ],
