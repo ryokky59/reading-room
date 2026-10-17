@@ -1,7 +1,10 @@
 import type { MetadataRoute } from "next";
 
-export default function manifest(): MetadataRoute.Manifest {
-  return {
+// Served by hand instead of app/manifest.ts so the <link> in the layout can send
+// credentials: with Vercel Authentication on production, a manifest fetched
+// without the auth cookie would be redirected to the Vercel login.
+export function GET() {
+  const manifest: MetadataRoute.Manifest = {
     id: "/",
     name: "Reading Room",
     short_name: "Reading",
@@ -22,4 +25,5 @@ export default function manifest(): MetadataRoute.Manifest {
       { name: "フィード", url: "/feeds" },
     ],
   };
+  return Response.json(manifest, { headers: { "Content-Type": "application/manifest+json" } });
 }
