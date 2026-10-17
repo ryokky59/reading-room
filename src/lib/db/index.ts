@@ -19,8 +19,10 @@ async function connect(): Promise<DB> {
   const { drizzle } = await import("drizzle-orm/pglite");
   const { migrate } = await import("drizzle-orm/pglite/migrator");
   const { mkdirSync } = await import("node:fs");
-  mkdirSync(".data", { recursive: true });
-  const db = drizzle(new PGlite(".data/pglite"), { schema });
+  // E2E tests point this at a throwaway database.
+  const dir = process.env.PGLITE_DIR ?? ".data/pglite";
+  mkdirSync(dir, { recursive: true });
+  const db = drizzle(new PGlite(dir), { schema });
   await migrate(db, { migrationsFolder: "drizzle" });
   return db as unknown as DB;
 }
