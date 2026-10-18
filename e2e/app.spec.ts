@@ -13,14 +13,6 @@ test("新着一覧に日本語タイトル・原題・AI 要約・ソースが�
   await expect(page.getByRole("listitem").filter({ hasText: "対話のある記事" })).toContainText("対話中");
 });
 
-test("カテゴリで絞り込める", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("link", { name: "Business", exact: true }).click();
-  await expect(page).toHaveURL(/\?c=business/);
-  await expect(page.getByText("ビジネスの記事")).toBeVisible();
-  await expect(page.getByText("読了にする記事")).toHaveCount(0);
-});
-
 test("一覧からスキップすると消える", async ({ page }) => {
   await page.goto("/");
   const card = page.getByRole("listitem").filter({ hasText: "スキップされる記事" });

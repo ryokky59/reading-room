@@ -94,7 +94,8 @@ export function streamChat(article: Article, turns: Turn[], onDone: (text: strin
   });
 }
 
-export type ReviewItem = Pick<Article, "title" | "titleJa" | "source" | "category" | "summary" | "learning" | "memo"> & {
+export type ReviewItem = Pick<Article, "title" | "titleJa" | "source" | "summary" | "learning" | "memo"> & {
+  folder: string | null; // null means unfiled
   chat: { role: "user" | "assistant"; content: string }[];
 };
 
@@ -104,7 +105,7 @@ const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0
 export function streamReview(month: string, items: ReviewItem[], onDone: (text: string) => Promise<void>) {
   const list = items
     .map((i) => {
-      const lines = [`## ${i.titleJa || i.title} (${i.source} / ${i.category})`];
+      const lines = [`## ${i.titleJa || i.title} (${i.source} / ${i.folder ?? "未分類"})`];
       if (i.summary) lines.push(`要約: ${i.summary}`);
       if (i.learning) lines.push(`学び: ${i.learning}`);
       if (i.memo) lines.push(`メモ: ${i.memo}`);

@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
 import { streamReview } from "@/lib/ai";
-import { articles, getDb, messages, reviews } from "@/lib/db";
+import { articles, feeds, folders, getDb, messages, reviews } from "@/lib/db";
 import { monthRange } from "@/lib/format";
 
 export const maxDuration = 300;
@@ -20,11 +20,13 @@ export async function POST(request: Request) {
       titleJa: articles.titleJa,
       summary: articles.summary,
       source: articles.source,
-      category: articles.category,
+      folder: folders.name,
       learning: articles.learning,
       memo: articles.memo,
     })
     .from(articles)
+    .leftJoin(feeds, eq(feeds.id, articles.feedId))
+    .leftJoin(folders, eq(folders.id, feeds.folderId))
     .where(and(eq(articles.status, "read"), gte(articles.readAt, start), lt(articles.readAt, end)))
     .orderBy(asc(articles.readAt));
   if (read.length === 0) return Response.json({ error: "no articles" }, { status: 400 });

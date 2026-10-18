@@ -1,15 +1,24 @@
 import { asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ArticleView } from "@/components/ArticleView";
-import { articles, getDb, messages } from "@/lib/db";
+import { articles, feeds, folders, getDb, messages } from "@/lib/db";
+import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
 
-export default async function ArticlePage({ params }: PageProps<"/articles/[id]">) {
+export default async function ArticlePage({ params, searchParams }: PageProps<"/articles/[id]">) {
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
+  // The inbox passes its folder / site filter along so going back keeps it.
+  const inboxHref = `/${inboxQuery(parseInboxFilter(await searchParams))}`;
 
   const db = await getDb();
-  const [article] = await db.select().from(articles).where(eq(articles.id, id));
-  if (!article) notFound();
+  const [row] = await db
+    .select({ article: articles, folder: folders.name })
+    .from(articles)
+    .leftJoin(feeds, eq(feeds.id, articles.feedId))
+    .leftJoin(folders, eq(folders.id, feeds.folderId))
+    .where(eq(articles.id, id));
+  if (!row) notFound();
+  const { article, folder } = row;
   const history = await db
     .select({ id: messages.id, role: messages.role, content: messages.content })
     .from(messages)
@@ -25,7 +34,7 @@ export default async function ArticlePage({ params }: PageProps<"/articles/[id]"
         lang: article.lang,
         url: article.url,
         source: article.source,
-        category: article.category,
+        folder,
         contentHtml: article.contentHtml,
         contentJa: article.contentJa,
         hasText: Boolean(article.contentHtml || article.contentText),
@@ -35,6 +44,7 @@ export default async function ArticlePage({ params }: PageProps<"/articles/[id]"
         learning: article.learning,
         memo: article.memo,
       }}
+      inboxHref={inboxHref}
       initialMessages={history}
     />
   );

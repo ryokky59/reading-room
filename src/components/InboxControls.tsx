@@ -38,12 +38,7 @@ export function InboxControls() {
             className="rounded-lg border border-line bg-bg px-3 py-2 text-base"
           />
           <div className="flex items-center gap-3 text-sm">
-            <label className="flex items-center gap-1">
-              <input type="radio" name="category" value="tech" defaultChecked /> Tech
-            </label>
-            <label className="flex items-center gap-1">
-              <input type="radio" name="category" value="business" /> Business
-            </label>
+            <span className="text-xs text-muted">「未分類」に入ります</span>
             <button
               disabled={adding}
               className="ml-auto rounded-full bg-accent px-4 py-1.5 text-white disabled:opacity-60"
