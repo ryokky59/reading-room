@@ -73,7 +73,8 @@ test("記事を開いて戻っても、選んだフォルダ / サイトのま�
   await expect(cards(page)).toHaveCount(2);
 });
 
-test("記事ページでスキップすると、選んでいたフォルダの一覧に戻る", async ({ page }) => {
+// Phones go back to the list; PCs open the next article instead (e2e/panes.spec.ts).
+test("記事ページでスキップすると、選んでいたフォルダの一覧に戻る @mobile", async ({ page }) => {
   await page.goto("/");
   await chip(folderNav(page), "E2E 戻り先").click();
   await expect(page).toHaveURL(/\/\?f=\d+$/);
@@ -86,7 +87,8 @@ test("記事ページでスキップすると、選んでいたフォルダの�
   await expect(card(page, "戻り先の記事 2")).toBeVisible();
 });
 
-test("記事ページで読了にすると、選んでいたフォルダの一覧に戻る", async ({ page }) => {
+// Phones go back to the list; PCs open the next article instead (e2e/panes.spec.ts).
+test("記事ページで読了にすると、選んでいたフォルダの一覧に戻る @mobile", async ({ page }) => {
   await page.goto("/");
   await chip(folderNav(page), "E2E 読了の戻り先").click();
   await expect(page).toHaveURL(/\/\?f=\d+$/);
@@ -121,6 +123,8 @@ test("サイトの最後の未読を読み終えると、そのフォルダの�
 test("「もっと見る」でも選んだフォルダが保たれる", async ({ page }) => {
   await page.goto("/");
   await chip(folderNav(page), "E2E たくさん", 35).click();
+  // Waits for the folder: すべて also shows 30 cards and its own 「もっと見る」.
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
   await expect(cards(page)).toHaveCount(30);
   await page.getByRole("link", { name: /もっと見る/ }).click();
   await expect(page).toHaveURL(/\/\?f=\d+&n=60$/);

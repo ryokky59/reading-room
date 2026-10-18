@@ -1,6 +1,14 @@
 import Link from "next/link";
 
-export function Header({ active }: { active?: "inbox" | "read" | "feeds" }) {
+export function Header({
+  active,
+  className,
+  panes,
+}: {
+  active?: "inbox" | "read" | "feeds";
+  className?: string;
+  panes?: boolean; // spans the list / article / chat panes on PCs
+}) {
   const tab = (href: string, label: string, on: boolean) => (
     <Link
       href={href}
@@ -10,8 +18,10 @@ export function Header({ active }: { active?: "inbox" | "read" | "feeds" }) {
     </Link>
   );
   return (
-    <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+    <header
+      className={`sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)] ${className ?? ""}`}
+    >
+      <div className={`mx-auto flex max-w-5xl items-center justify-between px-4 py-3 ${panes ? "lg:max-w-none" : ""}`}>
         <Link href="/" className="font-bold tracking-tight">
           Reading Room
         </Link>

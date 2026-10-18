@@ -1,15 +1,13 @@
 import { and, asc, count, desc, eq, isNull, max, sql } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { FolderBadge, Header } from "@/components/Header";
+import { FolderBadge } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
+import { InboxItem, InboxNavSync } from "@/components/InboxShell";
 import { skipArticle } from "@/lib/actions";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
 import { inboxQuery, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
-
-// "今すぐ取得" runs here as a server action and can take a while.
-export const maxDuration = 300;
 
 // Cards shown per page; a long list is slow to load and render on phones.
 const PAGE_SIZE = 30;
@@ -17,9 +15,23 @@ const PAGE_SIZE = 30;
 // Unread counts per folder (null = 未分類) and site; articles without a feed count as 未分類.
 type Bucket = { folderId: number | null; feedId: number | null; name: string | null; n: number };
 
-export default async function InboxPage({ searchParams }: PageProps<"/">) {
-  const params = await searchParams;
-  const filter = parseInboxFilter(params);
+/**
+ * The unread list with its folder / site chips. It is the whole inbox on phones and the
+ * left pane on PCs, where it stays mounted while articles open next to it.
+ * `onEmptySite` decides what happens when the selected site has nothing unread left:
+ * the inbox redirects to the folder; next to an open article the folder is shown in place.
+ */
+export async function InboxList({
+  searchParams,
+  onEmptySite,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  onEmptySite: "redirect" | "folder";
+}) {
+  return <List filter={parseInboxFilter(await searchParams)} onEmptySite={onEmptySite} />;
+}
+
+async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite: "redirect" | "folder" }) {
   const limit = Math.min(Math.max(Number(filter.n) || PAGE_SIZE, PAGE_SIZE), 500);
   const folderId = filter.f && filter.f !== "none" ? Number(filter.f) : null;
   const feedId = filter.s ? Number(filter.s) : null;
@@ -81,7 +93,8 @@ export default async function InboxPage({ searchParams }: PageProps<"/">) {
       const [feed] = await db.select({ folderId: feeds.folderId }).from(feeds).where(eq(feeds.id, feedId));
       f = feed ? (feed.folderId === null ? "none" : String(feed.folderId)) : undefined;
     }
-    redirect(`/${inboxQuery({ f, n: filter.n })}`);
+    if (onEmptySite === "redirect") redirect(`/${inboxQuery({ f, n: filter.n })}`);
+    return <List filter={{ f, n: filter.n }} onEmptySite={onEmptySite} />;
   }
   const selectedFolder: number | null | "all" = site
     ? site.folderId
@@ -110,111 +123,109 @@ export default async function InboxPage({ searchParams }: PageProps<"/">) {
   const articleQuery = inboxQuery(current);
 
   return (
-    <>
-      <Header active="inbox" />
-      <main className="mx-auto max-w-5xl px-4 pb-16 pt-4">
-        <InboxControls />
-        <nav aria-label="フォルダ" className="mt-4">
-          <ChipRow>
-            <Chip href="/" label="すべて" count={sum(buckets)} on={selectedFolder === "all"} />
-            {folderRows.map((f) => (
+    <div className="mx-auto max-w-5xl px-4 pb-16 pt-4">
+      <InboxNavSync ids={rows.map((a) => a.id)} />
+      <InboxControls />
+      <nav aria-label="フォルダ" className="mt-4">
+        <ChipRow>
+          <Chip href="/" label="すべて" count={sum(buckets)} on={selectedFolder === "all"} />
+          {folderRows.map((f) => (
+            <Chip
+              key={f.id}
+              href={`/${inboxQuery(folderFilter(f.id))}`}
+              label={f.name}
+              count={sum(inFolder(f.id))}
+              on={selectedFolder === f.id}
+            />
+          ))}
+          {(unfiledCount > 0 || selectedFolder === null) && (
+            <Chip
+              href={`/${inboxQuery(folderFilter(null))}`}
+              label="未分類"
+              count={unfiledCount}
+              on={selectedFolder === null}
+            />
+          )}
+        </ChipRow>
+      </nav>
+      {selectedFolder !== "all" && sites.length > 0 && (
+        <nav aria-label="サイト" className="mt-2">
+          <ChipRow small>
+            <Chip
+              href={`/${inboxQuery(folderFilter(selectedFolder))}`}
+              label="このフォルダすべて"
+              on={feedId === null}
+              small
+            />
+            {sites.map((b) => (
               <Chip
-                key={f.id}
-                href={`/${inboxQuery(folderFilter(f.id))}`}
-                label={f.name}
-                count={sum(inFolder(f.id))}
-                on={selectedFolder === f.id}
-              />
-            ))}
-            {(unfiledCount > 0 || selectedFolder === null) && (
-              <Chip
-                href={`/${inboxQuery(folderFilter(null))}`}
-                label="未分類"
-                count={unfiledCount}
-                on={selectedFolder === null}
-              />
-            )}
-          </ChipRow>
-        </nav>
-        {selectedFolder !== "all" && sites.length > 0 && (
-          <nav aria-label="サイト" className="mt-2">
-            <ChipRow small>
-              <Chip
-                href={`/${inboxQuery(folderFilter(selectedFolder))}`}
-                label="このフォルダすべて"
-                on={feedId === null}
+                key={b.feedId}
+                href={`/${inboxQuery({ ...folderFilter(selectedFolder), s: String(b.feedId) })}`}
+                label={b.name ?? ""}
+                count={b.n}
+                on={feedId === b.feedId}
                 small
               />
-              {sites.map((b) => (
-                <Chip
-                  key={b.feedId}
-                  href={`/${inboxQuery({ ...folderFilter(selectedFolder), s: String(b.feedId) })}`}
-                  label={b.name ?? ""}
-                  count={b.n}
-                  on={feedId === b.feedId}
-                  small
-                />
-              ))}
-            </ChipRow>
-          </nav>
-        )}
-        <p className="mt-2 text-right text-xs text-muted">
-          {total} 本{lastFetched && ` · 更新 ${formatDateTime(lastFetched)}`}
-        </p>
-
-        {rows.length === 0 ? (
-          <p className="mt-16 text-center text-muted">
-            未読の記事はありません。「今すぐ取得」で新着を取ってこられます。
-          </p>
-        ) : (
-          <ul aria-label="記事" className="mt-2 grid gap-3 md:grid-cols-2">
-            {rows.map((a) => (
-              <li key={a.id} className="flex flex-col rounded-xl border border-line bg-surface">
-                <Link href={`/articles/${a.id}${articleQuery}`} className="block flex-1 px-4 pt-3 pb-2">
-                  <div className="flex items-center gap-2 text-xs text-muted">
-                    <FolderBadge name={a.folder} />
-                    <span className="shrink-0 font-medium text-text">{a.source}</span>
-                    <span className="truncate">{hostname(a.url)}</span>
-                    <span className="ml-auto shrink-0">{formatDate(a.publishedAt ?? a.fetchedAt)}</span>
-                  </div>
-                  <h2 className="mt-1.5 font-bold leading-snug">{a.titleJa ?? a.title}</h2>
-                  {isForeign(a.lang, a.title) && a.titleJa && a.titleJa !== a.title && (
-                    <p className="mt-0.5 line-clamp-1 text-xs text-muted">{a.title}</p>
-                  )}
-                  {a.summary ? (
-                    <p className="mt-2 text-sm leading-relaxed">
-                      <span className="mr-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">
-                        AI 要約
-                      </span>
-                      {a.summary}
-                    </p>
-                  ) : (
-                    a.excerpt && <p className="mt-1 line-clamp-2 text-sm text-muted">{a.excerpt}</p>
-                  )}
-                  <div className="mt-2 flex gap-2 text-xs text-muted">
-                    {a.charCount > 0 && <span>{readingMinutes(a.charCount)}分</span>}
-                    {isForeign(a.lang, a.title) && <span>日本語で読める</span>}
-                    {a.started && <span className="text-accent">対話中</span>}
-                  </div>
-                </Link>
-                <form action={skipArticle.bind(null, a.id)} className="flex justify-end px-2 pb-1">
-                  <button className="px-2 py-1 text-xs text-muted">スキップ</button>
-                </form>
-              </li>
             ))}
-          </ul>
-        )}
-        {rows.length < total && (
-          <Link
-            href={moreHref}
-            scroll={false}
-            className="mx-auto mt-6 block w-fit rounded-full border border-line bg-surface px-5 py-2 text-sm"
-          >
-            もっと見る(残り {total - rows.length} 本)
-          </Link>
-        )}
-      </main>
-    </>
+          </ChipRow>
+        </nav>
+      )}
+      <p className="mt-2 text-right text-xs text-muted">
+        {total} 本{lastFetched && ` · 更新 ${formatDateTime(lastFetched)}`}
+      </p>
+
+      {rows.length === 0 ? (
+        <p className="mt-16 text-center text-muted">
+          未読の記事はありません。「今すぐ取得」で新着を取ってこられます。
+        </p>
+      ) : (
+        <ul aria-label="記事" className="mt-2 grid gap-3 md:grid-cols-2 lg:grid-cols-1">
+          {rows.map((a) => (
+            <InboxItem key={a.id} id={a.id}>
+              <Link href={`/articles/${a.id}${articleQuery}`} className="block flex-1 px-4 pt-3 pb-2">
+                <div className="flex items-center gap-2 text-xs text-muted">
+                  <FolderBadge name={a.folder} />
+                  <span className="shrink-0 font-medium text-text">{a.source}</span>
+                  <span className="truncate">{hostname(a.url)}</span>
+                  <span className="ml-auto shrink-0">{formatDate(a.publishedAt ?? a.fetchedAt)}</span>
+                </div>
+                <h2 className="mt-1.5 font-bold leading-snug">{a.titleJa ?? a.title}</h2>
+                {isForeign(a.lang, a.title) && a.titleJa && a.titleJa !== a.title && (
+                  <p className="mt-0.5 line-clamp-1 text-xs text-muted">{a.title}</p>
+                )}
+                {a.summary ? (
+                  <p className="mt-2 text-sm leading-relaxed">
+                    <span className="mr-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                      AI 要約
+                    </span>
+                    {a.summary}
+                  </p>
+                ) : (
+                  a.excerpt && <p className="mt-1 line-clamp-2 text-sm text-muted">{a.excerpt}</p>
+                )}
+                <div className="mt-2 flex gap-2 text-xs text-muted">
+                  {a.charCount > 0 && <span>{readingMinutes(a.charCount)}分</span>}
+                  {isForeign(a.lang, a.title) && <span>日本語で読める</span>}
+                  {a.started && <span className="text-accent">対話中</span>}
+                </div>
+              </Link>
+              <form action={skipArticle.bind(null, a.id)} className="flex justify-end px-2 pb-1">
+                <button className="px-2 py-1 text-xs text-muted">スキップ</button>
+              </form>
+            </InboxItem>
+          ))}
+        </ul>
+      )}
+      {rows.length < total && (
+        <Link
+          href={moreHref}
+          scroll={false}
+          className="mx-auto mt-6 block w-fit rounded-full border border-line bg-surface px-5 py-2 text-sm"
+        >
+          もっと見る(残り {total - rows.length} 本)
+        </Link>
+      )}
+    </div>
   );
 }
 

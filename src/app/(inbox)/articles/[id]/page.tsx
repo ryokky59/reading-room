@@ -4,6 +4,9 @@ import { ArticleView } from "@/components/ArticleView";
 import { articles, feeds, folders, getDb, messages } from "@/lib/db";
 import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
 
+// The list beside the article runs "今すぐ取得" as a server action of this page.
+export const maxDuration = 300;
+
 export default async function ArticlePage({ params, searchParams }: PageProps<"/articles/[id]">) {
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();

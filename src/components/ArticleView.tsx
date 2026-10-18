@@ -7,6 +7,7 @@ import { markRead, restoreArticle, skipArticle, updateNote } from "@/lib/actions
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { FolderBadge } from "./Header";
+import { isTyping, isWide, useInboxIds } from "./InboxShell";
 import { Markdown } from "./Markdown";
 
 type ArticleProps = {
@@ -41,7 +42,8 @@ export function ArticleView({
   initialMessages: Msg[];
 }) {
   const router = useRouter();
-  // Phones: the chat opens as a sheet over the article. Wide screens: always-visible side panel.
+  // Phones: the chat opens as a sheet over the article. Narrow PCs: a drawer from the right.
+  // Wide PCs: an always-visible column.
   const [chatOpen, setChatOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>(initialMessages);
   const [streaming, setStreaming] = useState(false);
@@ -107,6 +109,51 @@ export function ArticleView({
   }
 
   const done = article.status === "read";
+
+  // On PCs the list stays beside the article: reading or skipping opens the next one in it.
+  const listIds = useInboxIds();
+  const search = inboxHref.slice(1);
+  const leaving = useRef(false);
+  function neighbor(step: 1 | -1) {
+    if (!listIds) return undefined;
+    const i = listIds.indexOf(article.id);
+    return i < 0 ? (step === 1 ? listIds[0] : undefined) : listIds[i + step];
+  }
+  async function leave(action: (id: number) => Promise<void>) {
+    if (leaving.current) return;
+    leaving.current = true;
+    const next = isWide() ? neighbor(1) : undefined;
+    try {
+      await action(article.id);
+    } catch (e) {
+      leaving.current = false;
+      throw e;
+    }
+    // Without a next article, the inbox shows its empty state beside the list.
+    router.push(next === undefined ? inboxHref : `/articles/${next}${search}`);
+  }
+
+  // PC shortcuts: j / k next / previous article, e read, s skip. Typing is left alone.
+  const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    onKey.current = (e) => {
+      if (isTyping(e) || !isWide()) return;
+      if (e.key === "j" || e.key === "k") {
+        const id = neighbor(e.key === "j" ? 1 : -1);
+        if (id !== undefined) router.push(`/articles/${id}${search}`);
+      } else if (e.key === "e" && !done) {
+        void leave(markRead);
+      } else if (e.key === "s" && !done) {
+        void leave(skipArticle);
+      }
+    };
+  });
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => onKey.current(e);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const summaryFailed =
     !streaming && msgs.length > 0 && msgs.every((m) => m.id < 0) && msgs.at(-1)?.content.includes("エラー");
 
@@ -147,19 +194,13 @@ export function ArticleView({
   ) : (
     <div className="flex gap-2">
       <button
-        onClick={async () => {
-          await skipArticle(article.id);
-          router.push(inboxHref);
-        }}
+        onClick={() => leave(skipArticle)}
         className="h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted"
       >
         スキップ
       </button>
       <button
-        onClick={async () => {
-          await markRead(article.id);
-          router.push(inboxHref);
-        }}
+        onClick={() => leave(markRead)}
         className="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white"
       >
         読了にする
@@ -168,131 +209,138 @@ export function ArticleView({
   );
 
   return (
-    <div className="min-h-dvh pb-36 lg:pb-0">
-      <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4 lg:max-w-6xl">
-          <Link href={done ? "/read" : inboxHref} className="py-1 pr-2 text-muted" aria-label="戻る">
-            ←
-          </Link>
-          <Link href="/" className="hidden font-bold tracking-tight lg:block">
-            Reading Room
-          </Link>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-2xl px-4 lg:grid lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-10">
-        <main className="min-w-0 pt-4">
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <FolderBadge name={article.folder} />
-            <span>{article.source}</span>
-            <span className="truncate">{hostname(article.url)}</span>
-            {article.charCount > 0 && <span>{readingMinutes(article.charCount)}分</span>}
-            {done && <span className="text-accent">読了</span>}
+    <div className="min-h-dvh pb-36 lg:flex lg:min-h-0 lg:min-w-0 lg:flex-1 lg:pb-0">
+      {/* On PCs the article scrolls on its own, beside the list and the chat. */}
+      <div className="lg:min-w-0 lg:flex-1 lg:overflow-y-auto">
+        <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
+          <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4 lg:max-w-3xl lg:px-8">
+            <Link href={done ? "/read" : inboxHref} className="py-1 pr-2 text-muted" aria-label="戻る">
+              ←
+            </Link>
           </div>
-          <h1 className="mt-1 text-xl font-bold leading-snug lg:text-2xl">{article.titleJa ?? article.title}</h1>
-          {foreign && article.titleJa && article.titleJa !== article.title && (
-            <p className="mt-1 text-sm leading-snug text-muted">{article.title}</p>
-          )}
-          <a
-            href={article.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-block text-sm text-accent underline underline-offset-2"
-          >
-            元記事を開く ↗
-          </a>
+        </header>
 
-          {done && (article.learning || article.memo) && <NoteCard article={article} />}
-
-          <div>
-            {canTranslate && (
-              <div className="mt-4 inline-flex rounded-full border border-line bg-surface p-1 text-xs">
-                {(["ja", "original"] as const).map((l) => (
-                  <button
-                    key={l}
-                    onClick={() => setBodyLang(l)}
-                    className={`rounded-full px-3 py-1 ${bodyLang === l ? "bg-text text-bg" : "text-muted"}`}
-                  >
-                    {l === "ja" ? "日本語で読む" : "原文"}
-                  </button>
-                ))}
-              </div>
-            )}
-            {canTranslate && (
-              <div className={bodyLang === "ja" ? "" : "hidden"}>
-                <Translation articleId={article.id} initial={article.contentJa} />
-              </div>
-            )}
-            <div className={bodyLang === "original" ? "" : "hidden"}>
-            {article.contentHtml ? (
-              <div className="prose-read mt-5 lg:max-w-[42em]" dangerouslySetInnerHTML={{ __html: article.contentHtml }} />
-            ) : (
-              <div className="mt-5 rounded-xl border border-line bg-surface p-4 text-sm">
-                <p className="text-muted">本文を取得できませんでした。元記事を開いて読んでください。</p>
-                {article.excerpt && <p className="mt-2">{article.excerpt}</p>}
-              </div>
-            )}
+        <div className="mx-auto max-w-2xl px-4 lg:max-w-3xl lg:px-8">
+          <main className="min-w-0 pt-4">
+            <div className="flex items-center gap-2 text-xs text-muted">
+              <FolderBadge name={article.folder} />
+              <span>{article.source}</span>
+              <span className="truncate">{hostname(article.url)}</span>
+              {article.charCount > 0 && <span>{readingMinutes(article.charCount)}分</span>}
+              {done && <span className="text-accent">読了</span>}
             </div>
-          </div>
-
-          <div className="sticky bottom-0 mt-8 hidden border-t border-line bg-bg/95 py-3 backdrop-blur lg:block">
-            {actions}
-          </div>
-        </main>
-
-        <aside
-          className={`${chatOpen ? "flex" : "hidden"} fixed inset-x-0 bottom-0 z-30 h-[80dvh] min-w-0 flex-col rounded-t-2xl border-t border-line bg-bg px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.25)] lg:sticky lg:top-14 lg:z-auto lg:flex lg:h-[calc(100dvh-3.5rem)] lg:rounded-none lg:border-t-0 lg:bottom-auto lg:border-l lg:pr-0 lg:pb-0 lg:pl-6 lg:shadow-none`}
-        >
-          <div className="flex items-center justify-between py-3 lg:hidden">
-            <p className="text-sm font-bold">AI と話す</p>
-            <button onClick={() => setChatOpen(false)} className="px-2 py-1 text-sm text-muted">
-              閉じる
-            </button>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2 lg:py-4 lg:pr-1">
-            <p className="hidden text-xs font-medium tracking-wide text-muted lg:block">AI と話す</p>
-            {msgs.length === 0 && !streaming && (
-              <div className="rounded-xl border border-dashed border-line p-5 text-sm text-muted">
-                <p>下の入力欄から、質問や感想をそのまま送れます。記事の3行要約と論点、考えるきっかけになる問いがほしいときはこちら。</p>
-                <button
-                  onClick={startSummary}
-                  className="mt-3 rounded-full bg-accent px-4 py-2 text-white"
-                >
-                  要約してもらう
-                </button>
-              </div>
+            <h1 className="mt-1 text-xl font-bold leading-snug lg:text-2xl">{article.titleJa ?? article.title}</h1>
+            {foreign && article.titleJa && article.titleJa !== article.title && (
+              <p className="mt-1 text-sm leading-snug text-muted">{article.title}</p>
             )}
-            {msgs.map((m) =>
-              m.role === "assistant" ? (
-                <div key={m.id} className="rounded-xl border border-line bg-surface p-4">
-                  {m.content ? (
-                    <Markdown text={m.content} className="prose-sm" />
-                  ) : (
-                    <p className="animate-pulse text-sm text-muted">考えています…</p>
-                  )}
+            <a
+              href={article.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-sm text-accent underline underline-offset-2"
+            >
+              元記事を開く ↗
+            </a>
+
+            {done && (article.learning || article.memo) && <NoteCard article={article} />}
+
+            <div>
+              {canTranslate && (
+                <div className="mt-4 inline-flex rounded-full border border-line bg-surface p-1 text-xs">
+                  {(["ja", "original"] as const).map((l) => (
+                    <button
+                      key={l}
+                      onClick={() => setBodyLang(l)}
+                      className={`rounded-full px-3 py-1 ${bodyLang === l ? "bg-text text-bg" : "text-muted"}`}
+                    >
+                      {l === "ja" ? "日本語で読む" : "原文"}
+                    </button>
+                  ))}
                 </div>
+              )}
+              {canTranslate && (
+                <div className={bodyLang === "ja" ? "" : "hidden"}>
+                  <Translation articleId={article.id} initial={article.contentJa} />
+                </div>
+              )}
+              <div className={bodyLang === "original" ? "" : "hidden"}>
+              {article.contentHtml ? (
+                <div className="prose-read mt-5 lg:max-w-[42em]" dangerouslySetInnerHTML={{ __html: article.contentHtml }} />
               ) : (
-                <div
-                  key={m.id}
-                  className="ml-8 self-end whitespace-pre-wrap rounded-xl bg-accent-soft px-4 py-3 text-[0.95rem]"
-                >
-                  {m.content}
+                <div className="mt-5 rounded-xl border border-line bg-surface p-4 text-sm">
+                  <p className="text-muted">本文を取得できませんでした。元記事を開いて読んでください。</p>
+                  {article.excerpt && <p className="mt-2">{article.excerpt}</p>}
                 </div>
-              ),
-            )}
-            {summaryFailed && (
+              )}
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 mt-8 hidden gap-2 border-t border-line bg-bg/95 py-3 backdrop-blur lg:flex">
+              <button
+                onClick={() => setChatOpen(true)}
+                className="h-11 rounded-xl border border-line bg-surface px-4 text-sm xl:hidden"
+              >
+                <span className="font-medium text-accent">AI</span> と話す
+              </button>
+              <div className="flex-1">{actions}</div>
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <aside
+        aria-label="AI と話す"
+        className={`${chatOpen ? "flex" : "hidden"} fixed inset-x-0 bottom-0 z-30 h-[80dvh] min-w-0 flex-col rounded-t-2xl border-t border-line bg-bg px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.25)] lg:inset-x-auto lg:top-0 lg:right-0 lg:h-dvh lg:w-[420px] lg:rounded-none lg:border-t-0 lg:border-l lg:pb-0 lg:pl-6 lg:shadow-[-8px_0_30px_rgba(0,0,0,0.25)] xl:static xl:z-auto xl:flex xl:h-auto xl:w-[380px] xl:shrink-0 xl:shadow-none`}
+      >
+        <div className="flex items-center justify-between py-3 xl:hidden">
+          <p className="text-sm font-bold">AI と話す</p>
+          <button onClick={() => setChatOpen(false)} className="px-2 py-1 text-sm text-muted">
+            閉じる
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2 lg:py-4 lg:pr-1">
+          <p className="hidden text-xs font-medium tracking-wide text-muted xl:block">AI と話す</p>
+          {msgs.length === 0 && !streaming && (
+            <div className="rounded-xl border border-dashed border-line p-5 text-sm text-muted">
+              <p>下の入力欄から、質問や感想をそのまま送れます。記事の3行要約と論点、考えるきっかけになる問いがほしいときはこちら。</p>
               <button
                 onClick={startSummary}
-                className="self-center rounded-full border border-line bg-surface px-4 py-2 text-sm"
+                className="mt-3 rounded-full bg-accent px-4 py-2 text-white"
               >
-                要約をもう一度試す
+                要約してもらう
               </button>
-            )}
-            <div ref={bottomRef} />
-          </div>
-          <div className="border-t border-line py-3">{chatInput}</div>
-        </aside>
-      </div>
+            </div>
+          )}
+          {msgs.map((m) =>
+            m.role === "assistant" ? (
+              <div key={m.id} className="rounded-xl border border-line bg-surface p-4">
+                {m.content ? (
+                  <Markdown text={m.content} className="prose-sm" />
+                ) : (
+                  <p className="animate-pulse text-sm text-muted">考えています…</p>
+                )}
+              </div>
+            ) : (
+              <div
+                key={m.id}
+                className="ml-8 self-end whitespace-pre-wrap rounded-xl bg-accent-soft px-4 py-3 text-[0.95rem]"
+              >
+                {m.content}
+              </div>
+            ),
+          )}
+          {summaryFailed && (
+            <button
+              onClick={startSummary}
+              className="self-center rounded-full border border-line bg-surface px-4 py-2 text-sm"
+            >
+              要約をもう一度試す
+            </button>
+          )}
+          <div ref={bottomRef} />
+        </div>
+        <div className="border-t border-line py-3">{chatInput}</div>
+      </aside>
 
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-bg/95 backdrop-blur pb-[env(safe-area-inset-bottom)] lg:hidden">
         <div className="mx-auto flex max-w-2xl flex-col gap-2 px-4 py-2">
@@ -308,7 +356,7 @@ export function ArticleView({
       </div>
 
       {chatOpen && (
-        <div className="fixed inset-0 z-20 bg-black/30 lg:hidden" onClick={() => setChatOpen(false)} />
+        <div className="fixed inset-0 z-20 bg-black/30 xl:hidden" onClick={() => setChatOpen(false)} />
       )}
 
     </div>
