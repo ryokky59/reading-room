@@ -137,4 +137,26 @@ const filterArticles = [
 ];
 await db.insert(schema.articles).values(filterArticles);
 
-console.log(`seeded ${inserted.length + 1 + filterArticles.length} articles into ${dir}`);
+// PC pane rows (e2e/panes.spec.ts): one folder per test that reads or skips.
+const paneFolders = await db
+  .insert(schema.folders)
+  .values(["E2E ペインで読む", "E2E キーボード", "E2E 直接開く"].map((name, i) => ({ name, position: 10 + i })))
+  .returning();
+const paneFeeds = await db
+  .insert(schema.feeds)
+  .values(paneFolders.map((f, i) => feed(`pane-${i}`, `${f.name}のサイト`, f.id)))
+  .returning();
+const paneArticles = paneFeeds.flatMap((f, i) =>
+  [1, 2, 3].map((j) =>
+    article(400 + i * 10 + j, {
+      title: `${paneFolders[i].name} ${j}`,
+      titleJa: `${paneFolders[i].name} ${j}`,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: old(300 + i * 10 + j),
+    }),
+  ),
+);
+await db.insert(schema.articles).values(paneArticles);
+
+console.log(`seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length} articles into ${dir}`);

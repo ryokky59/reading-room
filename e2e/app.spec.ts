@@ -20,7 +20,8 @@ test("一覧からスキップすると消える", async ({ page }) => {
   await expect(page.getByText("スキップされる記事")).toHaveCount(0);
 });
 
-test("読了にすると読了一覧に移り、未読に戻せる", async ({ page }) => {
+// Phones go back to the list; PCs open the next article instead (e2e/panes.spec.ts).
+test("読了にすると読了一覧に移り、未読に戻せる @mobile", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("link", { name: /読了にする記事/ }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("読了にする記事");
