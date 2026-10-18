@@ -2,7 +2,14 @@ import { defineConfig, devices } from "@playwright/test";
 
 // Override with E2E_PORT when several worktrees run tests at once.
 const PORT = Number(process.env.E2E_PORT ?? 3210);
-const env = { PGLITE_DIR: ".data/e2e" };
+// The AI digest runs when a test imports a feed; blank credentials and an
+// unreachable base URL keep it from ever reaching the Anthropic API.
+const env = {
+  PGLITE_DIR: ".data/e2e",
+  ANTHROPIC_API_KEY: "",
+  ANTHROPIC_AUTH_TOKEN: "",
+  ANTHROPIC_BASE_URL: "http://127.0.0.1:9",
+};
 
 // Tests share one seeded database, so they run one at a time.
 // Run `npm run build` first; the server is a production build on its own port.

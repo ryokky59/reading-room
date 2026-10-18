@@ -2,11 +2,22 @@ import { boolean, index, integer, pgTable, serial, text, timestamp } from "drizz
 
 export type ArticleStatus = "inbox" | "read" | "skipped";
 
+// User-made groups of feeds, shown in `position` order.
+export const folders = pgTable("folders", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const feeds = pgTable("feeds", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   url: text("url").notNull().unique(), // the RSS/Atom URL
+  // Legacy grouping; still written until the inbox moves to folders.
   category: text("category").notNull(),
+  // Null means the feed is unfiled (未分類).
+  folderId: integer("folder_id").references(() => folders.id, { onDelete: "set null" }),
   // Max items taken per run, and how many days back an item may be.
   itemLimit: integer("item_limit").notNull().default(5),
   days: integer("days").notNull().default(3),
@@ -27,6 +38,8 @@ export const articles = pgTable(
     summary: text("summary"), // short Japanese summary for the inbox
     lang: text("lang"), // "ja" or "other"
     source: text("source").notNull(),
+    // The feed the article came from; null for articles added by URL or whose feed was deleted.
+    feedId: integer("feed_id").references(() => feeds.id, { onDelete: "set null" }),
     category: text("category").notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
@@ -43,7 +56,7 @@ export const articles = pgTable(
     learning: text("learning"),
     memo: text("memo"),
   },
-  (t) => [index("articles_status_idx").on(t.status, t.fetchedAt)],
+  (t) => [index("articles_status_idx").on(t.status, t.fetchedAt), index("articles_feed_idx").on(t.feedId)],
 );
 
 export const messages = pgTable(
@@ -68,4 +81,5 @@ export const reviews = pgTable("reviews", {
 
 export type Article = typeof articles.$inferSelect;
 export type Feed = typeof feeds.$inferSelect;
+export type Folder = typeof folders.$inferSelect;
 export type Message = typeof messages.$inferSelect;
