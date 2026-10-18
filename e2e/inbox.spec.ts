@@ -86,6 +86,38 @@ test("記事ページでスキップすると、選んでいたフォルダの�
   await expect(card(page, "戻り先の記事 2")).toBeVisible();
 });
 
+test("記事ページで読了にすると、選んでいたフォルダの一覧に戻る", async ({ page }) => {
+  await page.goto("/");
+  await chip(folderNav(page), "E2E 読了の戻り先").click();
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  const filtered = page.url();
+  await card(page, "読了の戻り先 1").getByRole("link").click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("読了の戻り先 1");
+  await page.getByRole("button", { name: "読了" }).first().click();
+  await expect(page).toHaveURL(filtered);
+  await expect(chip(folderNav(page), "E2E 読了の戻り先", 1)).toHaveAttribute("aria-current", "page");
+  await expect(card(page, "読了の戻り先 1")).toHaveCount(0);
+  await expect(card(page, "読了の戻り先 2")).toBeVisible();
+});
+
+test("サイトの最後の未読を読み終えると、そのフォルダの一覧に戻る", async ({ page }) => {
+  await page.goto("/");
+  await chip(folderNav(page), "E2E 読み終わり").click();
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  const folderUrl = page.url();
+  await chip(siteNav(page), "E2E 最後の1本のサイト", 1).click();
+  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
+  await card(page, "最後の1本").getByRole("link").click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("最後の1本");
+  await page.getByRole("button", { name: "読了" }).first().click();
+  // The site has nothing unread now, so its folder is shown instead of an empty list.
+  await expect(page).toHaveURL(folderUrl);
+  await expect(chip(folderNav(page), "E2E 読み終わり", 1)).toHaveAttribute("aria-current", "page");
+  await expect(siteNav(page).getByRole("link", { name: "このフォルダすべて" })).toHaveAttribute("aria-current", "page");
+  await expect(siteNav(page).getByRole("link", { name: /E2E 最後の1本のサイト/ })).toHaveCount(0);
+  await expect(card(page, "残るサイトの記事")).toBeVisible();
+});
+
 test("「もっと見る」でも選んだフォルダが保たれる", async ({ page }) => {
   await page.goto("/");
   await chip(folderNav(page), "E2E たくさん", 35).click();
@@ -96,6 +128,14 @@ test("「もっと見る」でも選んだフォルダが保たれる", async ({
   await expect(chip(folderNav(page), "E2E たくさん", 35)).toHaveAttribute("aria-current", "page");
   await expect(card(page, "本番で動くエージェント")).toHaveCount(0);
   await expect(page.getByRole("link", { name: /もっと見る/ })).toHaveCount(0);
+
+  // Going back from an article keeps the longer list.
+  const longer = page.url();
+  await card(page, "量産記事 35").getByRole("link").click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("量産記事 35");
+  await page.getByRole("link", { name: "戻る" }).click();
+  await expect(page).toHaveURL(longer);
+  await expect(cards(page)).toHaveCount(35);
 });
 
 test("Tech / Business の固定表示がなく、フォルダ名か「未分類」が出る", async ({ page }) => {

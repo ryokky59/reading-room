@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, isNull, max, sql } from "drizzle-orm";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { FolderBadge, Header } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
 import { skipArticle } from "@/lib/actions";
@@ -19,8 +20,7 @@ type Bucket = { folderId: number | null; feedId: number | null; name: string | n
 export default async function InboxPage({ searchParams }: PageProps<"/">) {
   const params = await searchParams;
   const filter = parseInboxFilter(params);
-  const n = Array.isArray(params.n) ? params.n[0] : params.n;
-  const limit = Math.min(Math.max(Number(n) || PAGE_SIZE, PAGE_SIZE), 500);
+  const limit = Math.min(Math.max(Number(filter.n) || PAGE_SIZE, PAGE_SIZE), 500);
   const folderId = filter.f && filter.f !== "none" ? Number(filter.f) : null;
   const feedId = filter.s ? Number(filter.s) : null;
   const where = and(
@@ -74,6 +74,15 @@ export default async function InboxPage({ searchParams }: PageProps<"/">) {
   const inFolder = (id: number | null) => buckets.filter((b) => b.folderId === id);
   // A site link may come without its folder; the site's own folder is then highlighted.
   const site = feedId === null ? undefined : buckets.find((b) => b.feedId === feedId);
+  if (feedId !== null && !site) {
+    // The site has no unread articles left (e.g. its last one was just read): show its folder instead.
+    let f = filter.f;
+    if (!f) {
+      const [feed] = await db.select({ folderId: feeds.folderId }).from(feeds).where(eq(feeds.id, feedId));
+      f = feed ? (feed.folderId === null ? "none" : String(feed.folderId)) : undefined;
+    }
+    redirect(`/${inboxQuery({ f, n: filter.n })}`);
+  }
   const selectedFolder: number | null | "all" = site
     ? site.folderId
     : filter.f === "none"
@@ -94,6 +103,8 @@ export default async function InboxPage({ searchParams }: PageProps<"/">) {
   const current: InboxFilter = {
     f: selectedFolder === "all" ? undefined : folderFilter(selectedFolder).f,
     s: feedId === null ? undefined : String(feedId),
+    // Kept so going back from an article shows as many cards as before.
+    n: limit > PAGE_SIZE ? String(limit) : undefined,
   };
   const moreHref = `/${inboxQuery(current, { n: String(limit + PAGE_SIZE) })}`;
   const articleQuery = inboxQuery(current);

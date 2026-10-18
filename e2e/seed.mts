@@ -79,17 +79,19 @@ await db.insert(schema.articles).values(
 
 // Inbox filter rows (e2e/inbox.spec.ts). Articles 1-3 and 5 stay unfiled (未分類).
 const business = allFolders.find((f) => f.name === "Business")!;
-const [many, crowded, back] = await db
+const [many, crowded, back, lastOne, readBack] = await db
   .insert(schema.folders)
   .values([
     { name: "E2E たくさん", position: 4 },
     { name: "E2E サイトの多いフォルダ", position: 5 },
     { name: "E2E 戻り先", position: 6 },
+    { name: "E2E 読み終わり", position: 6 },
+    { name: "E2E 読了の戻り先", position: 6 },
     // Long names so the folder chips overflow a phone screen.
     ...["A", "B", "C"].map((x, i) => ({ name: `E2E 横スクロール確認用のフォルダ ${x}`, position: 7 + i })),
   ])
   .returning();
-const [flash, weekly, readOnly, bulk, backFeed, ...crowdedFeeds] = await db
+const [flash, weekly, readOnly, bulk, backFeed, lastFeed, stayFeed, readBackFeed, ...crowdedFeeds] = await db
   .insert(schema.feeds)
   .values([
     feed("flash", "E2E ビジネス速報", business.id),
@@ -97,6 +99,9 @@ const [flash, weekly, readOnly, bulk, backFeed, ...crowdedFeeds] = await db
     feed("read-only", "E2E 既読だけのサイト", business.id),
     feed("bulk", "E2E 量産サイト", many.id),
     feed("back", "E2E 戻り先サイト", back.id),
+    feed("last-one", "E2E 最後の1本のサイト", lastOne.id),
+    feed("stay", "E2E 残るサイト", lastOne.id),
+    feed("read-back", "E2E 読了の戻り先サイト", readBack.id),
     ...[1, 2, 3, 4, 5, 6].map((i) => feed(`crowded-${i}`, `E2E 横に並ぶサイト ${i}`, crowded.id)),
   ])
   .returning();
@@ -117,6 +122,11 @@ const filterArticles = [
   }),
   ...[1, 2].map((i) =>
     article(300 + i, { title: `戻り先の記事 ${i}`, titleJa: `戻り先の記事 ${i}`, source: backFeed.name, feedId: backFeed.id, fetchedAt: old(200 + i) }),
+  ),
+  article(310, { title: "最後の1本", titleJa: "最後の1本", source: lastFeed.name, feedId: lastFeed.id, fetchedAt: old(210) }),
+  article(311, { title: "残るサイトの記事", titleJa: "残るサイトの記事", source: stayFeed.name, feedId: stayFeed.id, fetchedAt: old(211) }),
+  ...[1, 2].map((i) =>
+    article(320 + i, { title: `読了の戻り先 ${i}`, titleJa: `読了の戻り先 ${i}`, source: readBackFeed.name, feedId: readBackFeed.id, fetchedAt: old(220 + i) }),
   ),
   ...Array.from({ length: 35 }, (_, i) =>
     article(100 + i, { title: `量産記事 ${i + 1}`, titleJa: `量産記事 ${i + 1}`, source: bulk.name, feedId: bulk.id, fetchedAt: old(i) }),
