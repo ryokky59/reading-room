@@ -24,7 +24,8 @@ export async function addArticle(_prev: ActionState, form: FormData): Promise<Ac
   } catch {
     return { error: "URL の形式が正しくありません" };
   }
-  const id = await addUrl(url.toString(), String(form.get("category") ?? "tech"));
+  // Articles added by URL have no feed, so they are unfiled (未分類).
+  const id = await addUrl(url.toString());
   if (!id) return { error: "記事を追加できませんでした" };
   redirect(`/articles/${id}`);
 }
@@ -59,12 +60,6 @@ export async function updateNote(id: number, learning: string, memo: string) {
   revalidatePath(`/articles/${id}`);
 }
 
-// The legacy category column is still written; it follows the folder name
-// until the inbox filters by folder.
-function categoryFor(folderName: string | null | undefined): string {
-  return folderName?.trim().toLowerCase() === "business" ? "business" : "tech";
-}
-
 /** Reads a folder id from the form; null (未分類) when empty or unknown. */
 async function folderFrom(form: FormData) {
   const id = Number(form.get("folderId"));
@@ -89,7 +84,7 @@ export async function addFeed(_prev: ActionState, form: FormData): Promise<Actio
   const name = String(form.get("name") ?? "").trim() || found.title;
   const [row] = await db
     .insert(feeds)
-    .values({ name, url: found.url, folderId: folder?.id ?? null, category: categoryFor(folder?.name) })
+    .values({ name, url: found.url, folderId: folder?.id ?? null })
     .onConflictDoNothing({ target: feeds.url })
     .returning({ id: feeds.id });
   if (!row) return { error: "このフィードはすでに登録されています" };
@@ -118,9 +113,10 @@ export async function moveFeed(id: number, form: FormData) {
   const db = await getDb();
   await db
     .update(feeds)
-    .set({ folderId: folder?.id ?? null, ...(folder && { category: categoryFor(folder.name) }) })
+    .set({ folderId: folder?.id ?? null })
     .where(eq(feeds.id, id));
   revalidatePath("/feeds");
+  revalidatePath("/");
 }
 
 export async function createFolder(form: FormData) {

@@ -1,8 +1,8 @@
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
-import { CategoryBadge, Header } from "@/components/Header";
+import { FolderBadge, Header } from "@/components/Header";
 import { ReviewPanel } from "@/components/ReviewPanel";
-import { articles, getDb, reviews } from "@/lib/db";
+import { articles, feeds, folders, getDb, reviews } from "@/lib/db";
 import { formatDate, monthKey } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -17,11 +17,13 @@ export default async function ReadPage() {
         title: articles.title,
         titleJa: articles.titleJa,
         source: articles.source,
-        category: articles.category,
+        folder: folders.name,
         readAt: articles.readAt,
         learning: articles.learning,
       })
       .from(articles)
+      .leftJoin(feeds, eq(feeds.id, articles.feedId))
+      .leftJoin(folders, eq(folders.id, feeds.folderId))
       .where(eq(articles.status, "read"))
       .orderBy(desc(articles.readAt)),
     db.select().from(reviews),
@@ -53,7 +55,7 @@ export default async function ReadPage() {
                 <li key={a.id}>
                   <Link href={`/articles/${a.id}`} className="block px-4 py-3">
                     <div className="flex items-center gap-2 text-xs text-muted">
-                      <CategoryBadge category={a.category} />
+                      <FolderBadge name={a.folder} />
                       <span className="truncate">{a.source}</span>
                       <span>{formatDate(a.readAt)}</span>
                     </div>

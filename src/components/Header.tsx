@@ -25,11 +25,11 @@ export function Header({ active }: { active?: "inbox" | "read" | "feeds" }) {
   );
 }
 
-export function CategoryBadge({ category }: { category: string }) {
-  const tech = category === "tech";
+/** The article's folder; null means unfiled (未分類). */
+export function FolderBadge({ name }: { name: string | null }) {
   return (
-    <span className={`text-xs font-medium ${tech ? "text-tech" : "text-business"}`}>
-      {tech ? "Tech" : "Business"}
+    <span className={`max-w-[10em] shrink-0 truncate text-xs font-medium ${name ? "text-accent" : "text-muted"}`}>
+      {name ?? "未分類"}
     </span>
   );
 }

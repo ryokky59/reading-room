@@ -11,7 +11,6 @@ type Candidate = {
   title: string;
   source: string;
   feedId: number | null; // null for articles added by URL
-  category: string;
   publishedAt: Date | null;
   summary: string | null;
 };
@@ -32,7 +31,6 @@ async function collect(feed: Feed): Promise<Candidate[]> {
         title: item.title?.trim() ?? "(無題)",
         source: feed.name,
         feedId: feed.id,
-        category: feed.category,
         publishedAt: date ? new Date(date) : null,
         summary: item.contentSnippet?.slice(0, 300) ?? null,
       };
@@ -76,7 +74,6 @@ async function save(candidates: Candidate[]): Promise<number> {
       ...digest,
       source: c.source,
       feedId: c.feedId,
-      category: c.category,
       publishedAt: c.publishedAt,
       contentHtml: ex.html,
       contentText: ex.text,
@@ -153,9 +150,9 @@ export async function fetchFeed(id: number): Promise<FetchResult> {
   return run(await db.select().from(feeds).where(eq(feeds.id, id)));
 }
 
-export async function addUrl(url: string, category: string): Promise<number | null> {
+export async function addUrl(url: string): Promise<number | null> {
   const db = await getDb();
-  await save([{ url, title: "(無題)", source: new URL(url).hostname, feedId: null, category, publishedAt: null, summary: null }]);
+  await save([{ url, title: "(無題)", source: new URL(url).hostname, feedId: null, publishedAt: null, summary: null }]);
   const [row] = await db
     .select({ id: articles.id })
     .from(articles)

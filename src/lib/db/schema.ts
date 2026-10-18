@@ -14,8 +14,6 @@ export const feeds = pgTable("feeds", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   url: text("url").notNull().unique(), // the RSS/Atom URL
-  // Legacy grouping; still written until the inbox moves to folders.
-  category: text("category").notNull(),
   // Null means the feed is unfiled (未分類).
   folderId: integer("folder_id").references(() => folders.id, { onDelete: "set null" }),
   // Max items taken per run, and how many days back an item may be.
@@ -40,7 +38,6 @@ export const articles = pgTable(
     source: text("source").notNull(),
     // The feed the article came from; null for articles added by URL or whose feed was deleted.
     feedId: integer("feed_id").references(() => feeds.id, { onDelete: "set null" }),
-    category: text("category").notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
     // Sanitized HTML for display; null when extraction failed.

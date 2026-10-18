@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { markRead, restoreArticle, skipArticle, updateNote } from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
-import { CategoryBadge } from "./Header";
+import { FolderBadge } from "./Header";
 import { Markdown } from "./Markdown";
 
 type ArticleProps = {
@@ -16,7 +16,7 @@ type ArticleProps = {
   lang: string | null;
   url: string;
   source: string;
-  category: string;
+  folder: string | null; // null means unfiled (未分類)
   contentHtml: string | null;
   contentJa: string | null;
   hasText: boolean;
@@ -31,7 +31,15 @@ type Msg = { id: number; role: "user" | "assistant"; content: string };
 
 let tempId = -1;
 
-export function ArticleView({ article, initialMessages }: { article: ArticleProps; initialMessages: Msg[] }) {
+export function ArticleView({
+  article,
+  inboxHref,
+  initialMessages,
+}: {
+  article: ArticleProps;
+  inboxHref: string; // the inbox with the filter the article was opened from
+  initialMessages: Msg[];
+}) {
   const router = useRouter();
   // Phones: the chat opens as a sheet over the article. Wide screens: always-visible side panel.
   const [chatOpen, setChatOpen] = useState(false);
@@ -129,7 +137,7 @@ export function ArticleView({ article, initialMessages }: { article: ArticleProp
       <button
         onClick={async () => {
           await restoreArticle(article.id);
-          router.push("/");
+          router.push(inboxHref);
         }}
         className="h-11 flex-1 rounded-xl border border-line bg-surface text-sm"
       >
@@ -141,7 +149,7 @@ export function ArticleView({ article, initialMessages }: { article: ArticleProp
       <button
         onClick={async () => {
           await skipArticle(article.id);
-          router.push("/");
+          router.push(inboxHref);
         }}
         className="h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted"
       >
@@ -150,7 +158,7 @@ export function ArticleView({ article, initialMessages }: { article: ArticleProp
       <button
         onClick={async () => {
           await markRead(article.id);
-          router.push("/");
+          router.push(inboxHref);
         }}
         className="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white"
       >
@@ -163,7 +171,7 @@ export function ArticleView({ article, initialMessages }: { article: ArticleProp
     <div className="min-h-dvh pb-36 lg:pb-0">
       <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4 lg:max-w-6xl">
-          <Link href={done ? "/read" : "/"} className="py-1 pr-2 text-muted" aria-label="戻る">
+          <Link href={done ? "/read" : inboxHref} className="py-1 pr-2 text-muted" aria-label="戻る">
             ←
           </Link>
           <Link href="/" className="hidden font-bold tracking-tight lg:block">
@@ -175,7 +183,7 @@ export function ArticleView({ article, initialMessages }: { article: ArticleProp
       <div className="mx-auto max-w-2xl px-4 lg:grid lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-10">
         <main className="min-w-0 pt-4">
           <div className="flex items-center gap-2 text-xs text-muted">
-            <CategoryBadge category={article.category} />
+            <FolderBadge name={article.folder} />
             <span>{article.source}</span>
             <span className="truncate">{hostname(article.url)}</span>
             {article.charCount > 0 && <span>{readingMinutes(article.charCount)}分</span>}

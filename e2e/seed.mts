@@ -2,6 +2,7 @@
 // every article already has its digest, and one has a saved conversation.
 import { mkdirSync, rmSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "../src/lib/db/schema";
@@ -19,7 +20,6 @@ const article = (n: number, a: Partial<typeof schema.articles.$inferInsert>) => 
   url: `https://example.com/e2e/${n}`,
   title: `E2E article ${n}`,
   source: "E2E Source",
-  category: "tech",
   lang: "ja",
   summary: `記事 ${n} の AI 要約です。`,
   contentHtml: `<p>記事 ${n} の本文です。</p>`,
@@ -36,7 +36,7 @@ const inserted = await db
     article(1, { title: "Agents in production", titleJa: "本番で動くエージェント", lang: "other" }),
     article(2, { title: "スキップされる記事", titleJa: "スキップされる記事" }),
     article(3, { title: "読了にする記事", titleJa: "読了にする記事" }),
-    article(4, { title: "ビジネスの記事", titleJa: "ビジネスの記事", category: "business", source: "Biz Source" }),
+    article(4, { title: "ビジネスの記事", titleJa: "ビジネスの記事" }),
     article(5, { title: "対話のある記事", titleJa: "対話のある記事" }),
   ])
   .returning({ id: schema.articles.id, title: schema.articles.title });
@@ -61,7 +61,6 @@ const [, toDelete] = await db
 const feed = (slug: string, name: string, folderId: number) => ({
   name,
   url: `https://example.com/e2e/feeds/${slug}`,
-  category: "tech",
   folderId,
   enabled: false, // never fetched
 });
@@ -78,4 +77,64 @@ await db.insert(schema.articles).values(
   article(6, { title: "残るフィードの記事", titleJa: "残るフィードの記事", source: kept.name, feedId: kept.id }),
 );
 
-console.log(`seeded ${inserted.length + 1} articles into ${dir}`);
+// Inbox filter rows (e2e/inbox.spec.ts). Articles 1-3 and 5 stay unfiled (未分類).
+const business = allFolders.find((f) => f.name === "Business")!;
+const [many, crowded, back, lastOne, readBack] = await db
+  .insert(schema.folders)
+  .values([
+    { name: "E2E たくさん", position: 4 },
+    { name: "E2E サイトの多いフォルダ", position: 5 },
+    { name: "E2E 戻り先", position: 6 },
+    { name: "E2E 読み終わり", position: 6 },
+    { name: "E2E 読了の戻り先", position: 6 },
+    // Long names so the folder chips overflow a phone screen.
+    ...["A", "B", "C"].map((x, i) => ({ name: `E2E 横スクロール確認用のフォルダ ${x}`, position: 7 + i })),
+  ])
+  .returning();
+const [flash, weekly, readOnly, bulk, backFeed, lastFeed, stayFeed, readBackFeed, ...crowdedFeeds] = await db
+  .insert(schema.feeds)
+  .values([
+    feed("flash", "E2E ビジネス速報", business.id),
+    feed("weekly", "E2E ビジネス週報", business.id),
+    feed("read-only", "E2E 既読だけのサイト", business.id),
+    feed("bulk", "E2E 量産サイト", many.id),
+    feed("back", "E2E 戻り先サイト", back.id),
+    feed("last-one", "E2E 最後の1本のサイト", lastOne.id),
+    feed("stay", "E2E 残るサイト", lastOne.id),
+    feed("read-back", "E2E 読了の戻り先サイト", readBack.id),
+    ...[1, 2, 3, 4, 5, 6].map((i) => feed(`crowded-${i}`, `E2E 横に並ぶサイト ${i}`, crowded.id)),
+  ])
+  .returning();
+const biz = inserted.find((a) => a.title === "ビジネスの記事")!;
+await db.update(schema.articles).set({ source: flash.name, feedId: flash.id }).where(eq(schema.articles.id, biz.id));
+// Older than the articles above so they stay out of the first page of すべて.
+const old = (i: number) => new Date(now - 86_400_000 - i * 60_000);
+const filterArticles = [
+  article(7, { title: "速報の2本目", titleJa: "速報の2本目", source: flash.name, feedId: flash.id }),
+  article(8, { title: "週報の記事", titleJa: "週報の記事", source: weekly.name, feedId: weekly.id }),
+  article(9, {
+    title: "既読だけのサイトの記事",
+    titleJa: "既読だけのサイトの記事",
+    source: readOnly.name,
+    feedId: readOnly.id,
+    status: "read",
+    readAt: new Date(now),
+  }),
+  ...[1, 2].map((i) =>
+    article(300 + i, { title: `戻り先の記事 ${i}`, titleJa: `戻り先の記事 ${i}`, source: backFeed.name, feedId: backFeed.id, fetchedAt: old(200 + i) }),
+  ),
+  article(310, { title: "最後の1本", titleJa: "最後の1本", source: lastFeed.name, feedId: lastFeed.id, fetchedAt: old(210) }),
+  article(311, { title: "残るサイトの記事", titleJa: "残るサイトの記事", source: stayFeed.name, feedId: stayFeed.id, fetchedAt: old(211) }),
+  ...[1, 2].map((i) =>
+    article(320 + i, { title: `読了の戻り先 ${i}`, titleJa: `読了の戻り先 ${i}`, source: readBackFeed.name, feedId: readBackFeed.id, fetchedAt: old(220 + i) }),
+  ),
+  ...Array.from({ length: 35 }, (_, i) =>
+    article(100 + i, { title: `量産記事 ${i + 1}`, titleJa: `量産記事 ${i + 1}`, source: bulk.name, feedId: bulk.id, fetchedAt: old(i) }),
+  ),
+  ...crowdedFeeds.map((f, i) =>
+    article(200 + i, { title: `並ぶサイトの記事 ${i + 1}`, source: f.name, feedId: f.id, fetchedAt: old(100 + i) }),
+  ),
+];
+await db.insert(schema.articles).values(filterArticles);
+
+console.log(`seeded ${inserted.length + 1 + filterArticles.length} articles into ${dir}`);
