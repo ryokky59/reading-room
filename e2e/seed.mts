@@ -190,6 +190,29 @@ const scrollArticles = scrollFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(scrollArticles);
 
+// Pause rows (e2e/pause-feed.spec.ts): one enabled feed per screen width, in its own folder.
+// No test runs "今すぐ取得", so these feeds are never fetched.
+const pauseFolders = await db
+  .insert(schema.folders)
+  .values(["E2E PC で止める", "E2E スマホで止める"].map((name, i) => ({ name, position: 30 + i })))
+  .returning();
+const pauseFeeds = await db
+  .insert(schema.feeds)
+  .values(pauseFolders.map((f, i) => ({ ...feed(`pause-${i}`, `${f.name}サイト`, f.id), enabled: true })))
+  .returning();
+const pauseArticles = pauseFeeds.flatMap((f, i) =>
+  [1, 2].map((j) =>
+    article(1000 + i * 10 + j, {
+      title: `${pauseFolders[i].name}記事 ${j}`,
+      titleJa: `${pauseFolders[i].name}記事 ${j}`,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: old(1000 + i * 10 + j),
+    }),
+  ),
+);
+await db.insert(schema.articles).values(pauseArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length} articles into ${dir}`,
 );

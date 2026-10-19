@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { markRead, restoreArticle, skipArticle, updateNote } from "@/lib/actions";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { markRead, restoreArticle, setFeedEnabled, skipArticle, updateNote } from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { FolderBadge } from "./Header";
@@ -17,6 +17,8 @@ type ArticleProps = {
   lang: string | null;
   url: string;
   source: string;
+  feedId: number | null; // null for articles added by URL or whose feed was deleted
+  feedEnabled: boolean;
   folder: string | null; // null means unfiled (未分類)
   contentHtml: string | null;
   contentJa: string | null;
@@ -233,14 +235,19 @@ export function ArticleView({
             {foreign && article.titleJa && article.titleJa !== article.title && (
               <p className="mt-1 text-sm leading-snug text-muted">{article.title}</p>
             )}
-            <a
-              href={article.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 inline-block text-sm text-accent underline underline-offset-2"
-            >
-              元記事を開く ↗
-            </a>
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <a
+                href={article.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-sm text-accent underline underline-offset-2"
+              >
+                元記事を開く ↗
+              </a>
+              {article.feedId !== null && (
+                <FeedPause key={article.id} feedId={article.feedId} enabled={article.feedEnabled} source={article.source} />
+              )}
+            </div>
 
             {done && (article.learning || article.memo) && <NoteCard article={article} />}
 
@@ -359,6 +366,60 @@ export function ArticleView({
         <div className="fixed inset-0 z-20 bg-black/30 xl:hidden" onClick={() => setChatOpen(false)} />
       )}
 
+    </div>
+  );
+}
+
+/** Stops or resumes fetching the article's site, after an inline confirmation. Unread articles stay. */
+function FeedPause({ feedId, enabled, source }: { feedId: number; enabled: boolean; source: string }) {
+  const [confirming, setConfirming] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const set = (next: boolean) =>
+    startTransition(async () => {
+      await setFeedEnabled(feedId, next);
+      setConfirming(false);
+    });
+
+  if (!enabled) {
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+        このサイトは取得を止めています
+        <button
+          onClick={() => set(true)}
+          disabled={pending}
+          className="rounded-full border border-line px-3 py-1 text-xs text-text disabled:opacity-50"
+        >
+          再開する
+        </button>
+      </span>
+    );
+  }
+  if (!confirming) {
+    return (
+      <button onClick={() => setConfirming(true)} className="py-1 text-xs text-muted underline underline-offset-2">
+        このサイトの取得を止める
+      </button>
+    );
+  }
+  return (
+    <div role="group" aria-label="取得を止める確認" className="w-full rounded-xl border border-line bg-surface p-3 text-sm">
+      <p className="break-words">「{source}」の取得を止めますか? 未読の記事は残ります</p>
+      <div className="mt-2 flex justify-end gap-2">
+        <button
+          onClick={() => setConfirming(false)}
+          disabled={pending}
+          className="rounded-full border border-line px-3 py-1.5 text-sm text-muted"
+        >
+          やめる
+        </button>
+        <button
+          onClick={() => set(false)}
+          disabled={pending}
+          className="rounded-full border border-line px-3 py-1.5 text-sm text-accent disabled:opacity-50"
+        >
+          止める
+        </button>
+      </div>
     </div>
   );
 }
