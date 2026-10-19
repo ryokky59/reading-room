@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Header } from "./Header";
 
 // PCs (Tailwind `lg` and up) read with the list, the article and the chat side by side.
@@ -51,6 +51,7 @@ function useOpenId() {
 export function InboxShell({ list, children }: { list: React.ReactNode; children: React.ReactNode }) {
   const [ids, setIds] = useState<number[] | null>(null);
   const open = useOpenId() !== null;
+  usePhoneListScroll(open);
   return (
     <InboxNavContext.Provider value={{ ids, setIds }}>
       <div className="lg:flex lg:h-dvh lg:flex-col">
@@ -69,6 +70,43 @@ export function InboxShell({ list, children }: { list: React.ReactNode; children
       </div>
     </InboxNavContext.Provider>
   );
+}
+
+/**
+ * Phones show the list and the article one at a time on the same window scroll. Remembers
+ * where the list was when an article opens, starts the article at its top, and puts the list
+ * back where it was on the way back (←, browser back, 読了 or スキップ). PCs scroll each pane
+ * on their own, so this leaves them alone.
+ */
+function usePhoneListScroll(open: boolean) {
+  // Where the list was when an article opened; null until one has opened in this shell.
+  const listY = useRef<number | null>(null);
+  // Layout effects run after Next.js has handled scroll for the page below, so these win.
+  useLayoutEffect(() => {
+    if (isWide()) return;
+    if (open) {
+      window.scrollTo(0, 0);
+      return;
+    }
+    let frame = 0;
+    const y = listY.current;
+    if (y !== null) {
+      window.scrollTo(0, y);
+      // The browser may restore its own position after a back; put the list back once more.
+      frame = requestAnimationFrame(() => {
+        if (window.scrollY !== y) window.scrollTo(0, y);
+      });
+    }
+    listY.current = window.scrollY;
+    // Tracks the list only while it shows: the listener is gone before hiding the list for an
+    // article shrinks the page and moves the window.
+    const record = () => (listY.current = window.scrollY);
+    window.addEventListener("scroll", record, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", record);
+    };
+  }, [open]);
 }
 
 /** Tells the shell which articles the list shows, in order. */

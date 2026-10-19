@@ -159,4 +159,37 @@ const paneArticles = paneFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(paneArticles);
 
-console.log(`seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length} articles into ${dir}`);
+// Phone scroll rows (e2e/mobile-scroll.spec.ts): one folder per way back, each with enough
+// cards to scroll the list and a body long enough to scroll the article.
+const scrollFolders = await db
+  .insert(schema.folders)
+  // No "戻る" in these names: other tests find the back link by that name.
+  .values(
+    ["E2E スマホの矢印", "E2E スマホの履歴", "E2E スマホで読了", "E2E スマホでスキップ"].map((name, i) => ({
+      name,
+      position: 20 + i,
+    })),
+  )
+  .returning();
+const scrollFeeds = await db
+  .insert(schema.feeds)
+  .values(scrollFolders.map((f, i) => feed(`scroll-${i}`, `${f.name}のサイト`, f.id)))
+  .returning();
+const longBody = Array.from({ length: 60 }, (_, k) => `<p>長い本文の段落 ${k + 1} です。スクロールして読みます。</p>`).join("");
+const scrollArticles = scrollFeeds.flatMap((f, i) =>
+  Array.from({ length: 20 }, (_, j) =>
+    article(500 + i * 100 + j, {
+      title: `${scrollFolders[i].name} ${j + 1}`,
+      titleJa: `${scrollFolders[i].name} ${j + 1}`,
+      source: f.name,
+      feedId: f.id,
+      contentHtml: longBody,
+      fetchedAt: old(400 + i * 100 + j),
+    }),
+  ),
+);
+await db.insert(schema.articles).values(scrollArticles);
+
+console.log(
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length} articles into ${dir}`,
+);
