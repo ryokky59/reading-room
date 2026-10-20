@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { skipArticle } from "@/lib/actions";
 import { Header } from "./Header";
 
 // PCs (Tailwind `lg` and up) read with the list, the article and the chat side by side.
@@ -167,5 +168,21 @@ export function InboxItem({ id, children }: { id: number; children: React.ReactN
     >
       {children}
     </li>
+  );
+}
+
+/** The スキップ button on a list card. Refreshes the router itself; see the note in lib/actions.ts. */
+export function CardSkipButton({ id }: { id: number }) {
+  const router = useRouter();
+  return (
+    <form
+      action={async () => {
+        await skipArticle(id);
+        router.refresh();
+      }}
+      className="flex justify-end px-2 pb-1"
+    >
+      <button className="px-2 py-1 text-xs text-muted">スキップ</button>
+    </form>
   );
 }

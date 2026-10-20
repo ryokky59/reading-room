@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { markRead, nextInboxArticle, restoreArticle, setFeedEnabled, skipArticle, updateNote } from "@/lib/actions";
+import {
+  markRead,
+  nextInboxArticle,
+  restoreArticle,
+  setArticleFeedEnabled,
+  skipArticle,
+  updateNote,
+} from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { FolderBadge } from "./Header";
@@ -136,6 +143,8 @@ export function ArticleView({
     }
     // Without a next article, the inbox shows its empty state beside the list.
     router.push(next === undefined ? inboxHref : `/articles/${next}${search}`);
+    // Drops the card from the list beside the article (see the note in lib/actions.ts).
+    router.refresh();
   }
 
   // PC shortcuts: j / k next / previous article, e read, s skip. Typing is left alone.
@@ -190,6 +199,7 @@ export function ArticleView({
         onClick={async () => {
           await restoreArticle(article.id);
           router.push(inboxHref);
+          router.refresh();
         }}
         className="h-11 flex-1 rounded-xl border border-line bg-surface text-sm"
       >
@@ -377,9 +387,11 @@ export function ArticleView({
 function FeedPause({ feedId, enabled, source }: { feedId: number; enabled: boolean; source: string }) {
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const set = (next: boolean) =>
     startTransition(async () => {
-      await setFeedEnabled(feedId, next);
+      await setArticleFeedEnabled(feedId, next);
+      router.refresh();
       setConfirming(false);
     });
 
@@ -475,6 +487,7 @@ function Translation({ articleId, initial }: { articleId: number; initial: strin
 }
 
 function NoteCard({ article }: { article: ArticleProps }) {
+  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [learning, setLearning] = useState(article.learning ?? "");
   const [memo, setMemo] = useState(article.memo ?? "");
@@ -485,6 +498,7 @@ function NoteCard({ article }: { article: ArticleProps }) {
         <button
           onClick={async () => {
             await updateNote(article.id, learning, memo);
+            router.refresh();
             setEditing(false);
           }}
           className="self-end rounded-full bg-accent px-4 py-1.5 text-sm text-white"

@@ -3,8 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FolderBadge } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
-import { InboxItem, InboxNavSync, ListLink } from "@/components/InboxShell";
-import { skipArticle } from "@/lib/actions";
+import { CardSkipButton, InboxItem, InboxNavSync, ListLink } from "@/components/InboxShell";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
 import { inboxOrder, inboxQuery, inboxWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
@@ -198,9 +197,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
                   {a.started && <span className="text-accent">対話中</span>}
                 </div>
               </Link>
-              <form action={skipArticle.bind(null, a.id)} className="flex justify-end px-2 pb-1">
-                <button className="px-2 py-1 text-xs text-muted">スキップ</button>
-              </form>
+              <CardSkipButton id={a.id} />
             </InboxItem>
           ))}
         </ul>

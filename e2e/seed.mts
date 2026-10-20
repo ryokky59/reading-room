@@ -227,6 +227,42 @@ const pastArticles = Array.from({ length: 32 }, (_, i) =>
 );
 await db.insert(schema.articles).values(pastArticles);
 
+// Articles fetched in one go (e2e/panes.spec.ts): the same fetchedAt, so only the id orders them.
+// Inserted from 34 down to 1, so "同時刻 1" has the highest id and comes first.
+const [sameFolder, beforeFolder, afterFolder] = await db
+  .insert(schema.folders)
+  .values(["E2E 同時刻", "E2E 切り替え前", "E2E 切り替え後"].map((name, i) => ({ name, position: 50 + i })))
+  .returning();
+const [sameFeed, beforeFeed, afterFeed] = await db
+  .insert(schema.feeds)
+  .values([
+    feed("same-time", "E2E 同時刻のサイト", sameFolder.id),
+    feed("before-switch", "E2E 切り替え前のサイト", beforeFolder.id),
+    feed("after-switch", "E2E 切り替え後のサイト", afterFolder.id),
+  ])
+  .returning();
+const sameTime = old(1200);
+const sameTimeArticles = Array.from({ length: 34 }, (_, i) =>
+  article(1200 + i, {
+    title: `同時刻 ${34 - i}`,
+    titleJa: `同時刻 ${34 - i}`,
+    source: sameFeed.name,
+    feedId: sameFeed.id,
+    fetchedAt: sameTime,
+  }),
+);
+await db.insert(schema.articles).values(sameTimeArticles);
+// Switching the list beside an open article (e2e/panes.spec.ts).
+const switchArticles = [
+  ...[1, 2].map((j) =>
+    article(1250 + j, { title: `切り替え前 ${j}`, titleJa: `切り替え前 ${j}`, source: beforeFeed.name, feedId: beforeFeed.id, fetchedAt: old(1250 + j) }),
+  ),
+  ...[1, 2, 3].map((j) =>
+    article(1260 + j, { title: `切り替え後 ${j}`, titleJa: `切り替え後 ${j}`, source: afterFeed.name, feedId: afterFeed.id, fetchedAt: old(1260 + j) }),
+  ),
+];
+await db.insert(schema.articles).values(switchArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length} articles into ${dir}`,
 );
