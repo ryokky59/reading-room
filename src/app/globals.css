@@ -32,6 +32,17 @@
   --color-accent-soft: var(--accent-soft);
 }
 
+/* Tailwind v4 gives buttons the default arrow; show a pointer on anything that can be pressed. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  select:not(:disabled),
+  label[for] {
+    cursor: pointer;
+  }
+}
+
 body {
   background: var(--bg);
   color: var(--text);
