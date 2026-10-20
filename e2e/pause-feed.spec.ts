@@ -32,6 +32,15 @@ async function openArticle(page: Page, folder: string) {
   return page.url();
 }
 
+/**
+ * On PCs a full load of an article fills the list beside it by passing through
+ * `/articles/<id>/list`; waits until the list is in and the article URL is back.
+ */
+async function waitForListBeside(page: Page, url: string) {
+  await expect(list(page)).toBeVisible();
+  await expect(page).toHaveURL(url);
+}
+
 /** Stops the site from the article page, checking the confirmation and that the page stays. */
 async function stopFromArticle(page: Page, site: string) {
   const url = page.url();
@@ -61,6 +70,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(stopButton(page)).toBeVisible();
     await page.reload();
     await expect(stopButton(page)).toBeVisible();
+    await waitForListBeside(page, articleUrl);
 
     await stopFromArticle(page, site);
     await expectNoSideScroll(page);
@@ -82,6 +92,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(row.getByRole("button", { name: "止める", exact: true })).toBeVisible();
     await page.goto(articleUrl);
     await expect(stopButton(page)).toBeVisible();
+    await waitForListBeside(page, articleUrl);
     await expect(stoppedNote(page)).toHaveCount(0);
 
     // Resuming on the article page brings back the button too.
