@@ -1,10 +1,16 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useActionState, useState } from "react";
 import { addArticle, fetchNow, type ActionState } from "@/lib/actions";
 
 export function InboxControls() {
-  const [fetchState, fetchAction, fetching] = useActionState<ActionState>(fetchNow, {});
+  const router = useRouter();
+  const [fetchState, fetchAction, fetching] = useActionState<ActionState>(async () => {
+    const state = await fetchNow();
+    router.refresh(); // See the note in lib/actions.ts.
+    return state;
+  }, {});
   const [addState, addAction, adding] = useActionState<ActionState, FormData>(addArticle, {});
   const [showAdd, setShowAdd] = useState(false);
 

@@ -9,6 +9,14 @@ import { inboxOrder, inboxWhere, parseInboxFilter } from "./inbox";
 
 export type ActionState = { message?: string; error?: string };
 
+// Actions run from the inbox and article pages do not call revalidatePath; their callers call
+// router.refresh() instead. A revalidating action answers with the page's route tree, and the
+// router keeps that tree for later article navigations, together with the URL the list slot was
+// last loaded from. Once a chip or 「もっと見る」 has changed the list beside an article, that
+// URL is stale: the next revalidating action refetches the list from it, the trees no longer
+// match, and the whole page reloads instead of opening the next article. router.refresh()
+// refetches each slot from the URL it was loaded from and leaves no such tree behind.
+
 /**
  * The first unread article in the inbox filter (`query` is its search string) that the list
  * has not loaded yet, i.e. the one behind 「もっと見る」; null when nothing unread is left there.
@@ -29,7 +37,6 @@ export async function nextInboxArticle(query: string, loaded: number[]): Promise
 
 export async function fetchNow(): Promise<ActionState> {
   const { added, failedFeeds } = await fetchAllFeeds();
-  revalidatePath("/");
   const failed = failedFeeds.length ? `(取得失敗: ${failedFeeds.join("、")})` : "";
   return { message: `${added} 本の新着を追加しました${failed}` };
 }
@@ -52,21 +59,16 @@ export async function addArticle(_prev: ActionState, form: FormData): Promise<Ac
 export async function skipArticle(id: number) {
   const db = await getDb();
   await db.update(articles).set({ status: "skipped" }).where(eq(articles.id, id));
-  revalidatePath("/");
 }
 
 export async function restoreArticle(id: number) {
   const db = await getDb();
   await db.update(articles).set({ status: "inbox", readAt: null }).where(eq(articles.id, id));
-  revalidatePath("/");
-  revalidatePath("/read");
 }
 
 export async function markRead(id: number) {
   const db = await getDb();
   await db.update(articles).set({ status: "read", readAt: new Date() }).where(eq(articles.id, id));
-  revalidatePath("/");
-  revalidatePath("/read");
 }
 
 export async function updateNote(id: number, learning: string, memo: string) {
@@ -75,8 +77,6 @@ export async function updateNote(id: number, learning: string, memo: string) {
     .update(articles)
     .set({ learning: learning.trim(), memo: memo.trim() })
     .where(eq(articles.id, id));
-  revalidatePath("/read");
-  revalidatePath(`/articles/${id}`);
 }
 
 /** Reads a folder id from the form; null (未分類) when empty or unknown. */
@@ -114,12 +114,15 @@ export async function addFeed(_prev: ActionState, form: FormData): Promise<Actio
   return { message: `「${name}」を追加し、${added} 本を取り込みました` };
 }
 
-export async function setFeedEnabled(id: number, enabled: boolean) {
+/** Stops or resumes fetching a site from its article page, which refreshes itself. */
+export async function setArticleFeedEnabled(id: number, enabled: boolean) {
   const db = await getDb();
   await db.update(feeds).set({ enabled }).where(eq(feeds.id, id));
+}
+
+export async function setFeedEnabled(id: number, enabled: boolean) {
+  await setArticleFeedEnabled(id, enabled);
   revalidatePath("/feeds");
-  // The article page shows the same switch for its site.
-  revalidatePath("/(inbox)/articles/[id]", "page");
 }
 
 export async function deleteFeed(id: number) {
