@@ -15,13 +15,13 @@ export default async function ArticlePage({ params, searchParams }: PageProps<"/
 
   const db = await getDb();
   const [row] = await db
-    .select({ article: articles, folder: folders.name })
+    .select({ article: articles, folder: folders.name, feedId: feeds.id, feedEnabled: feeds.enabled })
     .from(articles)
     .leftJoin(feeds, eq(feeds.id, articles.feedId))
     .leftJoin(folders, eq(folders.id, feeds.folderId))
     .where(eq(articles.id, id));
   if (!row) notFound();
-  const { article, folder } = row;
+  const { article, folder, feedId, feedEnabled } = row;
   const history = await db
     .select({ id: messages.id, role: messages.role, content: messages.content })
     .from(messages)
@@ -37,6 +37,8 @@ export default async function ArticlePage({ params, searchParams }: PageProps<"/
         lang: article.lang,
         url: article.url,
         source: article.source,
+        feedId,
+        feedEnabled: feedEnabled ?? false,
         folder,
         contentHtml: article.contentHtml,
         contentJa: article.contentJa,

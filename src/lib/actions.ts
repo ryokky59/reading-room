@@ -99,6 +99,8 @@ export async function setFeedEnabled(id: number, enabled: boolean) {
   const db = await getDb();
   await db.update(feeds).set({ enabled }).where(eq(feeds.id, id));
   revalidatePath("/feeds");
+  // The article page shows the same switch for its site.
+  revalidatePath("/(inbox)/articles/[id]", "page");
 }
 
 export async function deleteFeed(id: number) {
