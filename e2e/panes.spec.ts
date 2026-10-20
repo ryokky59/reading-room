@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 // PC panes: the list on the left, the article in the middle, the chat on the right.
 // Folders used here are seeded at the end of e2e/seed.mts; tests that read or skip use their own.
@@ -16,6 +16,41 @@ const scrollTop = (el: Locator) => el.evaluate((e) => e.scrollTop);
 const markPage = (page: Page) => page.evaluate(() => Object.assign(window, { e2eMark: true }));
 const expectNoReload = async (page: Page) =>
   expect(await page.evaluate(() => "e2eMark" in window)).toBe(true);
+
+// Only the list pane renders InboxNavSync, so its client reference marks the list in the HTML and
+// in the RSC payload alike (an ASCII name, as the payload comes without a charset).
+const hasList = (body: string) => body.includes("InboxNavSync");
+
+/**
+ * Runs `act` and returns, for each client-side navigation it made (not prefetches), whether the
+ * server's answer carried the list pane, so a test can see where the list was built. The answers
+ * are fetched here, since the router may stop reading one once it has what it shows.
+ */
+async function serverLists(page: Page, act: () => Promise<void>) {
+  let pending = 0;
+  const seen: boolean[] = [];
+  const handler = async (route: Route) => {
+    const headers = route.request().headers();
+    if (!("rsc" in headers) || "next-router-prefetch" in headers) return route.fallback();
+    pending++;
+    try {
+      const response = await route.fetch();
+      const body = await response.text();
+      seen.push(hasList(body));
+      await route.fulfill({ response, body }).catch(() => {}); // the router may have moved on
+    } finally {
+      pending--;
+    }
+  };
+  await page.route("**/*", handler);
+  await act();
+  await expect.poll(() => pending).toBe(0);
+  await page.unroute("**/*", handler);
+  return seen;
+}
+const listsIn = (responses: boolean[]) => responses.filter(Boolean).length;
+/** The HTML the server sends for a full load of `url`. */
+const fullLoad = async (page: Page, url: string) => (await page.request.get(url)).text();
 
 async function openFolder(page: Page, name: string) {
   await page.goto("/");
@@ -269,6 +304,52 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(list(page).getByRole("listitem")).toHaveCount(3);
   });
 
+  test("記事を開いてもサーバーは一覧を作らず、チップや「もっと見る」では一覧を 1 回だけ作る", async ({ page }) => {
+    await openFolder(page, "E2E たくさん");
+    let responses = await serverLists(page, async () => {
+      await card(page, "量産記事 5").getByRole("link").click();
+      await expect(heading(page)).toHaveText("量産記事 5");
+    });
+    expect(responses.length).toBeGreaterThan(0);
+    expect(listsIn(responses)).toBe(0);
+
+    responses = await serverLists(page, async () => {
+      await card(page, "量産記事 6").getByRole("link").click();
+      await expect(heading(page)).toHaveText("量産記事 6");
+    });
+    expect(listsIn(responses)).toBe(0);
+
+    const sites = page.getByRole("navigation", { name: "サイト" });
+    responses = await serverLists(page, async () => {
+      await sites.getByRole("link", { name: /^E2E 量産サイト/ }).click();
+      await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
+      await expect(sites.getByRole("link", { name: /^E2E 量産サイト/ })).toHaveAttribute("aria-current", "page");
+    });
+    expect(listsIn(responses)).toBe(1);
+
+    responses = await serverLists(page, async () => {
+      await page.getByRole("link", { name: /もっと見る/ }).click();
+      await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+&n=60$/);
+      await expect(list(page).getByRole("listitem")).toHaveCount(35);
+    });
+    expect(listsIn(responses)).toBe(1);
+    await expect(heading(page)).toHaveText("量産記事 6");
+
+    // Loaded directly, the article comes without the list, which then fills the pane beside it.
+    const url = page.url();
+    const html = await fullLoad(page, url);
+    expect(html).toContain("量産記事 6");
+    expect(hasList(html)).toBe(false);
+    responses = await serverLists(page, async () => {
+      await page.goto(url);
+      await expect(heading(page)).toHaveText("量産記事 6");
+      await expect(list(page).getByRole("listitem")).toHaveCount(35);
+    });
+    expect(listsIn(responses)).toBe(1);
+    await expect(page).toHaveURL(url);
+    await expect(card(page, "量産記事 6")).toHaveAttribute("aria-current", "true");
+  });
+
   test("j / k で移動、e で読了、s でスキップ。入力中は効かない", async ({ page }) => {
     await openFolder(page, "E2E キーボード");
     const filtered = new URL(page.url()).search;
@@ -348,4 +429,24 @@ test("スマホ幅の記事画面には一覧もヘッダーも出ず、キー�
   await page.waitForTimeout(500); // gives a wrongly handled key time to navigate
   await expect(page).toHaveURL(url);
   await expect(heading(page)).toHaveText("対話のある記事");
+});
+
+test("スマホ幅で記事の URL を直接開くと、一覧を作らずに記事だけを返す @mobile", async ({ page }) => {
+  await page.goto("/");
+  const href = (await card(page, "ビジネスの記事").getByRole("link").getAttribute("href"))!;
+  const html = await fullLoad(page, href);
+  expect(html).toContain("ビジネスの記事");
+  expect(hasList(html)).toBe(false);
+  const responses = await serverLists(page, async () => {
+    await page.goto(href);
+    await expect(heading(page)).toHaveText("ビジネスの記事");
+    await page.waitForTimeout(500); // gives a wrongly started list load time to show up
+  });
+  expect(responses).toEqual([]);
+  await expect(page).toHaveURL(href);
+
+  // The list is built when going back to it.
+  await page.getByRole("link", { name: "戻る" }).click();
+  await expect(page).toHaveURL("/");
+  await expect(card(page, "ビジネスの記事")).toBeVisible();
 });
