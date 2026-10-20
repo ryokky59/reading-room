@@ -1,12 +1,9 @@
-import { InboxList } from "@/components/InboxList";
+import { ListAfterFullLoad } from "@/components/InboxShell";
 
-// Rendered for the list pane when an article URL is loaded directly (or reloaded). After a
-// click in the list, the pane instead keeps what it showed, so switching articles does not
-// re-fetch it. Next.js renders a default like a page, so it gets the URL's search params.
-export default function InboxListDefault({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  return <InboxList searchParams={searchParams} onEmptySite="folder" />;
+// The list pane at an article URL, which has no list page of its own. On a click in the list
+// Next.js keeps what the pane showed and drops this, so the server builds no list here: that
+// would be thrown away on every article switch. Only when the article is loaded directly (or
+// reloaded) does this show, and on PCs it then loads the list beside the article.
+export default function InboxListDefault() {
+  return <ListAfterFullLoad />;
 }

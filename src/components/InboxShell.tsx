@@ -150,6 +150,41 @@ function useArticleUrlAfterListChange() {
   }, [pathname, search, router]);
 }
 
+/**
+ * The list pane after an article URL is loaded directly (see @list/default.tsx). Phones show
+ * no list beside the article, so the article does not wait for one. On PCs (or once the screen
+ * becomes wide) this goes to `/articles/<id>/list` like a chip does: the list page fills the
+ * pane, the article stays, and useArticleUrlAfterListChange puts the article URL back.
+ */
+export function ListAfterFullLoad() {
+  const router = useRouter();
+  const openId = useOpenId();
+  const search = useSearchParams().toString();
+  useEffect(() => {
+    if (openId === null) return;
+    const media = window.matchMedia(WIDE);
+    const load = () => {
+      if (media.matches) router.replace(`/articles/${openId}/list${search ? `?${search}` : ""}`, { scroll: false });
+    };
+    load();
+    media.addEventListener("change", load);
+    return () => media.removeEventListener("change", load);
+  }, [openId, search, router]);
+  return (
+    <div className="hidden px-4 pt-4 lg:block" aria-busy="true">
+      <ul className="grid gap-3">
+        {Array.from({ length: 4 }, (_, i) => (
+          <li key={i} className="animate-pulse rounded-xl border border-line bg-surface p-4">
+            <div className="h-3 w-1/3 rounded bg-line" />
+            <div className="mt-3 h-4 w-11/12 rounded bg-line" />
+            <div className="mt-2 h-4 w-2/3 rounded bg-line" />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** A list card, highlighted while its article is open beside the list. */
 export function InboxItem({ id, children }: { id: number; children: React.ReactNode }) {
   const selected = useOpenId() === id;
