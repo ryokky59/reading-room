@@ -42,5 +42,5 @@ export function inboxWhere(filter: InboxFilter) {
   );
 }
 
-/** The order the list shows unread articles in, newest first. */
-export const inboxOrder = [desc(articles.fetchedAt), desc(articles.publishedAt)];
+/** The order the list shows unread articles in, newest first; the id breaks ties so paging is stable. */
+export const inboxOrder = [desc(articles.fetchedAt), desc(articles.publishedAt), desc(articles.id)];
