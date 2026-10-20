@@ -1,13 +1,13 @@
-import { and, asc, count, desc, eq, isNull, max, sql } from "drizzle-orm";
+import { asc, count, eq, max, sql } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FolderBadge } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
-import { InboxItem, InboxNavSync } from "@/components/InboxShell";
+import { InboxItem, InboxNavSync, ListLink } from "@/components/InboxShell";
 import { skipArticle } from "@/lib/actions";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
-import { inboxQuery, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
+import { inboxOrder, inboxQuery, inboxWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
 
 // Cards shown per page; a long list is slow to load and render on phones.
 const PAGE_SIZE = 30;
@@ -35,17 +35,6 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
   const limit = Math.min(Math.max(Number(filter.n) || PAGE_SIZE, PAGE_SIZE), 500);
   const folderId = filter.f && filter.f !== "none" ? Number(filter.f) : null;
   const feedId = filter.s ? Number(filter.s) : null;
-  const where = and(
-    eq(articles.status, "inbox"),
-    feedId !== null
-      ? eq(articles.feedId, feedId)
-      : filter.f === "none"
-        ? isNull(feeds.folderId)
-        : folderId !== null
-          ? eq(feeds.folderId, folderId)
-          : undefined,
-  );
-
   const db = await getDb();
   const [rows, buckets, folderRows, [{ lastFetched }]] = await Promise.all([
     db
@@ -68,8 +57,8 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
       .from(articles)
       .leftJoin(feeds, eq(feeds.id, articles.feedId))
       .leftJoin(folders, eq(folders.id, feeds.folderId))
-      .where(where)
-      .orderBy(desc(articles.fetchedAt), desc(articles.publishedAt))
+      .where(inboxWhere(filter))
+      .orderBy(...inboxOrder)
       .limit(limit),
     // One aggregate query for every chip's unread count (and the list's total).
     db
@@ -119,7 +108,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
     // Kept so going back from an article shows as many cards as before.
     n: limit > PAGE_SIZE ? String(limit) : undefined,
   };
-  const moreHref = `/${inboxQuery(current, { n: String(limit + PAGE_SIZE) })}`;
+  const moreQuery = inboxQuery(current, { n: String(limit + PAGE_SIZE) });
   const articleQuery = inboxQuery(current);
 
   return (
@@ -128,11 +117,11 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
       <InboxControls />
       <nav aria-label="フォルダ" className="mt-4">
         <ChipRow>
-          <Chip href="/" label="すべて" count={sum(buckets)} on={selectedFolder === "all"} />
+          <Chip query="" label="すべて" count={sum(buckets)} on={selectedFolder === "all"} />
           {folderRows.map((f) => (
             <Chip
               key={f.id}
-              href={`/${inboxQuery(folderFilter(f.id))}`}
+              query={inboxQuery(folderFilter(f.id))}
               label={f.name}
               count={sum(inFolder(f.id))}
               on={selectedFolder === f.id}
@@ -140,7 +129,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
           ))}
           {(unfiledCount > 0 || selectedFolder === null) && (
             <Chip
-              href={`/${inboxQuery(folderFilter(null))}`}
+              query={inboxQuery(folderFilter(null))}
               label="未分類"
               count={unfiledCount}
               on={selectedFolder === null}
@@ -152,7 +141,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
         <nav aria-label="サイト" className="mt-2">
           <ChipRow small>
             <Chip
-              href={`/${inboxQuery(folderFilter(selectedFolder))}`}
+              query={inboxQuery(folderFilter(selectedFolder))}
               label="このフォルダすべて"
               on={feedId === null}
               small
@@ -160,7 +149,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
             {sites.map((b) => (
               <Chip
                 key={b.feedId}
-                href={`/${inboxQuery({ ...folderFilter(selectedFolder), s: String(b.feedId) })}`}
+                query={inboxQuery({ ...folderFilter(selectedFolder), s: String(b.feedId) })}
                 label={b.name ?? ""}
                 count={b.n}
                 on={feedId === b.feedId}
@@ -217,13 +206,13 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
         </ul>
       )}
       {rows.length < total && (
-        <Link
-          href={moreHref}
+        <ListLink
+          query={moreQuery}
           scroll={false}
           className="mx-auto mt-6 block w-fit rounded-full border border-line bg-surface px-5 py-2 text-sm"
         >
           もっと見る(残り {total - rows.length} 本)
-        </Link>
+        </ListLink>
       )}
     </div>
   );
@@ -241,13 +230,13 @@ function ChipRow({ children, small }: { children: React.ReactNode; small?: boole
 }
 
 function Chip({
-  href,
+  query,
   label,
   count,
   on,
   small,
 }: {
-  href: string;
+  query: string;
   label: string;
   count?: number;
   on: boolean;
@@ -255,8 +244,8 @@ function Chip({
 }) {
   return (
     <li className="shrink-0">
-      <Link
-        href={href}
+      <ListLink
+        query={query}
         aria-current={on ? "page" : undefined}
         className={`flex items-center gap-1 whitespace-nowrap rounded-full border ${
           small ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
@@ -264,7 +253,7 @@ function Chip({
       >
         {label}
         {count !== undefined && <span className="tabular-nums opacity-70">{count}</span>}
-      </Link>
+      </ListLink>
     </li>
   );
 }

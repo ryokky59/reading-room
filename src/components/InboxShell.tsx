@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Header } from "./Header";
 
@@ -52,6 +53,7 @@ export function InboxShell({ list, children }: { list: React.ReactNode; children
   const [ids, setIds] = useState<number[] | null>(null);
   const open = useOpenId() !== null;
   usePhoneListScroll(open);
+  useArticleUrlAfterListChange();
   return (
     <InboxNavContext.Provider value={{ ids, setIds }}>
       <div className="lg:flex lg:h-dvh lg:flex-col">
@@ -117,6 +119,34 @@ export function InboxNavSync({ ids }: { ids: number[] }) {
     setIds(key ? key.split(",").map(Number) : []);
   }, [key, setIds]);
   return null;
+}
+
+/**
+ * A link that changes what the list shows (a folder / site chip, 「もっと見る」). With an article
+ * open beside the list (PCs; phones hide the list then) it goes to `/articles/<id>/list`, which
+ * only the list pane has a page for: the list changes and the article pane keeps the open
+ * article and its half-written chat message. See useArticleUrlAfterListChange for the URL.
+ */
+export function ListLink({ query, ...props }: Omit<React.ComponentProps<typeof Link>, "href"> & { query: string }) {
+  const openId = useOpenId();
+  return <Link href={`${openId === null ? "/" : `/articles/${openId}/list`}${query}`} {...props} />;
+}
+
+/**
+ * After a ListLink beside an article, puts the article's own URL with the new filter in place of
+ * `/articles/<id>/list`. The list pane keeps what the list page showed (it has no page of its own
+ * for an article URL, see @list/default.tsx), and the article picks up the filter for ←, 読了
+ * and スキップ without being remounted, since only search params change for it. The URL can
+ * then be reloaded or shared like any article URL.
+ */
+function useArticleUrlAfterListChange() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  useEffect(() => {
+    const match = /^\/articles\/(\d+)\/list$/.exec(pathname);
+    if (match) router.replace(`/articles/${match[1]}${search ? `?${search}` : ""}`, { scroll: false });
+  }, [pathname, search, router]);
 }
 
 /** A list card, highlighted while its article is open beside the list. */

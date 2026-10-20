@@ -1,12 +1,31 @@
 "use server";
 
-import { asc, eq, max } from "drizzle-orm";
+import { and, asc, eq, max, notInArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { articles, feeds, folders, getDb } from "./db";
 import { addUrl, discoverFeed, fetchAllFeeds, fetchFeed } from "./feeds";
+import { inboxOrder, inboxWhere, parseInboxFilter } from "./inbox";
 
 export type ActionState = { message?: string; error?: string };
+
+/**
+ * The first unread article in the inbox filter (`query` is its search string) that the list
+ * has not loaded yet, i.e. the one behind 「もっと見る」; null when nothing unread is left there.
+ */
+export async function nextInboxArticle(query: string, loaded: number[]): Promise<number | null> {
+  const filter = parseInboxFilter(Object.fromEntries(new URLSearchParams(query)));
+  const ids = loaded.filter(Number.isInteger).slice(0, 1000);
+  const db = await getDb();
+  const [row] = await db
+    .select({ id: articles.id })
+    .from(articles)
+    .leftJoin(feeds, eq(feeds.id, articles.feedId))
+    .where(and(inboxWhere(filter), ids.length ? notInArray(articles.id, ids) : undefined))
+    .orderBy(...inboxOrder)
+    .limit(1);
+  return row?.id ?? null;
+}
 
 export async function fetchNow(): Promise<ActionState> {
   const { added, failedFeeds } = await fetchAllFeeds();

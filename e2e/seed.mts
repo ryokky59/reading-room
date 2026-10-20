@@ -213,6 +213,20 @@ const pauseArticles = pauseFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(pauseArticles);
 
+// Reading past the loaded cards (e2e/panes.spec.ts): more unread than one page of the list.
+const [pastFolder] = await db.insert(schema.folders).values({ name: "E2E 読み進める", position: 40 }).returning();
+const [pastFeed] = await db.insert(schema.feeds).values(feed("past", "E2E 読み進めるサイト", pastFolder.id)).returning();
+const pastArticles = Array.from({ length: 32 }, (_, i) =>
+  article(1100 + i, {
+    title: `読み進める ${i + 1}`,
+    titleJa: `読み進める ${i + 1}`,
+    source: pastFeed.name,
+    feedId: pastFeed.id,
+    fetchedAt: old(1100 + i),
+  }),
+);
+await db.insert(schema.articles).values(pastArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length} articles into ${dir}`,
 );

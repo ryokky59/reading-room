@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { markRead, restoreArticle, setFeedEnabled, skipArticle, updateNote } from "@/lib/actions";
+import { markRead, nextInboxArticle, restoreArticle, setFeedEnabled, skipArticle, updateNote } from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { FolderBadge } from "./Header";
@@ -124,9 +124,12 @@ export function ArticleView({
   async function leave(action: (id: number) => Promise<void>) {
     if (leaving.current) return;
     leaving.current = true;
-    const next = isWide() ? neighbor(1) : undefined;
+    const wide = isWide();
+    let next = wide ? neighbor(1) : undefined;
     try {
       await action(article.id);
+      // Past the last loaded card, the next unread may still be behind 「もっと見る」.
+      if (wide && next === undefined) next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
     } catch (e) {
       leaving.current = false;
       throw e;
