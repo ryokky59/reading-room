@@ -167,31 +167,31 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
           未読の記事はありません。「今すぐ取得」で新着を取ってこられます。
         </p>
       ) : (
-        <ul aria-label="記事" className="mt-2 grid gap-3 md:grid-cols-2 lg:grid-cols-1">
+        <ul aria-label="記事" className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-1">
           {rows.map((a) => (
             <InboxItem key={a.id} id={a.id}>
-              <Link href={`/articles/${a.id}${articleQuery}`} className="block flex-1 px-4 pt-3 pb-2">
+              <Link href={`/articles/${a.id}${articleQuery}`} className="block flex-1 px-4 pt-2.5 pb-1">
                 <div className="flex items-center gap-2 text-xs text-muted">
                   <FolderBadge name={a.folder} />
                   <span className="shrink-0 font-medium text-text">{a.source}</span>
                   <span className="truncate">{hostname(a.url)}</span>
                   <span className="ml-auto shrink-0">{formatDate(a.publishedAt ?? a.fetchedAt)}</span>
                 </div>
-                <h2 className="mt-1.5 font-bold leading-snug">{a.titleJa ?? a.title}</h2>
+                <h2 className="mt-1 font-bold leading-snug">{a.titleJa ?? a.title}</h2>
                 {isForeign(a.lang, a.title) && a.titleJa && a.titleJa !== a.title && (
                   <p className="mt-0.5 line-clamp-1 text-xs text-muted">{a.title}</p>
                 )}
                 {a.summary ? (
-                  <p className="mt-2 text-sm leading-relaxed">
+                  <p className="mt-1 line-clamp-2 text-sm leading-snug">
                     <span className="mr-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">
                       AI 要約
                     </span>
                     {a.summary}
                   </p>
                 ) : (
-                  a.excerpt && <p className="mt-1 line-clamp-2 text-sm text-muted">{a.excerpt}</p>
+                  a.excerpt && <p className="mt-1 line-clamp-2 text-sm leading-snug text-muted">{a.excerpt}</p>
                 )}
-                <div className="mt-2 flex gap-2 text-xs text-muted">
+                <div className="mt-1 flex min-h-4 gap-2 text-xs text-muted">
                   {a.charCount > 0 && <span>{readingMinutes(a.charCount)}分</span>}
                   {isForeign(a.lang, a.title) && <span>日本語で読める</span>}
                   {a.started && <span className="text-accent">対話中</span>}
