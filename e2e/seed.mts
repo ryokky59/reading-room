@@ -36,7 +36,12 @@ const inserted = await db
     article(1, { title: "Agents in production", titleJa: "本番で動くエージェント", lang: "other" }),
     article(2, { title: "スキップされる記事", titleJa: "スキップされる記事" }),
     article(3, { title: "読了にする記事", titleJa: "読了にする記事" }),
-    article(4, { title: "ビジネスの記事", titleJa: "ビジネスの記事" }),
+    article(4, {
+      title: "ビジネスの記事",
+      titleJa: "ビジネスの記事",
+      // Long enough to wrap past two lines on a phone (e2e/app.spec.ts clamps it).
+      summary: "長い要約の記事です。".repeat(12),
+    }),
     article(5, { title: "対話のある記事", titleJa: "対話のある記事" }),
   ])
   .returning({ id: schema.articles.id, title: schema.articles.title });

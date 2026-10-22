@@ -13,6 +13,17 @@ test("新着一覧に日本語タイトル・原題・AI 要約・ソースが�
   await expect(page.getByRole("listitem").filter({ hasText: "対話のある記事" })).toContainText("対話中");
 });
 
+test("一覧の長い要約は 2 行で切れ、スキップボタンと重ならない @mobile", async ({ page }) => {
+  await page.goto("/");
+  const card = page.getByRole("listitem").filter({ hasText: "ビジネスの記事" });
+  const summary = card.locator("p", { hasText: "AI 要約" });
+  const box = (await summary.boundingBox())!;
+  const lineHeight = await summary.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+  expect(box.height).toBeLessThanOrEqual(lineHeight * 2 + 1);
+  const skip = (await card.getByRole("button", { name: "スキップ" }).boundingBox())!;
+  expect(skip.y).toBeGreaterThanOrEqual(box.y + box.height);
+});
+
 test("一覧からスキップすると消える", async ({ page }) => {
   await page.goto("/");
   const card = page.getByRole("listitem").filter({ hasText: "スキップされる記事" });

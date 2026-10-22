@@ -206,7 +206,10 @@ export function InboxItem({ id, children }: { id: number; children: React.ReactN
   );
 }
 
-/** The スキップ button on a list card. Refreshes the router itself; see the note in lib/actions.ts. */
+/**
+ * The スキップ button on a list card, pulled up onto the card's last row (reading time etc.) to save height.
+ * Refreshes the router itself; see the note in lib/actions.ts.
+ */
 export function CardSkipButton({ id }: { id: number }) {
   const router = useRouter();
   return (
@@ -215,7 +218,7 @@ export function CardSkipButton({ id }: { id: number }) {
         await skipArticle(id);
         router.refresh();
       }}
-      className="flex justify-end px-2 pb-1"
+      className="-mt-6 flex justify-end self-end px-2 pb-1"
     >
       <button className="px-2 py-1 text-xs text-muted">スキップ</button>
     </form>
