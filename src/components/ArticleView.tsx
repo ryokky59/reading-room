@@ -162,20 +162,15 @@ export function ArticleView({
           return;
         }
         // Read cards leave the list to the right, skipped ones to the left, with a toast to undo.
-        if (kind !== "restore") leftInbox(article.id, kind);
+        // Phones fetch the list again on the way back, without the card: a copy of it leaves there.
+        if (kind !== "restore") leftInbox(article.id, kind, { refetched: !wide });
         // Saved: from here on the screen must move on, so it matches the database.
         const href = await whereTo().catch(() => inboxHref);
-        if (kind === "restore") {
-          router.push(href);
-          router.refresh();
-        } else {
-          if (wide) router.push(href);
-          // Phones go back to the list as it was, without asking the server for it, so the card
-          // is still there to be seen leaving. Next.js syncs the URL and the pathname with this.
-          else window.history.pushState(null, "", href);
-          // Drops the card from the list once it has left (see the note in lib/actions.ts).
-          refreshAfterLeave(router);
-        }
+        router.push(href);
+        // Drops the card from the list beside the article (see the note in lib/actions.ts), once
+        // it has left there.
+        if (wide && kind !== "restore") refreshAfterLeave(router);
+        else router.refresh();
         resolve(true);
       }),
     );

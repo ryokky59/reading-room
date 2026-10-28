@@ -189,3 +189,107 @@ test("一覧のスキップが保存できなければ、カードは戻って�
   await expect(card(page, `${folder} 1`)).toHaveCount(0);
   await expect(count(page)).toHaveText(/^2 本/);
 });
+
+test("2 枚続けてスキップして 1 枚目だけ保存できなくても、2 枚目の「元に戻す」は残る", async ({ page }) => {
+  const folder = "E2E 続けてスキップ";
+  await openFolder(page, folder);
+  let first = true;
+  await page.route("**/*", async (route) => {
+    if (!("next-action" in route.request().headers())) return route.fallback();
+    if (!first) return route.fallback();
+    first = false;
+    await new Promise((r) => setTimeout(r, 500));
+    await route.abort();
+  });
+
+  await card(page, `${folder} 1`).getByRole("button", { name: "スキップ" }).click();
+  await card(page, `${folder} 2`).getByRole("button", { name: "スキップ" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "保存できませんでした" })).toBeVisible();
+  // The first card is back; the second one is gone, and can still be undone.
+  await expect(card(page, `${folder} 1`)).toBeVisible();
+  await expect(card(page, `${folder} 2`)).toHaveCount(0);
+  await expect(toast(page).getByText("スキップしました")).toBeVisible();
+  await undo(page).click();
+  await expect(card(page, `${folder} 2`)).toBeVisible();
+  await expect(list(page).getByRole("listitem")).toHaveCount(3);
+  await expect(count(page)).toHaveText(/^3 本/);
+});
+
+test("「元に戻す」が保存できなければメッセージが出て、もう一度元に戻せる", async ({ page }) => {
+  const folder = "E2E 元に戻すに失敗";
+  await openFolder(page, folder);
+  await card(page, `${folder} 1`).getByRole("button", { name: "スキップ" }).click();
+  await expect(card(page, `${folder} 1`)).toHaveCount(0);
+  await expect(count(page)).toHaveText(/^2 本/);
+
+  await page.route("**/*", (route) =>
+    "next-action" in route.request().headers() ? route.abort() : route.fallback(),
+  );
+  await undo(page).click();
+  await expect(page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" })).toBeVisible();
+  await expect(card(page, `${folder} 1`)).toHaveCount(0);
+
+  await page.unrouteAll();
+  await undo(page).click();
+  await expect(card(page, `${folder} 1`)).toBeVisible();
+  await expect(count(page)).toHaveText(/^3 本/);
+  await expect(page.getByRole("alert").filter({ hasText: "保存できませんでした" })).toHaveCount(0);
+});
+
+test("元に戻すを押すと、サーバーの返事を待たずにカードが戻る", async ({ page }) => {
+  const folder = "E2E 元に戻すに失敗";
+  await openFolder(page, folder);
+  await page.route("**/*", async (route) => {
+    if (!("next-action" in route.request().headers())) return route.fallback();
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.fallback().catch(() => {});
+  });
+
+  await card(page, `${folder} 2`).getByRole("button", { name: "スキップ" }).click();
+  await expect(card(page, `${folder} 2`)).toHaveCount(0);
+  // The skip is still on its way to the server.
+  await undo(page).click();
+  await expect(card(page, `${folder} 2`)).toBeVisible({ timeout: 500 });
+  await expect(list(page).getByRole("listitem").nth(1)).toContainText(`${folder} 2`);
+  // Once the skip and the restore are saved, the refreshed list still has it.
+  await page.waitForTimeout(3500);
+  await expect(card(page, `${folder} 2`)).toBeVisible();
+});
+
+test("スマホで一覧から開いた記事を読了したあと、ブラウザの戻るで記事が出る @mobile", async ({ page }) => {
+  const folder = "E2E 読了して履歴を遡る";
+  await openFolder(page, folder);
+  const folderUrl = page.url();
+  await card(page, `${folder} 1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${folder} 1`);
+  const articleUrl = page.url();
+
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(page).toHaveURL(folderUrl);
+  await expect(card(page, `${folder} 1`)).toHaveCount(0);
+  // Well after the list has been refreshed.
+  await page.waitForTimeout(1500);
+
+  await page.goBack();
+  await expect(page).toHaveURL(articleUrl);
+  await expect(heading(page)).toHaveText(`${folder} 1`, { timeout: 3000 });
+});
+
+test("スマホで記事の URL を直接開いて読了すると、一覧がすぐ出てトーストが出る @mobile", async ({ page }) => {
+  const folder = "E2E 直接開いて読了";
+  await openFolder(page, folder);
+  const folderUrl = page.url();
+  const href = await card(page, `${folder} 1`).getByRole("link").getAttribute("href");
+  await page.goto(href!);
+  await expect(heading(page)).toHaveText(`${folder} 1`);
+
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(page).toHaveURL(folderUrl);
+  // The list comes with the screen change, not after a later refresh.
+  await expect(list(page).getByRole("listitem")).toHaveCount(2, { timeout: 500 });
+  await expect(card(page, `${folder} 1`)).toHaveCount(0);
+  await expect(toast(page).getByText("読了にしました")).toBeVisible();
+
+  await undo(page).click();
+  await expect(card(page, `${folder} 1`)).toBeVisible();
+});

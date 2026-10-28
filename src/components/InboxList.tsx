@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { FolderBadge } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
 import { LinkPending } from "@/components/NavPending";
-import { CardSkipButton, InboxItem, InboxNavSync, ListLink } from "@/components/InboxShell";
+import { CardSkipButton, InboxItem, InboxNavSync, LeavingGhosts, ListLink } from "@/components/InboxShell";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
 import { inboxOrder, inboxQuery, inboxWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
@@ -205,6 +205,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
               <CardSkipButton id={a.id} />
             </InboxItem>
           ))}
+          <LeavingGhosts before={null} />
         </ul>
       )}
       {rows.length < total && (

@@ -76,39 +76,74 @@ export function refreshAfterLeave(router: { refresh: () => void }, since = perfo
   setTimeout(() => router.refresh(), wait);
 }
 
+/**
+ * A copy of a card taken as it starts leaving a list that is about to be refetched (phones go
+ * back to the list with router.push, which brings the list without the card). It is shown
+ * where the card was, before the card that followed it (`before`, null for the last card), so
+ * the card can still be seen leaving.
+ */
+type Ghost = { html: string; className: string; before: number | null };
+
+type LeavingCard = { dir: LeaveDirection; ghost?: Ghost };
+
 type Leaving = {
-  leaving: ReadonlyMap<number, LeaveDirection>;
+  leaving: ReadonlyMap<number, LeavingCard>;
+  /** The ids the list shows, leaving or not; null until the list has rendered. */
+  listed: number[] | null;
   /** Starts a card leaving the list, or with null puts it back. */
-  setLeaving: (id: number, dir: LeaveDirection | null) => void;
+  setLeaving: (id: number, card: LeavingCard | null) => void;
 };
 
-const LeavingContext = createContext<Leaving>({ leaving: new Map(), setLeaving: () => {} });
+const LeavingContext = createContext<Leaving>({ leaving: new Map(), listed: null, setLeaving: () => {} });
 
 /** Which way the card of article `id` is leaving the list, if it is. */
 export function useLeaving(id: number) {
-  return useContext(LeavingContext).leaving.get(id);
+  return useContext(LeavingContext).leaving.get(id)?.dir;
+}
+
+const FAILED = "保存できませんでした。もう一度押してください";
+
+/** Copies the card of article `id` from the page, to show as a Ghost after the list is refetched. */
+function takeGhost(id: number): Ghost | undefined {
+  const li = document.querySelector<HTMLLIElement>(`li[data-article="${id}"]`);
+  if (!li || reducedMotion()) return undefined;
+  let next = li.nextElementSibling;
+  while (next && !next.matches("li[data-article]")) next = next.nextElementSibling;
+  const before = next ? Number(next.getAttribute("data-article")) : null;
+  return { html: li.innerHTML, className: li.className, before };
 }
 
 /**
  * Shows that an article was read or skipped: its card leaves the list (`done` is the action,
  * which may still be running) and a toast offers 「元に戻す」, which puts the article back in
- * the inbox. Only the latest toast can be undone.
+ * the inbox. Only the latest toast can be undone. With `refetched`, the list is about to be
+ * fetched again without the card, so a copy of the card is kept to leave in its place.
  */
 export function useLeftInbox() {
   const { setLeaving } = useContext(LeavingContext);
   const toast = useToast();
   const router = useRouter();
   return useCallback(
-    (id: number, kind: "read" | "skip", done: Promise<unknown> = Promise.resolve()) => {
-      setLeaving(id, kind === "read" ? "right" : "left");
-      toast.show(kind === "read" ? "読了にしました" : "スキップしました", async () => {
+    (id: number, kind: "read" | "skip", { done = Promise.resolve(), refetched = false } = {}) => {
+      const dir = kind === "read" ? "right" : "left";
+      setLeaving(id, { dir, ghost: refetched ? takeGhost(id) : undefined });
+      // Called outside any transition, so the card shows again at once; the refresh then
+      // puts it where the list has it.
+      const undo = async () => {
         setLeaving(id, null);
-        // The restore must not reach the server before the read / skip does.
-        await done.catch(() => {});
-        await restoreArticle(id);
-        // The card comes back without motion, where the list puts it.
+        try {
+          // The restore must not reach the server before the read / skip does.
+          await done.catch(() => {});
+          await restoreArticle(id);
+        } catch (e) {
+          console.error(e);
+          setLeaving(id, { dir });
+          toast.fail(FAILED, { owner: id, undo });
+          return;
+        }
         router.refresh();
-      });
+      };
+      toast.show(kind === "read" ? "読了にしました" : "スキップしました", { owner: id, undo });
     },
     [setLeaving, toast, router],
   );
@@ -126,28 +161,45 @@ function useOpenId() {
  */
 export function InboxShell({ list, children }: { list: React.ReactNode; children: React.ReactNode }) {
   const [ids, setIds] = useState<number[] | null>(null);
-  const [leaving, setLeavingMap] = useState<ReadonlyMap<number, LeaveDirection>>(new Map());
-  const setLeaving = useCallback((id: number, dir: LeaveDirection | null) => {
+  const [leaving, setLeavingMap] = useState<ReadonlyMap<number, LeavingCard>>(new Map());
+  const setLeaving = useCallback((id: number, card: LeavingCard | null) => {
     setLeavingMap((m) => {
-      if ((m.get(id) ?? null) === dir) return m;
+      if (!card && !m.has(id)) return m;
       const next = new Map(m);
-      if (dir) next.set(id, dir);
+      if (card) next.set(id, card);
       else next.delete(id);
       return next;
     });
   }, []);
   const syncIds = useCallback((ids: number[]) => {
     setIds(ids);
-    // A card is gone for good once the refreshed list no longer has it.
+    // A card is gone for good once the refreshed list no longer has it; a ghost of it removes
+    // itself once it has left (LeavingGhosts).
     setLeavingMap((m) => {
-      const gone = [...m.keys()].filter((id) => !ids.includes(id));
+      const gone = [...m].filter(([id, card]) => !card.ghost && !ids.includes(id));
       if (gone.length === 0) return m;
       const next = new Map(m);
-      for (const id of gone) next.delete(id);
+      for (const [id] of gone) next.delete(id);
       return next;
     });
   }, []);
-  const leavingValue = useMemo(() => ({ leaving, setLeaving }), [leaving, setLeaving]);
+  // A ghost that never got shown (the list was left meanwhile) must not show up later.
+  useEffect(() => {
+    const ghosts = [...leaving].filter(([, card]) => card.ghost).map(([id]) => id);
+    if (ghosts.length === 0) return;
+    const timer = setTimeout(() => {
+      for (const id of ghosts) {
+        setLeavingMap((m) => {
+          if (!m.get(id)?.ghost) return m;
+          const next = new Map(m);
+          next.delete(id);
+          return next;
+        });
+      }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [leaving]);
+  const leavingValue = useMemo(() => ({ leaving, listed: ids, setLeaving }), [leaving, ids, setLeaving]);
   const shownIds = useMemo(() => ids && ids.filter((id) => !leaving.has(id)), [ids, leaving]);
   const open = useOpenId() !== null;
   usePhoneListScroll(open);
@@ -226,7 +278,8 @@ function usePhoneListScroll(open: boolean) {
 export function InboxNavSync({ ids }: { ids: number[] }) {
   const { setIds } = useContext(InboxNavContext);
   const key = ids.join(",");
-  useEffect(() => {
+  // Before paint, so a card's ghost (LeavingGhosts) shows in the same frame as the list without it.
+  useLayoutEffect(() => {
     setIds(key ? key.split(",").map(Number) : []);
   }, [key, setIds]);
   return null;
@@ -303,44 +356,95 @@ export function ListAfterFullLoad() {
 export function InboxItem({ id, children }: { id: number; children: React.ReactNode }) {
   const selected = useOpenId() === id;
   const ref = useRef<HTMLLIElement>(null);
-  const leaving = useLeaving(id);
-  const [phase, setPhase] = useState<"collapsing" | "gone" | null>(null);
-  // 「元に戻す」 before the list was refreshed shows the card again where it was.
-  if (!leaving && phase) setPhase(null);
+  const motion = useLeaveMotion(useLeaving(id));
   useEffect(() => {
     // Keeps the open article in sight when it was reached by j / k or a direct link.
     if (selected && isWide()) ref.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
-  useEffect(() => {
-    if (!leaving) ref.current?.style.removeProperty("height");
-  }, [leaving]);
-  // Reduced motion: no slide or collapse, the card just goes. Never true on the server, where
-  // nothing is leaving.
-  const gone = phase === "gone" || (!!leaving && reducedMotion());
+  return (
+    <>
+      <LeavingGhosts before={id} />
+      <li
+        ref={ref}
+        data-article={id}
+        aria-current={selected ? "true" : undefined}
+        {...motion}
+        className={`pressable-card flex flex-col rounded-xl border bg-surface ${
+          selected ? "border-accent ring-1 ring-accent" : "border-line"
+        } has-[[data-pending=true]]:border-accent has-[[data-pending=true]]:ring-2 has-[[data-pending=true]]:ring-accent [&:has([data-pending=true])_h2]:text-accent`}
+      >
+        {children}
+      </li>
+    </>
+  );
+}
+
+/**
+ * Slides a card out in `dir`, then closes it up so the cards below move into the gap, and
+ * hides it; `onGone` runs then. With no `dir` (「元に戻す」) the card shows again. Returns the
+ * props for the card's li.
+ */
+function useLeaveMotion(dir: LeaveDirection | undefined, onGone?: () => void) {
+  const [phase, setPhase] = useState<"collapsing" | "gone" | null>(null);
+  const [height, setHeight] = useState<number | null>(null);
+  if (!dir && phase) {
+    setPhase(null);
+    setHeight(null);
+  }
   useEffect(() => {
     if (phase !== "collapsing") return;
     const timer = setTimeout(() => setPhase("gone"), 260);
     return () => clearTimeout(timer);
   }, [phase]);
+  // Reduced motion: no slide or collapse, the card just goes. Never true on the server, where
+  // nothing is leaving.
+  const gone = phase === "gone" || (!!dir && reducedMotion());
+  const goneRef = useRef(onGone);
+  useEffect(() => {
+    goneRef.current = onGone;
+  });
+  useEffect(() => {
+    if (gone) goneRef.current?.();
+  }, [gone]);
+  return {
+    "data-leaving": dir,
+    "data-collapsing": phase === "collapsing" ? "" : undefined,
+    hidden: gone,
+    style: height === null ? undefined : { height },
+    onAnimationEnd: (e: React.AnimationEvent<HTMLLIElement>) => {
+      if (e.target !== e.currentTarget || !dir || phase) return;
+      // Fixes the height the collapse runs from.
+      setHeight(e.currentTarget.offsetHeight);
+      setPhase("collapsing");
+    },
+  };
+}
+
+/**
+ * Copies of cards that left a list which has since been fetched again without them (see
+ * Ghost), shown where they were and removed once they have left. Put one before each card
+ * (InboxItem does) and one, with `before={null}`, after the last.
+ */
+export function LeavingGhosts({ before }: { before: number | null }) {
+  const { leaving, listed, setLeaving } = useContext(LeavingContext);
+  const ghosts = [...leaving].filter(
+    ([id, card]) => card.ghost && card.ghost.before === before && listed && !listed.includes(id),
+  );
+  return ghosts.map(([id, card]) => (
+    <LeavingGhost key={id} card={card} onGone={() => setLeaving(id, null)} />
+  ));
+}
+
+function LeavingGhost({ card, onGone }: { card: LeavingCard; onGone: () => void }) {
+  const motion = useLeaveMotion(card.dir, onGone);
   return (
     <li
-      ref={ref}
-      aria-current={selected ? "true" : undefined}
-      data-leaving={leaving}
-      data-collapsing={phase === "collapsing" ? "" : undefined}
-      hidden={gone}
-      onAnimationEnd={(e) => {
-        if (e.target !== e.currentTarget || !leaving || phase) return;
-        // Fixes the height the collapse runs from; the cards below then move up into the gap.
-        e.currentTarget.style.height = `${e.currentTarget.offsetHeight}px`;
-        setPhase("collapsing");
-      }}
-      className={`pressable-card flex flex-col rounded-xl border bg-surface ${
-        selected ? "border-accent ring-1 ring-accent" : "border-line"
-      } has-[[data-pending=true]]:border-accent has-[[data-pending=true]]:ring-2 has-[[data-pending=true]]:ring-accent [&:has([data-pending=true])_h2]:text-accent`}
-    >
-      {children}
-    </li>
+      aria-hidden="true"
+      inert
+      {...motion}
+      className={card.ghost!.className}
+      dangerouslySetInnerHTML={{ __html: card.ghost!.html }}
+    />
   );
 }
 
@@ -363,7 +467,7 @@ export function CardSkipButton({ id }: { id: number }) {
         // The card starts leaving at once, while the action runs.
         const since = performance.now();
         const done = skipArticle(id);
-        leftInbox(id, "skip", done);
+        leftInbox(id, "skip", { done });
         startTransition(async () => {
           try {
             await done;
@@ -371,7 +475,7 @@ export function CardSkipButton({ id }: { id: number }) {
             // Puts the card back and says so, rather than showing the error page.
             console.error(e);
             setLeaving(id, null);
-            toast.fail("保存できませんでした。もう一度押してください");
+            toast.fail(FAILED, { owner: id });
             return;
           }
           refreshAfterLeave(router, since);
