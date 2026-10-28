@@ -47,12 +47,12 @@ export default async function FeedsPage() {
             <FeedFolderSelect feedId={f.id} feedName={f.name} folderId={f.folderId} folders={folderOptions} />
           </div>
           <form action={setFeedEnabled.bind(null, f.id, !f.enabled)}>
-            <button className="rounded-full border border-line px-3 py-1 text-xs">
+            <button className="pressable rounded-full border border-line px-3 py-1 text-xs">
               {f.enabled ? "止める" : "再開"}
             </button>
           </form>
           <form action={deleteFeed.bind(null, f.id)}>
-            <button className="px-1 py-1 text-xs text-muted" aria-label={`${f.name} を削除`}>
+            <button className="pressable px-1 py-1 text-xs text-muted" aria-label={`${f.name} を削除`}>
               削除
             </button>
           </form>
@@ -75,7 +75,7 @@ export default async function FeedsPage() {
             placeholder="新しいフォルダ(例: 毎朝読む)"
             className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-base"
           />
-          <button className="shrink-0 rounded-full border border-line px-4 py-1.5 text-sm">フォルダを作成</button>
+          <button className="pressable shrink-0 rounded-full border border-line px-4 py-1.5 text-sm">フォルダを作成</button>
         </form>
         <p className="text-sm text-muted">
           新着はおよそ1時間おきに自動で取り込みます。止めたフィードは取り込みの対象から外れます。

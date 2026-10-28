@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { NavPendingProvider, NavProgress } from "@/components/NavPending";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import "./globals.css";
 
@@ -26,7 +27,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials" />
       </head>
       <body className="min-h-full">
-        {children}
+        {/* Here rather than in the inbox, so the header tabs to 読了 / フィード show the bar too. */}
+        <NavPendingProvider>
+          {children}
+          <NavProgress />
+        </NavPendingProvider>
         <ServiceWorker />
       </body>
     </html>

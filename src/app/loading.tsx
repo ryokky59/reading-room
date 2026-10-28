@@ -1,9 +1,11 @@
 import { Header } from "@/components/Header";
+import { PendingWhileMounted } from "@/components/NavPending";
 
 // Shown at once on navigation while the server renders the page.
 export default function Loading() {
   return (
     <>
+      <PendingWhileMounted />
       <Header />
       <main className="mx-auto max-w-5xl px-4 pt-6" aria-busy="true">
         <ul className="grid gap-3 md:grid-cols-2">

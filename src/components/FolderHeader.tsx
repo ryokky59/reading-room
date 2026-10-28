@@ -29,7 +29,7 @@ export function FolderHeader({
           <button
             disabled={first}
             aria-label={`${name} を上へ`}
-            className="h-8 w-8 rounded-full border border-line text-sm disabled:opacity-30"
+            className="pressable h-8 w-8 rounded-full border border-line text-sm disabled:opacity-30"
           >
             ↑
           </button>
@@ -38,7 +38,7 @@ export function FolderHeader({
           <button
             disabled={last}
             aria-label={`${name} を下へ`}
-            className="h-8 w-8 rounded-full border border-line text-sm disabled:opacity-30"
+            className="pressable h-8 w-8 rounded-full border border-line text-sm disabled:opacity-30"
           >
             ↓
           </button>
@@ -47,7 +47,7 @@ export function FolderHeader({
           onClick={() => setEditing((v) => !v)}
           aria-expanded={editing}
           aria-label={`${name} を編集`}
-          className={`h-8 rounded-full border border-line px-3 text-xs ${editing ? "bg-text text-bg" : ""}`}
+          className={`pressable h-8 rounded-full border border-line px-3 text-xs ${editing ? "bg-text text-bg" : ""}`}
         >
           編集
         </button>
@@ -68,7 +68,7 @@ export function FolderHeader({
               aria-label="フォルダ名"
               className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-base"
             />
-            <button className="shrink-0 rounded-full bg-accent px-3 py-1.5 text-sm text-white">名前を変更</button>
+            <button className="pressable shrink-0 rounded-full bg-accent px-3 py-1.5 text-sm text-white">名前を変更</button>
           </form>
           <form
             action={async () => {
@@ -78,7 +78,7 @@ export function FolderHeader({
             className="flex items-center justify-between gap-2"
           >
             <span className="text-xs text-muted">中のフィードは「未分類」に移ります</span>
-            <button className="shrink-0 rounded-full border border-line px-3 py-1.5 text-sm text-accent">
+            <button className="pressable shrink-0 rounded-full border border-line px-3 py-1.5 text-sm text-accent">
               フォルダを削除
             </button>
           </form>

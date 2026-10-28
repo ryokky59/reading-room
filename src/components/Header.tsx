@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LinkPending } from "./NavPending";
 
 export function Header({
   active,
@@ -12,9 +13,10 @@ export function Header({
   const tab = (href: string, label: string, on: boolean) => (
     <Link
       href={href}
-      className={`rounded-full px-3 py-1 text-sm ${on ? "bg-text text-bg" : "text-muted"}`}
+      className={`pressable rounded-full px-3 py-1 text-sm ${on ? "bg-text text-bg" : "text-muted"}`}
     >
       {label}
+      <LinkPending />
     </Link>
   );
   return (

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FolderBadge } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
+import { LinkPending } from "@/components/NavPending";
 import { CardSkipButton, InboxItem, InboxNavSync, ListLink } from "@/components/InboxShell";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
@@ -171,6 +172,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
           {rows.map((a) => (
             <InboxItem key={a.id} id={a.id}>
               <Link href={`/articles/${a.id}${articleQuery}`} className="block flex-1 px-4 pt-2.5 pb-1">
+                <LinkPending />
                 <div className="flex items-center gap-2 text-xs text-muted">
                   <FolderBadge name={a.folder} />
                   {/* The host gives way first; a long site name is cut only in the narrower pane below `lg`. */}
@@ -207,9 +209,10 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
         <ListLink
           query={moreQuery}
           scroll={false}
-          className="mx-auto mt-6 block w-fit rounded-full border border-line bg-surface px-5 py-2 text-sm"
+          className="pressable mx-auto mt-6 block w-fit rounded-full border border-line bg-surface px-5 py-2 text-sm"
         >
           もっと見る(残り {total - rows.length} 本)
+          <LinkPending />
         </ListLink>
       )}
     </div>
@@ -245,12 +248,13 @@ function Chip({
       <ListLink
         query={query}
         aria-current={on ? "page" : undefined}
-        className={`flex items-center gap-1 whitespace-nowrap rounded-full border ${
+        className={`pressable flex items-center gap-1 whitespace-nowrap rounded-full border ${
           small ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
         } ${on ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface text-muted"}`}
       >
         {label}
         {count !== undefined && <span className="tabular-nums opacity-70">{count}</span>}
+        <LinkPending />
       </ListLink>
     </li>
   );

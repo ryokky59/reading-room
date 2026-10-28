@@ -268,6 +268,14 @@ const switchArticles = [
 ];
 await db.insert(schema.articles).values(switchArticles);
 
+// Press feedback (e2e/press.spec.ts): articles that tests mark read, in their own folder.
+const [pressFolder] = await db.insert(schema.folders).values({ name: "E2E 押した感", position: 60 }).returning();
+const [pressFeed] = await db.insert(schema.feeds).values(feed("press", "E2E 押した感のサイト", pressFolder.id)).returning();
+const pressArticles = [1, 2, 3].map((j) =>
+  article(1300 + j, { title: `押した感 ${j}`, titleJa: `押した感 ${j}`, source: pressFeed.name, feedId: pressFeed.id, fetchedAt: old(1300 + j) }),
+);
+await db.insert(schema.articles).values(pressArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length} articles into ${dir}`,
 );
