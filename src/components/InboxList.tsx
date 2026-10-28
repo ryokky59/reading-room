@@ -1,6 +1,7 @@
 import { asc, count, eq, max, sql } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ChipRow } from "@/components/ChipRow";
 import { FolderBadge } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
 import { LinkPending } from "@/components/NavPending";
@@ -219,17 +220,6 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
   );
 }
 
-/** A single line of chips that scrolls sideways on its own instead of widening the page. */
-function ChipRow({ children, small }: { children: React.ReactNode; small?: boolean }) {
-  return (
-    <ul
-      className={`-mx-4 flex overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] ${small ? "gap-1.5" : "gap-2"}`}
-    >
-      {children}
-    </ul>
-  );
-}
-
 function Chip({
   query,
   label,
@@ -248,9 +238,10 @@ function Chip({
       <ListLink
         query={query}
         aria-current={on ? "page" : undefined}
-        className={`pressable flex items-center gap-1 whitespace-nowrap rounded-full border ${
+        // The chosen chip's look is in `.chip-row` (globals.css): ChipRow's pill is its background.
+        className={`pressable relative z-[1] flex items-center gap-1 whitespace-nowrap rounded-full border border-line bg-surface text-muted ${
           small ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
-        } ${on ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface text-muted"}`}
+        }`}
       >
         {label}
         {count !== undefined && <span className="tabular-nums opacity-70">{count}</span>}
