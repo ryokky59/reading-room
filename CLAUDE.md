@@ -20,6 +20,7 @@ Rules:
 - Never push to `main` directly. Merging is the owner's call; agents do not merge.
 - A PR body starts with `Closes #<number>` and lists how each acceptance criterion was checked.
 - The owner checks PRs on their phone through the Vercel preview URL.
+- After each Issue's PR is reviewed, run a retrospective (`/retro`) and turn what went wrong into changes to these process files. Those changes go in their own PR on a `retro-<issue>-<slug>` branch.
 
 ## Checks
 
