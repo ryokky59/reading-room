@@ -42,3 +42,4 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 - Local dev without `DATABASE_URL` uses PGlite under `.data/` and migrates automatically. Schema changes need a Drizzle migration in `drizzle/`; say in the PR that it must be applied to production Neon before deploy.
 - Production is protected by Vercel Authentication; there is no app-level login.
 - Models are set in `src/lib/ai.ts`.
+- On phones the list stays mounted under `display: none` while an article is open (see `InboxShell.tsx`). Code that measures or animates the list must cope with zero sizes while it is hidden.
