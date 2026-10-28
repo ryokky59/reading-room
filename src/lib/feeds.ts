@@ -4,7 +4,7 @@ import { parseHTML } from "linkedom";
 import Parser from "rss-parser";
 import { digestArticle, type Digest } from "./ai";
 import { articles, feeds, getDb, type Feed } from "./db";
-import { extractArticle } from "./extract";
+import { EMPTY, extractArticle } from "./extract";
 
 type Candidate = {
   url: string;
@@ -64,7 +64,12 @@ async function save(candidates: Candidate[]): Promise<number> {
   const fresh = [...new Map(candidates.filter((c) => !knownSet.has(c.url)).map((c) => [c.url, c])).values()];
 
   const rows = await mapLimit(fresh, 6, async (c) => {
-    const ex = await extractArticle(c.url);
+    // Anything unexpected while extracting one article saves it without its body rather than
+    // failing every article in the run.
+    const ex = await extractArticle(c.url).catch((err) => {
+      console.error("extract failed", c.url, err);
+      return EMPTY;
+    });
     const title = c.title !== "(無題)" ? c.title : (ex.title ?? c.title);
     const excerpt = ex.excerpt ?? c.summary;
     const digest = await tryDigest({ title, text: ex.text, excerpt });

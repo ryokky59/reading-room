@@ -1,17 +1,32 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { unstable_rethrow, useRouter } from "next/navigation";
 import { useActionState, useState } from "react";
 import { addArticle, fetchNow, type ActionState } from "@/lib/actions";
 
 export function InboxControls() {
   const router = useRouter();
+  // A failed request shows a message under the button instead of the error page, so it can be
+  // pressed again.
   const [fetchState, fetchAction, fetching] = useActionState<ActionState>(async () => {
-    const state = await fetchNow();
-    router.refresh(); // See the note in lib/actions.ts.
-    return state;
+    try {
+      const state = await fetchNow();
+      router.refresh(); // See the note in lib/actions.ts.
+      return state;
+    } catch (e) {
+      console.error(e);
+      return { error: "取得できませんでした。もう一度押してください" };
+    }
   }, {});
-  const [addState, addAction, adding] = useActionState<ActionState, FormData>(addArticle, {});
+  const [addState, addAction, adding] = useActionState<ActionState, FormData>(async (prev, form) => {
+    try {
+      return await addArticle(prev, form);
+    } catch (e) {
+      unstable_rethrow(e); // The redirect to the added article.
+      console.error(e);
+      return { error: "記事を追加できませんでした。もう一度押してください" };
+    }
+  }, {});
   const [showAdd, setShowAdd] = useState(false);
 
   return (
@@ -33,6 +48,11 @@ export function InboxControls() {
         </button>
       </div>
       {fetchState.message && <p className="text-sm text-muted">{fetchState.message}</p>}
+      {fetchState.error && (
+        <p role="alert" className="text-sm text-accent">
+          {fetchState.error}
+        </p>
+      )}
       {showAdd && (
         <form action={addAction} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
           <input

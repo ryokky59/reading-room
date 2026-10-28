@@ -13,7 +13,7 @@ export type Extracted = {
   excerpt: string | null;
 };
 
-const EMPTY: Extracted = { title: null, html: null, text: null, excerpt: null };
+export const EMPTY: Extracted = { title: null, html: null, text: null, excerpt: null };
 
 function decode(buf: ArrayBuffer, contentType: string | null): string {
   const bytes = new Uint8Array(buf);
@@ -43,16 +43,37 @@ export async function extractArticle(url: string): Promise<Extracted> {
   }
   if (!res.ok || !(res.headers.get("content-type") ?? "").includes("html")) return EMPTY;
 
-  const html = decode(await res.arrayBuffer(), res.headers.get("content-type"));
-  const { document } = parseHTML(html);
+  let document: Document | undefined;
+  try {
+    const html = decode(await res.arrayBuffer(), res.headers.get("content-type"));
+    // linkedom's Document is close enough to the DOM Readability expects.
+    document = parseHTML(html).document as unknown as Document;
+    return parse(document, res.url || url);
+  } catch (err) {
+    // linkedom and Readability throw on some pages: an empty or text-only body leaves no root
+    // element, and a fragment without <html>/<body> sends Readability past the root. One such
+    // page must not fail the whole fetch, so the article is saved without its body.
+    console.error("extract failed", url, err instanceof Error ? err.message : err);
+    return { ...EMPTY, title: titleOf(document) };
+  }
+}
+
+function titleOf(document: Document | undefined): string | null {
+  try {
+    return document?.title || null;
+  } catch {
+    return null; // linkedom's title getter throws when the document has no root element.
+  }
+}
+
+function parse(document: Document, url: string): Extracted {
   // Readability resolves relative links against the document's base URL.
   if (!document.querySelector("base")) {
     const base = document.createElement("base");
-    base.setAttribute("href", res.url || url);
+    base.setAttribute("href", url);
     document.head?.appendChild(base);
   }
-  // linkedom's Document is close enough to the DOM Readability expects.
-  const parsed = new Readability(document as unknown as Document).parse();
+  const parsed = new Readability(document).parse();
   if (!parsed?.content) return { ...EMPTY, title: document.title || null };
 
   const clean = sanitizeHtml(parsed.content, {
