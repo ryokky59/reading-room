@@ -111,6 +111,38 @@ test("横スクロールする行で画面外のチップが選ばれていて�
   expect(await pageOverflow()).toBeLessThanOrEqual(0);
 });
 
+test("スマホで記事から戻ったとき、背景は左端から伸びずに選択中チップの上にある @mobile", async ({ page }) => {
+  await page.goto("/");
+  const nav = folderNav(page);
+  const business = chip(nav, "Business");
+  await business.click();
+  await expect(business).toHaveAttribute("aria-current", "page");
+  await expectPillOn(nav, business);
+
+  await page.getByRole("list", { name: "記事" }).getByRole("link").filter({ hasText: "ビジネスの記事" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("ビジネスの記事");
+  // Notes, every frame from here on, whether the folder row's pill was ever moving.
+  await page.evaluate(() => {
+    const w = window as unknown as { pillSlid: boolean };
+    w.pillSlid = false;
+    const watch = () => {
+      const p = document.querySelector('nav[aria-label="フォルダ"] .chip-pill');
+      if (p && p.getAnimations().length > 0) w.pillSlid = true;
+      requestAnimationFrame(watch);
+    };
+    watch();
+  });
+
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(0);
+  await expect(business).toBeVisible();
+  expect(await sliding(pill(nav))).toBe(0);
+  expect(await gap(pill(nav), business)).toBeLessThanOrEqual(1);
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => (window as unknown as { pillSlid: boolean }).pillSlid)).toBe(false);
+  expect(await gap(pill(nav), business)).toBeLessThanOrEqual(1);
+});
+
 test("動きを減らす設定では背景はすべらずに移る", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");

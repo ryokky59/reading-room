@@ -17,6 +17,12 @@ export function ChipRow({ children, small }: { children: React.ReactNode; small?
     const ul = row.current;
     const p = pill.current;
     if (!ul || !p) return;
+    // A hidden row (the phone list while an article is open) measures 0: place the pill afresh,
+    // without a slide, once the row shows again.
+    if (ul.offsetParent === null || ul.clientWidth === 0) {
+      delete ul.dataset.pill;
+      return;
+    }
     const on = ul.querySelector<HTMLElement>('a[aria-current="page"]');
     const target = ul.querySelector('[data-pending="true"]')?.closest<HTMLElement>("a") ?? on;
     if (!target) {
