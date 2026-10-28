@@ -51,7 +51,8 @@ export function ArticleView({
   initialMessages: Msg[];
 }) {
   const router = useRouter();
-  // Phones: the chat opens as a sheet over the article. Narrow PCs: a drawer from the right.
+  // Phones: the chat opens as a sheet over the article. Unfolded phones and narrow PCs (`split`
+  // to `xl`): a drawer from the right.
   // Wide PCs: an always-visible column.
   const [chatOpen, setChatOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>(initialMessages);
@@ -119,7 +120,7 @@ export function ArticleView({
 
   const done = article.status === "read";
 
-  // On PCs the list stays beside the article: reading or skipping opens the next one in it.
+  // With the list beside the article (`split` and up), reading or skipping opens the next one in it.
   const listIds = useInboxIds();
   const search = inboxHref.slice(1);
   const leaving = useRef(false);
@@ -182,7 +183,7 @@ export function ArticleView({
         }}
         rows={1}
         placeholder="質問や感想を書く"
-        className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2.5 text-base lg:min-h-20"
+        className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2.5 text-base split:min-h-20"
       />
       <button
         disabled={streaming || !hasInput}
@@ -224,9 +225,9 @@ export function ArticleView({
   );
 
   return (
-    <div className="min-h-dvh pb-36 lg:flex lg:min-h-0 lg:min-w-0 lg:flex-1 lg:pb-0">
-      {/* On PCs the article scrolls on its own, beside the list and the chat. */}
-      <div className="lg:min-w-0 lg:flex-1 lg:overflow-y-auto">
+    <div className="min-h-dvh pb-36 split:flex split:min-h-0 split:min-w-0 split:flex-1 split:pb-0">
+      {/* Beside the list (`split` and up) the article scrolls on its own, apart from the list and the chat. */}
+      <div className="split:min-w-0 split:flex-1 split:overflow-y-auto">
         <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
           <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4 lg:max-w-3xl lg:px-8">
             <Link href={done ? "/read" : inboxHref} className="py-1 pr-2 text-muted" aria-label="戻る">
@@ -295,7 +296,7 @@ export function ArticleView({
               </div>
             </div>
 
-            <div className="sticky bottom-0 mt-8 hidden gap-2 border-t border-line bg-bg/95 py-3 backdrop-blur lg:flex">
+            <div className="sticky bottom-0 mt-8 hidden gap-2 border-t border-line bg-bg/95 py-3 backdrop-blur split:flex">
               <button
                 onClick={() => setChatOpen(true)}
                 className="h-11 rounded-xl border border-line bg-surface px-4 text-sm xl:hidden"
@@ -310,7 +311,7 @@ export function ArticleView({
 
       <aside
         aria-label="AI と話す"
-        className={`${chatOpen ? "flex" : "hidden"} fixed inset-x-0 bottom-0 z-30 h-[80dvh] min-w-0 flex-col rounded-t-2xl border-t border-line bg-bg px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.25)] lg:inset-x-auto lg:top-0 lg:right-0 lg:h-dvh lg:w-[420px] lg:rounded-none lg:border-t-0 lg:border-l lg:pb-0 lg:pl-6 lg:shadow-[-8px_0_30px_rgba(0,0,0,0.25)] xl:static xl:z-auto xl:flex xl:h-auto xl:w-[380px] xl:shrink-0 xl:shadow-none`}
+        className={`${chatOpen ? "flex" : "hidden"} fixed inset-x-0 bottom-0 z-30 h-[80dvh] min-w-0 flex-col rounded-t-2xl border-t border-line bg-bg px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.25)] split:inset-x-auto split:top-0 split:right-0 split:h-dvh split:w-[420px] split:rounded-none split:border-t-0 split:border-l split:pl-6 split:shadow-[-8px_0_30px_rgba(0,0,0,0.25)] xl:static xl:z-auto xl:flex xl:h-auto xl:w-[380px] xl:shrink-0 xl:shadow-none`}
       >
         <div className="flex items-center justify-between py-3 xl:hidden">
           <p className="text-sm font-bold">AI と話す</p>
@@ -318,7 +319,7 @@ export function ArticleView({
             閉じる
           </button>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2 lg:py-4 lg:pr-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2 split:py-4 split:pr-1">
           <p className="hidden text-xs font-medium tracking-wide text-muted xl:block">AI と話す</p>
           {msgs.length === 0 && !streaming && (
             <div className="rounded-xl border border-dashed border-line p-5 text-sm text-muted">
@@ -362,7 +363,7 @@ export function ArticleView({
         <div className="border-t border-line py-3">{chatInput}</div>
       </aside>
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-line bg-bg/95 backdrop-blur pb-[env(safe-area-inset-bottom)] lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 border-t border-line bg-bg/95 backdrop-blur pb-[env(safe-area-inset-bottom)] split:hidden">
         <div className="mx-auto flex max-w-2xl flex-col gap-2 px-4 py-2">
           <button
             onClick={() => setChatOpen(true)}

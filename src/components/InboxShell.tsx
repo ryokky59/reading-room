@@ -6,9 +6,10 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import { skipArticle } from "@/lib/actions";
 import { Header } from "./Header";
 
-// PCs (Tailwind `lg` and up) read with the list, the article and the chat side by side.
-// Phones keep separate list and article screens.
-const WIDE = "(min-width: 1024px)";
+// PCs and unfolded phones (the `split` variant in globals.css, 640px and up) read with the list
+// and the article side by side; the chat joins them as a column from Tailwind `xl`.
+// Narrower phones keep separate list and article screens. Keep this in sync with globals.css.
+const WIDE = "(min-width: 640px)";
 
 /** Whether the screen is wide enough for the list pane; read at event time. */
 export function isWide() {
@@ -57,18 +58,18 @@ export function InboxShell({ list, children }: { list: React.ReactNode; children
   useArticleUrlAfterListChange();
   return (
     <InboxNavContext.Provider value={{ ids, setIds }}>
-      <div className="lg:flex lg:h-dvh lg:flex-col">
-        <Header active="inbox" className={open ? "hidden lg:block" : undefined} panes />
-        <div className="lg:flex lg:min-h-0 lg:flex-1">
+      <div className="split:flex split:h-dvh split:flex-col">
+        <Header active="inbox" className={open ? "hidden split:block" : undefined} panes />
+        <div className="split:flex split:min-h-0 split:flex-1">
           {/* A role, not an element, so the list is not remounted when an article opens. */}
           <div
             role={open ? "region" : "main"}
             aria-label={open ? "新着一覧" : undefined}
-            className={`${open ? "hidden lg:block" : ""} lg:w-80 lg:shrink-0 lg:overflow-y-auto lg:overscroll-contain lg:border-r lg:border-line`}
+            className={`${open ? "hidden split:block" : ""} split:w-70 lg:w-80 split:shrink-0 split:overflow-y-auto split:overscroll-contain split:border-r split:border-line`}
           >
             {list}
           </div>
-          <div className={`${open ? "" : "hidden"} lg:flex lg:min-w-0 lg:flex-1`}>{children}</div>
+          <div className={`${open ? "" : "hidden"} split:flex split:min-w-0 split:flex-1`}>{children}</div>
         </div>
       </div>
     </InboxNavContext.Provider>
@@ -171,7 +172,7 @@ export function ListAfterFullLoad() {
     return () => media.removeEventListener("change", load);
   }, [openId, search, router]);
   return (
-    <div className="hidden px-4 pt-4 lg:block" aria-busy="true">
+    <div className="hidden px-4 pt-4 split:block" aria-busy="true">
       <ul className="grid gap-3">
         {Array.from({ length: 4 }, (_, i) => (
           <li key={i} className="animate-pulse rounded-xl border border-line bg-surface p-4">

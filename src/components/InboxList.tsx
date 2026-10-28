@@ -167,14 +167,15 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
           未読の記事はありません。「今すぐ取得」で新着を取ってこられます。
         </p>
       ) : (
-        <ul aria-label="記事" className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-1">
+        <ul aria-label="記事" className="mt-2 grid grid-cols-1 gap-2">
           {rows.map((a) => (
             <InboxItem key={a.id} id={a.id}>
               <Link href={`/articles/${a.id}${articleQuery}`} className="block flex-1 px-4 pt-2.5 pb-1">
                 <div className="flex items-center gap-2 text-xs text-muted">
                   <FolderBadge name={a.folder} />
-                  <span className="shrink-0 font-medium text-text">{a.source}</span>
-                  <span className="truncate">{hostname(a.url)}</span>
+                  {/* The host gives way first; a long site name is cut only in the narrower pane below `lg`. */}
+                  <span className="min-w-0 truncate font-medium text-text lg:shrink-0">{a.source}</span>
+                  <span className="shrink-[999] truncate">{hostname(a.url)}</span>
                   <span className="ml-auto shrink-0">{formatDate(a.publishedAt ?? a.fetchedAt)}</span>
                 </div>
                 <h2 className="mt-1 font-bold leading-snug">{a.titleJa ?? a.title}</h2>

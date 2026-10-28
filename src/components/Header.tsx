@@ -7,7 +7,7 @@ export function Header({
 }: {
   active?: "inbox" | "read" | "feeds";
   className?: string;
-  panes?: boolean; // spans the list / article / chat panes on PCs
+  panes?: boolean; // spans the list / article / chat panes from `split` up
 }) {
   const tab = (href: string, label: string, on: boolean) => (
     <Link
@@ -21,7 +21,7 @@ export function Header({
     <header
       className={`sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)] ${className ?? ""}`}
     >
-      <div className={`mx-auto flex max-w-5xl items-center justify-between px-4 py-3 ${panes ? "lg:max-w-none" : ""}`}>
+      <div className={`mx-auto flex max-w-5xl items-center justify-between px-4 py-3 ${panes ? "split:max-w-none" : ""}`}>
         <Link href="/" className="font-bold tracking-tight">
           Reading Room
         </Link>

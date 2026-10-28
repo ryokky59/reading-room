@@ -22,6 +22,16 @@
   }
 }
 
+/*
+ * `split:` puts the list and the article side by side. 640px sits between a folded iPhone Duo
+ * (up to ~466px) and an unfolded one (669px measured in the simulator; ~626px estimated, which
+ * would need this lowered). Keep in sync with WIDE in InboxShell.tsx,
+ * and use `split:` (not `lg:`) for any later layout that depends on the panes being side by side.
+ */
+@theme {
+  --breakpoint-split: 40rem;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
