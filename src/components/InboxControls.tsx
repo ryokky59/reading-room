@@ -20,14 +20,14 @@ export function InboxControls() {
         <form action={fetchAction}>
           <button
             disabled={fetching}
-            className="rounded-full border border-line bg-surface px-4 py-2 text-sm disabled:opacity-60"
+            className="pressable rounded-full border border-line bg-surface px-4 py-2 text-sm disabled:opacity-60"
           >
             {fetching ? "取得中…(1分ほど)" : "今すぐ取得"}
           </button>
         </form>
         <button
           onClick={() => setShowAdd((v) => !v)}
-          className="rounded-full border border-line bg-surface px-4 py-2 text-sm"
+          className="pressable rounded-full border border-line bg-surface px-4 py-2 text-sm"
         >
           URL を追加
         </button>

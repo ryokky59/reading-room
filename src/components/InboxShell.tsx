@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { skipArticle } from "@/lib/actions";
 import { Header } from "./Header";
+import { useNavPending } from "./NavPending";
 
 // PCs and unfolded phones (the `split` variant in globals.css, 600px and up) read with the list
 // and the article side by side; the chat joins them as a column from Tailwind `xl`.
@@ -191,7 +192,10 @@ export function ListAfterFullLoad() {
   );
 }
 
-/** A list card, highlighted while its article is open beside the list. */
+/**
+ * A list card, highlighted while its article is open beside the list. It sinks while its link is
+ * held, and its link's LinkPending outlines it until the article starts to show.
+ */
 export function InboxItem({ id, children }: { id: number; children: React.ReactNode }) {
   const selected = useOpenId() === id;
   const ref = useRef<HTMLLIElement>(null);
@@ -203,9 +207,9 @@ export function InboxItem({ id, children }: { id: number; children: React.ReactN
     <li
       ref={ref}
       aria-current={selected ? "true" : undefined}
-      className={`flex flex-col rounded-xl border bg-surface ${
+      className={`pressable-card flex flex-col rounded-xl border bg-surface ${
         selected ? "border-accent ring-1 ring-accent" : "border-line"
-      }`}
+      } has-[[data-pending=true]]:border-accent has-[[data-pending=true]]:ring-2 has-[[data-pending=true]]:ring-accent [&:has([data-pending=true])_h2]:text-accent`}
     >
       {children}
     </li>
@@ -218,15 +222,25 @@ export function InboxItem({ id, children }: { id: number; children: React.ReactN
  */
 export function CardSkipButton({ id }: { id: number }) {
   const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  useNavPending(pending);
   return (
     <form
-      action={async () => {
-        await skipArticle(id);
-        router.refresh();
-      }}
+      action={() =>
+        startTransition(async () => {
+          await skipArticle(id);
+          router.refresh();
+        })
+      }
       className="-mt-6 flex justify-end self-end px-2 pb-1"
     >
-      <button className="px-2 py-1 text-xs text-muted">スキップ</button>
+      <button
+        disabled={pending}
+        aria-busy={pending || undefined}
+        className="pressable px-2 py-1 text-xs text-muted disabled:opacity-50"
+      >
+        スキップ
+      </button>
     </form>
   );
 }

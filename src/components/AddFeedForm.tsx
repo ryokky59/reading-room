@@ -44,7 +44,7 @@ export function AddFeedForm({ folders }: { folders: { id: number; name: string }
         </label>
         <button
           disabled={pending}
-          className="ml-auto rounded-full bg-accent px-4 py-1.5 text-white disabled:opacity-60"
+          className="pressable ml-auto rounded-full bg-accent px-4 py-1.5 text-white disabled:opacity-60"
         >
           {pending ? "RSS を探しています…" : "追加する"}
         </button>

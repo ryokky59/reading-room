@@ -13,9 +13,11 @@ import {
 } from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
+import { BusyButton } from "./BusyButton";
 import { FolderBadge } from "./Header";
 import { isTyping, isWide, useInboxIds } from "./InboxShell";
 import { Markdown } from "./Markdown";
+import { useNavPending } from "./NavPending";
 
 type ArticleProps = {
   id: number;
@@ -38,6 +40,9 @@ type ArticleProps = {
 };
 
 type Msg = { id: number; role: "user" | "assistant"; content: string };
+
+/** The buttons that save and leave the article. */
+type LeaveKind = "read" | "skip" | "restore";
 
 let tempId = -1;
 
@@ -123,29 +128,66 @@ export function ArticleView({
   // With the list beside the article (`split` and up), reading or skipping opens the next one in it.
   const listIds = useInboxIds();
   const search = inboxHref.slice(1);
-  const leaving = useRef(false);
+  // Which button is leaving the article; both are held back until the next screen shows.
+  const [leavingBy, setLeavingBy] = useState<LeaveKind | null>(null);
+  const [leaving, startLeaving] = useTransition();
+  useNavPending(leaving);
+  // The last 読了 / スキップ / 未読に戻す that could not be saved; shown above the buttons.
+  const [failed, setFailed] = useState<LeaveKind | null>(null);
   function neighbor(step: 1 | -1) {
     if (!listIds) return undefined;
     const i = listIds.indexOf(article.id);
     return i < 0 ? (step === 1 ? listIds[0] : undefined) : listIds[i + step];
   }
-  async function leave(action: (id: number) => Promise<void>) {
-    if (leaving.current) return;
-    leaving.current = true;
+  /**
+   * Saves with `save` and then opens `whereTo()`, as one transition: `leaving` stays true until
+   * the next screen shows, so a second press (or e / s) does nothing meanwhile. Resolves to
+   * whether it was saved (false also when another one is already running). A failed save keeps
+   * the article, shows a message above the buttons and lets them be pressed again.
+   */
+  function run(kind: LeaveKind, save: () => Promise<void>, whereTo: () => Promise<string>): Promise<boolean> {
+    if (leaving) return Promise.resolve(false);
+    setLeavingBy(kind);
+    setFailed(null);
+    return new Promise((resolve) =>
+      startLeaving(async () => {
+        try {
+          await save();
+        } catch (e) {
+          console.error(e);
+          setFailed(kind);
+          resolve(false);
+          return;
+        }
+        // Saved: from here on the screen must move on, so it matches the database.
+        const href = await whereTo().catch(() => inboxHref);
+        router.push(href);
+        // Drops the card from the list beside the article (see the note in lib/actions.ts).
+        router.refresh();
+        resolve(true);
+      }),
+    );
+  }
+
+  /** 読了 / スキップ, then the next article beside the list (`split` and up) or the list. */
+  function leave(kind: "read" | "skip"): Promise<boolean> {
     const wide = isWide();
-    let next = wide ? neighbor(1) : undefined;
-    try {
-      await action(article.id);
-      // Past the last loaded card, the next unread may still be behind 「もっと見る」.
-      if (wide && next === undefined) next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
-    } catch (e) {
-      leaving.current = false;
-      throw e;
-    }
-    // Without a next article, the inbox shows its empty state beside the list.
-    router.push(next === undefined ? inboxHref : `/articles/${next}${search}`);
-    // Drops the card from the list beside the article (see the note in lib/actions.ts).
-    router.refresh();
+    const planned = wide ? neighbor(1) : undefined;
+    return run(
+      kind,
+      () => (kind === "read" ? markRead : skipArticle)(article.id),
+      async () => {
+        let next = planned;
+        // Past the last loaded card, the next unread may still be behind 「もっと見る」.
+        // If that lookup fails, the list (with its empty state beside it) is shown instead.
+        if (wide && next === undefined) next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
+        return next === undefined ? inboxHref : `/articles/${next}${search}`;
+      },
+    );
+  }
+
+  function restore(): Promise<boolean> {
+    return run("restore", () => restoreArticle(article.id), async () => inboxHref);
   }
 
   // PC shortcuts: j / k next / previous article, e read, s skip. Typing is left alone.
@@ -157,9 +199,9 @@ export function ArticleView({
         const id = neighbor(e.key === "j" ? 1 : -1);
         if (id !== undefined) router.push(`/articles/${id}${search}`);
       } else if (e.key === "e" && !done) {
-        void leave(markRead);
+        void leave("read");
       } else if (e.key === "s" && !done) {
-        void leave(skipArticle);
+        void leave("skip");
       }
     };
   });
@@ -194,33 +236,47 @@ export function ArticleView({
     </form>
   );
 
-  const actions = done ? (
-    <div className="flex gap-2">
-      <button
-        onClick={async () => {
-          await restoreArticle(article.id);
-          router.push(inboxHref);
-          router.refresh();
-        }}
-        className="h-11 flex-1 rounded-xl border border-line bg-surface text-sm"
-      >
-        未読に戻す
-      </button>
-    </div>
-  ) : (
-    <div className="flex gap-2">
-      <button
-        onClick={() => leave(skipArticle)}
-        className="h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted"
-      >
-        スキップ
-      </button>
-      <button
-        onClick={() => leave(markRead)}
-        className="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white"
-      >
-        読了にする
-      </button>
+  const busy = (kind: LeaveKind) => leaving && leavingBy === kind;
+  // The button that was not pressed fades while the other one runs.
+  const held = (kind: LeaveKind) => (leaving && leavingBy !== kind ? "opacity-50" : "");
+  const actions = (
+    <div className="flex flex-col gap-2">
+      {failed && !leaving && (
+        <p role="alert" className="text-center text-xs text-accent">
+          保存できませんでした。もう一度押してください
+        </p>
+      )}
+      {done ? (
+        <div className="flex gap-2">
+          <BusyButton
+            onClick={() => void restore()}
+            busy={busy("restore")}
+            disabled={leaving}
+            className={`h-11 flex-1 rounded-xl border border-line bg-surface text-sm ${held("restore")}`}
+          >
+            未読に戻す
+          </BusyButton>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <BusyButton
+            onClick={() => void leave("skip")}
+            busy={busy("skip")}
+            disabled={leaving}
+            className={`h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted ${held("skip")}`}
+          >
+            スキップ
+          </BusyButton>
+          <BusyButton
+            onClick={() => void leave("read")}
+            busy={busy("read")}
+            disabled={leaving}
+            className={`h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white ${held("read")}`}
+          >
+            読了にする
+          </BusyButton>
+        </div>
+      )}
     </div>
   );
 
@@ -230,7 +286,7 @@ export function ArticleView({
       <div className="split:min-w-0 split:flex-1 split:overflow-y-auto">
         <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
           <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4 lg:max-w-3xl lg:px-8">
-            <Link href={done ? "/read" : inboxHref} className="py-1 pr-2 text-muted" aria-label="戻る">
+            <Link href={done ? "/read" : inboxHref} className="pressable py-1 pr-2 text-muted" aria-label="戻る">
               ←
             </Link>
           </div>
@@ -299,7 +355,7 @@ export function ArticleView({
             <div className="sticky bottom-0 mt-8 hidden gap-2 border-t border-line bg-bg/95 py-3 backdrop-blur split:flex">
               <button
                 onClick={() => setChatOpen(true)}
-                className="h-11 rounded-xl border border-line bg-surface px-4 text-sm xl:hidden"
+                className="pressable h-11 rounded-xl border border-line bg-surface px-4 text-sm xl:hidden"
               >
                 <span className="font-medium text-accent">AI</span> と話す
               </button>
@@ -367,7 +423,7 @@ export function ArticleView({
         <div className="mx-auto flex max-w-2xl flex-col gap-2 px-4 py-2">
           <button
             onClick={() => setChatOpen(true)}
-            className="flex h-11 items-center gap-2 rounded-xl border border-line bg-surface px-3 text-left text-sm text-muted"
+            className="pressable flex h-11 items-center gap-2 rounded-xl border border-line bg-surface px-3 text-left text-sm text-muted"
           >
             <span className="font-medium text-accent">AI</span>
             {msgs.length > 0 ? "対話の続きを開く" : "AI に質問する"}
@@ -388,6 +444,7 @@ export function ArticleView({
 function FeedPause({ feedId, enabled, source }: { feedId: number; enabled: boolean; source: string }) {
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
+  useNavPending(pending);
   const router = useRouter();
   const set = (next: boolean) =>
     startTransition(async () => {

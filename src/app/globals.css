@@ -60,6 +60,112 @@ body {
     -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
     "Yu Gothic UI", sans-serif;
   -webkit-text-size-adjust: 100%;
+  /* The press styles below show the tap; iOS's grey flash on top of them would be doubled. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Press feedback. `pressable` sinks a button, chip or tab while it is held. `pressable-card`
+ * goes on a list card and sinks it only while a link inside it is held (at any depth), not
+ * while one of its buttons (the card's スキップ) is. Both stay still with reduced motion.
+ * They set only transform and background-color, through the transition longhands; to animate
+ * something else on the same element, list every property, e.g.
+ * `transition-[transform,background-color,left]`, or animate a child element instead.
+ */
+@utility pressable {
+  transition-property: transform, background-color;
+  transition-duration: 0.12s;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  &:not(:disabled):active {
+    transform: scale(0.94);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition-duration: 0s;
+    &:not(:disabled):active {
+      transform: none;
+    }
+  }
+}
+
+@utility pressable-card {
+  transition-property: transform, background-color;
+  transition-duration: 0.12s;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  &:has(a:active) {
+    transform: scale(0.97);
+    background-color: color-mix(in srgb, var(--surface), var(--text) 5%);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition-duration: 0s;
+    &:has(a:active) {
+      transform: none;
+    }
+  }
+}
+
+/* A spinner in front of a button's label while its action runs (BusyButton). */
+.spin {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 6px;
+  vertical-align: -2px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* The bar at the top of the screen while the next screen loads (NavProgress). */
+.nav-progress {
+  position: fixed;
+  top: env(safe-area-inset-top);
+  left: env(safe-area-inset-left);
+  right: env(safe-area-inset-right);
+  z-index: 50;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.nav-progress > i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+}
+.nav-progress[data-state="run"] > i {
+  animation: nav-progress 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.nav-progress[data-state="done"] > i {
+  width: 100%;
+  opacity: 0;
+  transition: opacity 0.25s 0.1s;
+}
+@keyframes nav-progress {
+  from {
+    width: 0;
+  }
+  to {
+    width: 80%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+  .nav-progress[data-state="run"] > i {
+    width: 80%;
+    animation: none;
+  }
+  .nav-progress[data-state="done"] > i {
+    transition: none;
+  }
 }
 
 /* Article body and AI replies */
