@@ -112,7 +112,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
   const articleQuery = inboxQuery(current);
 
   return (
-    <div className="mx-auto max-w-5xl px-4 pb-16 pt-4">
+    <div className="mx-auto max-w-5xl overflow-x-clip px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
       <InboxNavSync ids={rows.map((a) => a.id)} />
       <InboxControls />
       <nav aria-label="フォルダ" className="mt-4">

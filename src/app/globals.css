@@ -168,6 +168,69 @@ body {
   }
 }
 
+/*
+ * A list card leaving after スキップ (to the left) or 読了 (a small lift, then to the right).
+ * InboxItem then collapses it with `data-collapsing` so the cards below close the gap, and
+ * hides it. With reduced motion InboxItem hides it at once.
+ */
+[data-leaving="left"] {
+  animation: leave-left 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+[data-leaving="right"] {
+  animation: leave-right 0.38s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+[data-leaving][data-collapsing] {
+  height: 0 !important;
+  margin-top: -0.5rem; /* the list's gap-2 */
+  border-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition:
+    height 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin 0.25s,
+    border-width 0.25s,
+    opacity 0.2s;
+}
+@keyframes leave-left {
+  to {
+    transform: translateX(-110%);
+    opacity: 0;
+  }
+}
+@keyframes leave-right {
+  30% {
+    transform: scale(1.02);
+  }
+  to {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+}
+
+/* The toast's box slides up from below the screen (Toast.tsx); the host places it. */
+.toast {
+  transform: translateY(calc(100% + 2rem + env(safe-area-inset-bottom)));
+  visibility: hidden;
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s 0.3s;
+}
+.toast[data-open] {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-leaving] {
+    animation: none;
+  }
+  .toast,
+  .toast[data-open] {
+    transition: none;
+  }
+}
+
 /* Article body and AI replies */
 .prose-read {
   font-size: 1.0625rem;

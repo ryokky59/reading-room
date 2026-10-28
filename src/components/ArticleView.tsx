@@ -15,7 +15,7 @@ import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { BusyButton } from "./BusyButton";
 import { FolderBadge } from "./Header";
-import { isTyping, isWide, useInboxIds } from "./InboxShell";
+import { isTyping, isWide, refreshAfterLeave, useInboxIds, useLeftInbox } from "./InboxShell";
 import { Markdown } from "./Markdown";
 import { useNavPending } from "./NavPending";
 
@@ -134,6 +134,7 @@ export function ArticleView({
   useNavPending(leaving);
   // The last 読了 / スキップ / 未読に戻す that could not be saved; shown above the buttons.
   const [failed, setFailed] = useState<LeaveKind | null>(null);
+  const leftInbox = useLeftInbox();
   function neighbor(step: 1 | -1) {
     if (!listIds) return undefined;
     const i = listIds.indexOf(article.id);
@@ -149,6 +150,7 @@ export function ArticleView({
     if (leaving) return Promise.resolve(false);
     setLeavingBy(kind);
     setFailed(null);
+    const wide = isWide();
     return new Promise((resolve) =>
       startLeaving(async () => {
         try {
@@ -159,11 +161,21 @@ export function ArticleView({
           resolve(false);
           return;
         }
+        // Read cards leave the list to the right, skipped ones to the left, with a toast to undo.
+        if (kind !== "restore") leftInbox(article.id, kind);
         // Saved: from here on the screen must move on, so it matches the database.
         const href = await whereTo().catch(() => inboxHref);
-        router.push(href);
-        // Drops the card from the list beside the article (see the note in lib/actions.ts).
-        router.refresh();
+        if (kind === "restore") {
+          router.push(href);
+          router.refresh();
+        } else {
+          if (wide) router.push(href);
+          // Phones go back to the list as it was, without asking the server for it, so the card
+          // is still there to be seen leaving. Next.js syncs the URL and the pathname with this.
+          else window.history.pushState(null, "", href);
+          // Drops the card from the list once it has left (see the note in lib/actions.ts).
+          refreshAfterLeave(router);
+        }
         resolve(true);
       }),
     );
