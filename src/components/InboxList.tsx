@@ -111,6 +111,8 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
   const moreQuery = inboxQuery(current, { n: String(limit + PAGE_SIZE) });
   const articleQuery = inboxQuery(current);
 
+  // Clipped sideways so a card sliding out does not widen the page or the pane; the bottom
+  // padding keeps the last card clear of the toast (InboxShell).
   return (
     <div className="mx-auto max-w-5xl overflow-x-clip px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
       <InboxNavSync ids={rows.map((a) => a.id)} />
