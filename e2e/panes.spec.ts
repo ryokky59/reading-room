@@ -425,9 +425,11 @@ test.describe("狭い PC 幅", () => {
 const overflowsX = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
-// An unfolded iPhone Duo (portrait and landscape, as measured in the simulator) reads with the
-// list and the article side by side, like a PC; the chat is a drawer from the right.
+// An unfolded iPhone Duo (the estimated portrait width, and portrait and landscape as measured in
+// the simulator) reads with the list and the article side by side, like a PC; the chat is a
+// drawer from the right.
 for (const viewport of [
+  { width: 626, height: 890 }, // unfolded portrait, estimated
   { width: 669, height: 825 },
   { width: 951, height: 543 },
 ]) {

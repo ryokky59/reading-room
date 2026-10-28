@@ -183,7 +183,7 @@ export function ArticleView({
         }}
         rows={1}
         placeholder="質問や感想を書く"
-        className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2.5 text-base split:min-h-20"
+        className="max-h-32 min-h-11 flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2.5 text-base lg:min-h-20"
       />
       <button
         disabled={streaming || !hasInput}
@@ -311,7 +311,7 @@ export function ArticleView({
 
       <aside
         aria-label="AI と話す"
-        className={`${chatOpen ? "flex" : "hidden"} fixed inset-x-0 bottom-0 z-30 h-[80dvh] min-w-0 flex-col rounded-t-2xl border-t border-line bg-bg px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.25)] split:inset-x-auto split:top-0 split:right-0 split:h-dvh split:w-[420px] split:rounded-none split:border-t-0 split:border-l split:pl-6 split:shadow-[-8px_0_30px_rgba(0,0,0,0.25)] xl:static xl:z-auto xl:flex xl:h-auto xl:w-[380px] xl:shrink-0 xl:shadow-none`}
+        className={`${chatOpen ? "flex" : "hidden"} fixed inset-x-0 bottom-0 z-30 h-[80dvh] min-w-0 flex-col rounded-t-2xl border-t border-line bg-bg px-4 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.25)] split:inset-x-auto split:top-0 split:right-0 split:h-dvh split:w-[420px] split:rounded-none split:border-t-0 split:border-l split:pl-6 split:pr-[calc(1rem+env(safe-area-inset-right))] split:shadow-[-8px_0_30px_rgba(0,0,0,0.25)] xl:static xl:z-auto xl:flex xl:pr-4 xl:h-auto xl:w-[380px] xl:shrink-0 xl:shadow-none`}
       >
         <div className="flex items-center justify-between py-3 xl:hidden">
           <p className="text-sm font-bold">AI と話す</p>

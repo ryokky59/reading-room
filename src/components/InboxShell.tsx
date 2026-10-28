@@ -6,10 +6,10 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import { skipArticle } from "@/lib/actions";
 import { Header } from "./Header";
 
-// PCs and unfolded phones (the `split` variant in globals.css, 640px and up) read with the list
+// PCs and unfolded phones (the `split` variant in globals.css, 600px and up) read with the list
 // and the article side by side; the chat joins them as a column from Tailwind `xl`.
 // Narrower phones keep separate list and article screens. Keep this in sync with globals.css.
-const WIDE = "(min-width: 640px)";
+const WIDE = "(min-width: 600px)";
 
 /** Whether the screen is wide enough for the list pane; read at event time. */
 export function isWide() {
@@ -62,14 +62,19 @@ export function InboxShell({ list, children }: { list: React.ReactNode; children
         <Header active="inbox" className={open ? "hidden split:block" : undefined} panes />
         <div className="split:flex split:min-h-0 split:flex-1">
           {/* A role, not an element, so the list is not remounted when an article opens. */}
+          {/* The safe-area insets (0 on PCs) keep the panes clear of a landscape iPhone's notch and corners. */}
           <div
             role={open ? "region" : "main"}
             aria-label={open ? "新着一覧" : undefined}
-            className={`${open ? "hidden split:block" : ""} split:w-70 lg:w-80 split:shrink-0 split:overflow-y-auto split:overscroll-contain split:border-r split:border-line`}
+            className={`${open ? "hidden split:block" : ""} split:w-[calc(17.5rem+env(safe-area-inset-left))] lg:w-[calc(20rem+env(safe-area-inset-left))] split:shrink-0 split:overflow-y-auto split:overscroll-contain split:border-r split:border-line split:pl-[env(safe-area-inset-left)]`}
           >
             {list}
           </div>
-          <div className={`${open ? "" : "hidden"} split:flex split:min-w-0 split:flex-1`}>{children}</div>
+          <div
+            className={`${open ? "" : "hidden"} split:flex split:min-w-0 split:flex-1 split:pr-[env(safe-area-inset-right)]`}
+          >
+            {children}
+          </div>
         </div>
       </div>
     </InboxNavContext.Provider>
