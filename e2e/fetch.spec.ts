@@ -60,6 +60,13 @@ test.describe("本文を取り出せないページ", () => {
 <rss version="2.0"><channel><title>取得テスト</title><link>${origin}/</link>
 ${listItems ? items.map(([t, p]) => `<item><title>${t}</title><link>${origin}${p}</link><pubDate>${now}</pubDate></item>`).join("") : ""}
 </channel></rss>`);
+      } else if (req.url === "/nul-broken.xml") {
+        // The parser quotes the bad character in its error, so the feed's error holds a NUL.
+        res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+        res.end(`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>NUL 壊れた XML</title><link>${origin}/</link>
+${listNulItems ? `<item><ti\u0000tle>壊れた項目</title><link>${origin}/nul/good</link></item>` : ""}
+</channel></rss>`);
       } else if (req.url === "/nul.xml") {
         const now = new Date().toUTCString();
         const items = [
@@ -115,18 +122,25 @@ ${listNulItems ? items.map(([t, p]) => `<item><title>${t}</title><link>${origin}
     await expect(page.getByRole("main")).toContainText("取得テストの本文です。");
   });
 
-  test("NUL 文字を含む記事が混ざっていても「今すぐ取得」が終わり、どの記事も NUL 抜きで保存される", async ({ page }) => {
-    test.setTimeout(120_000);
+  test("NUL 文字を含む記事やフィードが混ざっていても「今すぐ取得」が終わり、どの記事も NUL 抜きで保存される", async ({ page }) => {
+    test.setTimeout(180_000);
     await page.goto("/feeds");
-    await page.getByLabel("サイトを追加").fill(`${origin}/nul.xml`);
-    await page.getByPlaceholder("表示名(空ならサイト名を使います)").fill("NUL テスト");
-    await page.getByRole("button", { name: "追加する" }).click();
-    await expect(page.getByText("「NUL テスト」を追加し、0 本を取り込みました")).toBeVisible({ timeout: 60_000 });
+    for (const [path, name] of [
+      ["/nul.xml", "NUL テスト"],
+      ["/nul-broken.xml", "NUL 壊れた XML"],
+    ]) {
+      await page.getByLabel("サイトを追加").fill(`${origin}${path}`);
+      await page.getByPlaceholder("表示名(空ならサイト名を使います)").fill(name);
+      await page.getByRole("button", { name: "追加する" }).click();
+      await expect(page.getByText(`「${name}」を追加し、0 本を取り込みました`)).toBeVisible({ timeout: 60_000 });
+    }
 
     listNulItems = true;
     await page.goto("/");
     await fetchButton(page).click();
-    await expect(page.getByText(/^3 本の新着を追加しました/)).toBeVisible({ timeout: 90_000 });
+    const result = page.getByText(/^3 本の新着を追加しました/);
+    await expect(result).toBeVisible({ timeout: 90_000 });
+    await expect(result).toContainText("NUL 壊れた XML");
     await expect(fetchFailure(page)).toHaveCount(0);
 
     await expect(card(page, "NUL テスト 正常な記事")).toBeVisible();
@@ -135,6 +149,10 @@ ${listNulItems ? items.map(([t, p]) => `<item><title>${t}</title><link>${origin}
     await card(page, "NUL テスト 本文に NUL がある記事").getByRole("link").first().click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("NUL テスト 本文に NUL がある記事");
     await expect(page.getByRole("main")).toContainText("NUL を含む本文です。");
+
+    // The broken feed is recorded as failed, with the parser's message minus the NUL.
+    await page.goto("/feeds");
+    await expect(page.getByRole("main").getByText(/^取得失敗: Invalid character in tag name/)).toBeVisible();
   });
 
   test("「URL を追加」で NUL 文字を含むページを追加すると、記事が開く", async ({ page }) => {

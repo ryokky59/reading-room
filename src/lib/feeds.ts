@@ -17,12 +17,15 @@ type Candidate = {
 
 export type FetchResult = { added: number; failedFeeds: string[] };
 
-const parser = new Parser({ timeout: 15_000, headers: { "User-Agent": "reading-room/1.0" } });
+// A fresh parser for each parse: after a parse error, rss-parser's next parse of the same bad
+// XML returns one empty item instead of failing, so the retry below hid broken feeds.
+const parseFeed = (url: string) =>
+  new Parser({ timeout: 15_000, headers: { "User-Agent": "reading-room/1.0" } }).parseURL(url);
 
 async function collect(feed: Feed): Promise<Candidate[]> {
   const since = Date.now() - feed.days * 86_400_000;
   // Feed hosts time out now and then; one retry clears most of it.
-  const parsed = await parser.parseURL(feed.url).catch(() => parser.parseURL(feed.url));
+  const parsed = await parseFeed(feed.url).catch(() => parseFeed(feed.url));
   return parsed.items
     .map((item) => {
       const date = item.isoDate ?? item.pubDate;
@@ -55,13 +58,20 @@ async function mapLimit<T, R>(items: T[], n: number, fn: (item: T) => Promise<R>
 
 // Postgres rejects NUL in text, and one such value fails the whole batch insert. linkedom and
 // Readability keep NUL from the page, and feeds can carry it in titles and snippets.
+const stripNul = (s: string) => s.replaceAll("\0", "");
+
 function withoutNul<T extends object>(o: T): T {
-  return Object.fromEntries(
-    Object.entries(o).map(([k, v]) => [k, typeof v === "string" ? v.replaceAll("\0", "") : v]),
-  ) as T;
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === "string" ? stripNul(v) : v])) as T;
 }
 
-const causeOf = (err: unknown) => (err instanceof Error && err.cause) || err;
+// Just the message and code: Drizzle's message and PGlite's error both carry the query's
+// params, which are whole article bodies.
+function brief(err: unknown): string {
+  const e = (err instanceof Error && err.cause) || err;
+  if (!(e instanceof Error)) return String(e);
+  const code = "code" in e && e.code ? ` (${e.code})` : "";
+  return e.message + code;
+}
 
 async function save(input: Candidate[]): Promise<number> {
   if (input.length === 0) return 0;
@@ -106,16 +116,20 @@ async function save(input: Candidate[]): Promise<number> {
     return (await insert(rows)).length;
   } catch (err) {
     // One bad row fails the whole batch, so save the rows one by one and skip the ones that fail.
-    // Log the cause: the error message itself repeats every value, whole bodies included.
-    console.error("batch insert failed; saving one by one", causeOf(err));
+    console.error("batch insert failed; saving one by one", brief(err));
     let added = 0;
+    let failed = 0;
     for (const row of rows) {
       try {
         added += (await insert([row])).length;
       } catch (rowErr) {
-        console.error("insert failed", row.url, causeOf(rowErr));
+        failed++;
+        console.error("insert failed", row.url, brief(rowErr));
       }
     }
+    // When every row fails the cause is not in the rows (say, a missing migration), so the
+    // run must fail rather than report 0 new articles.
+    if (rows.length > 1 && failed === rows.length) throw err;
     return added;
   }
 }
@@ -140,7 +154,7 @@ async function digestMissing(limit: number): Promise<void> {
     .limit(limit);
   await mapLimit(rows, 6, async (r) => {
     const digest = await tryDigest(r);
-    if (digest.summary) await db.update(articles).set(digest).where(eq(articles.id, r.id));
+    if (digest.summary) await db.update(articles).set(withoutNul(digest)).where(eq(articles.id, r.id));
   });
 }
 
@@ -158,7 +172,8 @@ async function run(list: Feed[]): Promise<FetchResult> {
         failedFeeds.push(f.name);
         await db
           .update(feeds)
-          .set({ lastFetchedAt: new Date(), lastError: String(err instanceof Error ? err.message : err).slice(0, 200) })
+          // Parser errors quote the offending character, which can be NUL.
+          .set({ lastFetchedAt: new Date(), lastError: stripNul(String(err instanceof Error ? err.message : err)).slice(0, 200) })
           .where(eq(feeds.id, f.id));
         return [];
       }
@@ -196,8 +211,8 @@ const COMMON_FEED_PATHS = ["/feed", "/rss", "/feed.xml", "/rss.xml", "/atom.xml"
 
 async function tryFeed(url: string): Promise<DiscoveredFeed | null> {
   try {
-    const parsed = await parser.parseURL(url);
-    return { url, title: parsed.title?.trim() || new URL(url).hostname };
+    const parsed = await parseFeed(url);
+    return { url, title: stripNul(parsed.title ?? "").trim() || new URL(url).hostname };
   } catch {
     return null;
   }
