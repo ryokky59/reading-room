@@ -290,6 +290,32 @@ const pressArticles = [
 ];
 await db.insert(schema.articles).values(pressArticles);
 
+// Cards leaving the list, and 「元に戻す」 (e2e/leave.spec.ts): one folder per test.
+const leaveFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける", "E2E スキップに失敗", "E2E 読了して履歴を遡る", "E2E 直接開いて読了", "E2E 元に戻すに失敗", "E2E 続けてスキップ"].map(
+      (name, i) => ({ name, position: 70 + i }),
+    ),
+  )
+  .returning();
+const leaveFeeds = await db
+  .insert(schema.feeds)
+  .values(leaveFolders.map((f, i) => feed(`leave-${i}`, `${f.name}のサイト`, f.id)))
+  .returning();
+const leaveArticles = leaveFeeds.flatMap((f, i) =>
+  [1, 2, 3].map((j) =>
+    article(1400 + i * 10 + j, {
+      title: `${leaveFolders[i].name} ${j}`,
+      titleJa: `${leaveFolders[i].name} ${j}`,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: old(1400 + i * 10 + j),
+    }),
+  ),
+);
+await db.insert(schema.articles).values(leaveArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length} articles into ${dir}`,
 );

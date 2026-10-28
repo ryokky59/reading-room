@@ -5,7 +5,7 @@ import { ChipRow } from "@/components/ChipRow";
 import { FolderBadge } from "@/components/Header";
 import { InboxControls } from "@/components/InboxControls";
 import { LinkPending } from "@/components/NavPending";
-import { CardSkipButton, InboxItem, InboxNavSync, ListLink } from "@/components/InboxShell";
+import { CardSkipButton, InboxItem, InboxNavSync, LeavingGhosts, ListLink } from "@/components/InboxShell";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
 import { inboxOrder, inboxQuery, inboxWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
@@ -112,8 +112,10 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
   const moreQuery = inboxQuery(current, { n: String(limit + PAGE_SIZE) });
   const articleQuery = inboxQuery(current);
 
+  // Clipped sideways so a card sliding out does not widen the page or the pane; the bottom
+  // padding keeps the last card clear of the toast (InboxShell).
   return (
-    <div className="mx-auto max-w-5xl px-4 pb-16 pt-4">
+    <div className="mx-auto max-w-5xl overflow-x-clip px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
       <InboxNavSync ids={rows.map((a) => a.id)} />
       <InboxControls />
       <nav aria-label="フォルダ" className="mt-4">
@@ -204,6 +206,7 @@ async function List({ filter, onEmptySite }: { filter: InboxFilter; onEmptySite:
               <CardSkipButton id={a.id} />
             </InboxItem>
           ))}
+          <LeavingGhosts before={null} />
         </ul>
       )}
       {rows.length < total && (
