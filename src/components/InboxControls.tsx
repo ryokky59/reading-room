@@ -28,6 +28,7 @@ export function InboxControls() {
     }
   }, {});
   const [showAdd, setShowAdd] = useState(false);
+  const [url, setUrl] = useState("");
 
   return (
     <div className="flex flex-col gap-2">
@@ -60,6 +61,9 @@ export function InboxControls() {
             type="url"
             inputMode="url"
             required
+            // Controlled, so the URL stays after a failed request instead of being reset with the form.
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
             placeholder="https://…"
             className="rounded-lg border border-line bg-bg px-3 py-2 text-base"
           />

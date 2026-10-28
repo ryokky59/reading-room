@@ -75,6 +75,8 @@ test("押している間だけカード・チップ・ボタンが縮み、カ�
   };
   /** Holds the mouse on `el`, runs `check`, then lets go elsewhere so nothing is clicked. */
   const hold = async (el: Locator, check: () => Promise<void>) => {
+    // Articles fetched by earlier tests (e2e/fetch.spec.ts) can push the card down the list.
+    await el.scrollIntoViewIfNeeded();
     const { x, y } = await box(el);
     await page.mouse.move(x, y);
     await page.mouse.down();

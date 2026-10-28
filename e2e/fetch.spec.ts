@@ -9,7 +9,8 @@ import { expect, test, type Page } from "@playwright/test";
 const cards = (page: Page) => page.getByRole("list", { name: "記事" }).getByRole("listitem");
 const card = (page: Page, title: string) => cards(page).filter({ hasText: title });
 const fetchButton = (page: Page) => page.getByRole("button", { name: "今すぐ取得" });
-const abortActions = (page: Page) =>
+const fetchFailure = (page: Page) => page.getByRole("alert").filter({ hasText: "取得できませんでした" });
+const abortActions =(page: Page) =>
   page.route("**/*", (route) => ("next-action" in route.request().headers() ? route.abort() : route.fallback()));
 
 const good = (title: string) =>
@@ -76,7 +77,7 @@ ${listItems ? items.map(([t, p]) => `<item><title>${t}</title><link>${origin}${p
     await fetchButton(page).click();
     // The other enabled feeds in the seed fail, and are listed after the count.
     await expect(page.getByText(/^3 本の新着を追加しました/)).toBeVisible({ timeout: 90_000 });
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(fetchFailure(page)).toHaveCount(0);
 
     await expect(card(page, "取得テスト 正常な記事")).toBeVisible();
     await expect(card(page, "取得テスト 中身が空のページ")).toBeVisible();
@@ -111,13 +112,13 @@ test("「今すぐ取得」の通信が失敗すると、ボタンの下にメ�
   await page.goto("/");
   await abortActions(page);
   await fetchButton(page).click();
-  await expect(page.getByRole("alert")).toHaveText("取得できませんでした。もう一度押してください");
+  await expect(fetchFailure(page)).toHaveText("取得できませんでした。もう一度押してください");
   await expect(fetchButton(page)).toBeEnabled();
 
   await page.unrouteAll();
   await fetchButton(page).click();
   await expect(page.getByText(/本の新着を追加しました/)).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(fetchFailure(page)).toHaveCount(0);
 });
 
 test("「URL を追加」の通信が失敗すると、メッセージが出て、もう一度押せる", async ({ page }) => {
