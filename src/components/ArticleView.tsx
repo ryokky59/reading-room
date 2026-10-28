@@ -41,6 +41,9 @@ type ArticleProps = {
 
 type Msg = { id: number; role: "user" | "assistant"; content: string };
 
+/** The buttons that save and leave the article. */
+type LeaveKind = "read" | "skip" | "restore";
+
 let tempId = -1;
 
 export function ArticleView({
@@ -126,48 +129,65 @@ export function ArticleView({
   const listIds = useInboxIds();
   const search = inboxHref.slice(1);
   // Which button is leaving the article; both are held back until the next screen shows.
-  const [leavingBy, setLeavingBy] = useState<"read" | "skip" | "restore" | null>(null);
+  const [leavingBy, setLeavingBy] = useState<LeaveKind | null>(null);
   const [leaving, startLeaving] = useTransition();
   useNavPending(leaving);
+  // The last 読了 / スキップ / 未読に戻す that could not be saved; shown above the buttons.
+  const [failed, setFailed] = useState<LeaveKind | null>(null);
   function neighbor(step: 1 | -1) {
     if (!listIds) return undefined;
     const i = listIds.indexOf(article.id);
     return i < 0 ? (step === 1 ? listIds[0] : undefined) : listIds[i + step];
   }
   /**
-   * Runs 読了 / スキップ and opens what comes next, as one transition: `leaving` stays true
-   * until the next screen shows, so a second press (or e / s) does nothing meanwhile.
+   * Saves with `save` and then opens `whereTo()`, as one transition: `leaving` stays true until
+   * the next screen shows, so a second press (or e / s) does nothing meanwhile. Resolves to
+   * whether it was saved (false also when another one is already running). A failed save keeps
+   * the article, shows a message above the buttons and lets them be pressed again.
    */
-  function leave(kind: "read" | "skip") {
-    if (leaving) return;
+  function run(kind: LeaveKind, save: () => Promise<void>, whereTo: () => Promise<string>): Promise<boolean> {
+    if (leaving) return Promise.resolve(false);
     setLeavingBy(kind);
-    const wide = isWide();
-    startLeaving(async () => {
-      let next = wide ? neighbor(1) : undefined;
-      try {
-        await (kind === "read" ? markRead : skipArticle)(article.id);
-        // Past the last loaded card, the next unread may still be behind 「もっと見る」.
-        if (wide && next === undefined) next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
-      } catch (e) {
-        // Lets the buttons be pressed again rather than showing the error page.
-        console.error(e);
-        return;
-      }
-      // Without a next article, the inbox shows its empty state beside the list.
-      router.push(next === undefined ? inboxHref : `/articles/${next}${search}`);
-      // Drops the card from the list beside the article (see the note in lib/actions.ts).
-      router.refresh();
-    });
+    setFailed(null);
+    return new Promise((resolve) =>
+      startLeaving(async () => {
+        try {
+          await save();
+        } catch (e) {
+          console.error(e);
+          setFailed(kind);
+          resolve(false);
+          return;
+        }
+        // Saved: from here on the screen must move on, so it matches the database.
+        const href = await whereTo().catch(() => inboxHref);
+        router.push(href);
+        // Drops the card from the list beside the article (see the note in lib/actions.ts).
+        router.refresh();
+        resolve(true);
+      }),
+    );
   }
 
-  function restore() {
-    if (leaving) return;
-    setLeavingBy("restore");
-    startLeaving(async () => {
-      await restoreArticle(article.id);
-      router.push(inboxHref);
-      router.refresh();
-    });
+  /** 読了 / スキップ, then the next article beside the list (`split` and up) or the list. */
+  function leave(kind: "read" | "skip"): Promise<boolean> {
+    const wide = isWide();
+    const planned = wide ? neighbor(1) : undefined;
+    return run(
+      kind,
+      () => (kind === "read" ? markRead : skipArticle)(article.id),
+      async () => {
+        let next = planned;
+        // Past the last loaded card, the next unread may still be behind 「もっと見る」.
+        // If that lookup fails, the list (with its empty state beside it) is shown instead.
+        if (wide && next === undefined) next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
+        return next === undefined ? inboxHref : `/articles/${next}${search}`;
+      },
+    );
+  }
+
+  function restore(): Promise<boolean> {
+    return run("restore", () => restoreArticle(article.id), async () => inboxHref);
   }
 
   // PC shortcuts: j / k next / previous article, e read, s skip. Typing is left alone.
@@ -179,9 +199,9 @@ export function ArticleView({
         const id = neighbor(e.key === "j" ? 1 : -1);
         if (id !== undefined) router.push(`/articles/${id}${search}`);
       } else if (e.key === "e" && !done) {
-        leave("read");
+        void leave("read");
       } else if (e.key === "s" && !done) {
-        leave("skip");
+        void leave("skip");
       }
     };
   });
@@ -216,36 +236,47 @@ export function ArticleView({
     </form>
   );
 
-  const busy = (kind: typeof leavingBy) => leaving && leavingBy === kind;
-  const actions = done ? (
-    <div className="flex gap-2">
-      <BusyButton
-        onClick={restore}
-        busy={busy("restore")}
-        disabled={leaving}
-        className="h-11 flex-1 rounded-xl border border-line bg-surface text-sm"
-      >
-        未読に戻す
-      </BusyButton>
-    </div>
-  ) : (
-    <div className="flex gap-2">
-      <BusyButton
-        onClick={() => leave("skip")}
-        busy={busy("skip")}
-        disabled={leaving}
-        className="h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted"
-      >
-        スキップ
-      </BusyButton>
-      <BusyButton
-        onClick={() => leave("read")}
-        busy={busy("read")}
-        disabled={leaving}
-        className="h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white"
-      >
-        読了にする
-      </BusyButton>
+  const busy = (kind: LeaveKind) => leaving && leavingBy === kind;
+  // The button that was not pressed fades while the other one runs.
+  const held = (kind: LeaveKind) => (leaving && leavingBy !== kind ? "opacity-50" : "");
+  const actions = (
+    <div className="flex flex-col gap-2">
+      {failed && !leaving && (
+        <p role="alert" className="text-center text-xs text-accent">
+          保存できませんでした。もう一度押してください
+        </p>
+      )}
+      {done ? (
+        <div className="flex gap-2">
+          <BusyButton
+            onClick={() => void restore()}
+            busy={busy("restore")}
+            disabled={leaving}
+            className={`h-11 flex-1 rounded-xl border border-line bg-surface text-sm ${held("restore")}`}
+          >
+            未読に戻す
+          </BusyButton>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <BusyButton
+            onClick={() => void leave("skip")}
+            busy={busy("skip")}
+            disabled={leaving}
+            className={`h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted ${held("skip")}`}
+          >
+            スキップ
+          </BusyButton>
+          <BusyButton
+            onClick={() => void leave("read")}
+            busy={busy("read")}
+            disabled={leaving}
+            className={`h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white ${held("read")}`}
+          >
+            読了にする
+          </BusyButton>
+        </div>
+      )}
     </div>
   );
 

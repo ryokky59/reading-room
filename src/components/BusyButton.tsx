@@ -1,6 +1,8 @@
 /**
  * A button that sinks when pressed and, while `busy`, cannot be pressed again and shows a
- * spinner before its label. Other buttons held back by the same action pass `disabled` and fade.
+ * spinner before its label. The spinner hangs off the label's left side and the label shifts
+ * by half its width, so the button keeps its size. How a disabled button looks (e.g. faded)
+ * is left to the caller's className.
  */
 export function BusyButton({
   busy = false,
@@ -14,10 +16,12 @@ export function BusyButton({
       {...props}
       disabled={busy || disabled}
       aria-busy={busy || undefined}
-      className={`pressable ${busy ? "" : "disabled:opacity-50"} ${className ?? ""}`}
+      className={`pressable ${className ?? ""}`}
     >
-      {busy && <span className="spin" aria-hidden="true" />}
-      {children}
+      <span className={`relative inline-block ${busy ? "translate-x-[calc(0.45em+3px)]" : ""}`}>
+        {busy && <span className="spin absolute top-[calc(50%-0.45em)] right-full" aria-hidden="true" />}
+        {children}
+      </span>
     </button>
   );
 }

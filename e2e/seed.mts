@@ -271,9 +271,23 @@ await db.insert(schema.articles).values(switchArticles);
 // Press feedback (e2e/press.spec.ts): articles that tests mark read, in their own folder.
 const [pressFolder] = await db.insert(schema.folders).values({ name: "E2E 押した感", position: 60 }).returning();
 const [pressFeed] = await db.insert(schema.feeds).values(feed("press", "E2E 押した感のサイト", pressFolder.id)).returning();
-const pressArticles = [1, 2, 3].map((j) =>
-  article(1300 + j, { title: `押した感 ${j}`, titleJa: `押した感 ${j}`, source: pressFeed.name, feedId: pressFeed.id, fetchedAt: old(1300 + j) }),
-);
+// 押した感 5 starts read, for 未読に戻す. "E2E 次が取れない" has one article, so reading it beside
+// the list asks the server for the next one.
+const [lonelyFolder] = await db.insert(schema.folders).values({ name: "E2E 次が取れない", position: 61 }).returning();
+const [lonelyFeed] = await db.insert(schema.feeds).values(feed("lonely", "E2E 次が取れないサイト", lonelyFolder.id)).returning();
+const pressArticles = [
+  ...[1, 2, 3, 4, 5].map((j) =>
+    article(1300 + j, {
+      title: `押した感 ${j}`,
+      titleJa: `押した感 ${j}`,
+      source: pressFeed.name,
+      feedId: pressFeed.id,
+      fetchedAt: old(1300 + j),
+      ...(j === 5 ? { status: "read" as const, readAt: new Date(now) } : {}),
+    }),
+  ),
+  article(1310, { title: "次が取れない記事", titleJa: "次が取れない記事", source: lonelyFeed.name, feedId: lonelyFeed.id, fetchedAt: old(1310) }),
+];
 await db.insert(schema.articles).values(pressArticles);
 
 console.log(

@@ -51,7 +51,7 @@ export default async function ReadPage() {
               <span className="text-sm text-muted">{items.length} 本</span>
             </div>
             <ReviewPanel month={month} initial={reviewOf.get(month) ?? null} />
-            <ul className="mt-3 flex flex-col divide-y divide-line rounded-xl border border-line bg-surface">
+            <ul className="mt-3 flex flex-col divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
               {items.map((a) => (
                 <li key={a.id} className="pressable-card">
                   <Link href={`/articles/${a.id}`} className="block px-4 py-3">

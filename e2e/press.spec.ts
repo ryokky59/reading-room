@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 // Press feedback: what is held sinks, the pressed card stays outlined while its article loads,
 // a bar runs at the top of the screen, and 読了 / スキップ show a spinner and take one press.
@@ -41,6 +41,24 @@ async function slowActions(page: Page, ms = 1000) {
   });
   return () => sent;
 }
+
+/**
+ * Makes the server actions numbered in `failing` (1 = the first sent from now on) fail as if
+ * the connection dropped, after `ms`. Returns a function that stops failing them.
+ */
+async function failActions(page: Page, failing: number[] | "all", ms = 0) {
+  let sent = 0;
+  const handler = async (route: Route) => {
+    if (!("next-action" in route.request().headers())) return route.fallback();
+    sent++;
+    if (failing !== "all" && !failing.includes(sent)) return route.fallback();
+    await new Promise((r) => setTimeout(r, ms));
+    await route.abort().catch(() => {});
+  };
+  await page.route("**/*", handler);
+  return () => page.unroute("**/*", handler);
+}
+const failure = (page: Page) => page.getByRole("alert").filter({ hasText: "保存できませんでした" });
 
 async function openFolder(page: Page, name: string) {
   await page.goto("/");
@@ -165,4 +183,69 @@ test("動きを減らす設定では、カードは縮まずバーとくるく�
   await expect(spin).toBeVisible();
   expect(await style(spin, "animation-name")).toBe("none");
   await expect(heading(page)).not.toHaveText("押した感 2");
+});
+
+test("読了・スキップ・未読に戻すが保存できないと、記事に残ってメッセージが出て、もう一度押せる", async ({ page }) => {
+  await openFolder(page, "E2E 押した感");
+  await card(page, "押した感 4").getByRole("link").click();
+  await expect(heading(page)).toHaveText("押した感 4");
+
+  let stop = await failActions(page, "all", 500);
+  // The article's own buttons, not the cards' スキップ in the list beside it.
+  const read = page.getByRole("main").getByRole("button", { name: "読了にする" });
+  const skip = page.getByRole("main").getByRole("button", { name: "スキップ" });
+  const width = async (el: Locator) => (await el.boundingBox())!.width;
+  const skipWidth = await width(skip);
+  const readWidth = await width(read);
+  await skip.click();
+  // The spinner does not change the buttons' size.
+  await expect(skip.locator(".spin")).toBeVisible();
+  expect(await width(skip)).toBe(skipWidth);
+  expect(await width(read)).toBe(readWidth);
+
+  await expect(failure(page)).toBeVisible();
+  await expect(heading(page)).toHaveText("押した感 4");
+  await expect(skip).toBeEnabled();
+  await expect(read).toBeEnabled();
+  await expect(skip.locator(".spin")).toHaveCount(0);
+
+  await read.click();
+  await expect(failure(page)).toBeVisible();
+  await stop();
+  await read.click();
+  // It was the folder's last unread beside the list, so the list's empty state follows.
+  await expect(page.getByRole("heading", { level: 1, name: "押した感 4" })).toHaveCount(0);
+  await expect(failure(page)).toHaveCount(0);
+  await expect(card(page, "押した感 4")).toHaveCount(0);
+
+  // 未読に戻す: the same message, not the error page.
+  await page.goto("/read");
+  await page.getByRole("link", { name: /押した感 5/ }).click();
+  await expect(heading(page)).toHaveText("押した感 5");
+  stop = await failActions(page, "all");
+  const restore = page.getByRole("button", { name: "未読に戻す" });
+  await restore.click();
+  await expect(failure(page)).toBeVisible();
+  await expect(heading(page)).toHaveText("押した感 5");
+  await expect(restore).toBeEnabled();
+  await stop();
+  await restore.click();
+  await expect(page).toHaveURL("/");
+  await openFolder(page, "E2E 押した感");
+  await expect(card(page, "押した感 5")).toBeVisible();
+});
+
+test("読了は保存できて次の記事を探せなかったときは、一覧に戻って画面と保存した状態がそろう", async ({ page }) => {
+  await openFolder(page, "E2E 次が取れない");
+  const folderUrl = page.url();
+  await card(page, "次が取れない記事").getByRole("link").click();
+  await expect(heading(page)).toHaveText("次が取れない記事");
+
+  // The first action marks it read; the second (looking for the next unread) fails.
+  await failActions(page, [2]);
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(page).toHaveURL(folderUrl);
+  await expect(heading(page)).toHaveCount(0);
+  await expect(card(page, "次が取れない記事")).toHaveCount(0);
+  await expect(failure(page)).toHaveCount(0);
 });

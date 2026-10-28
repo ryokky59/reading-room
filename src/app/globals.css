@@ -66,18 +66,21 @@ body {
 
 /*
  * Press feedback. `pressable` sinks a button, chip or tab while it is held. `pressable-card`
- * goes on a list card and sinks it only while its own link is held, not its スキップ button.
- * Both stay still with reduced motion.
+ * goes on a list card and sinks it only while a link inside it is held (at any depth), not
+ * while one of its buttons (the card's スキップ) is. Both stay still with reduced motion.
+ * They set only transform and background-color, through the transition longhands; to animate
+ * something else on the same element, list every property, e.g.
+ * `transition-[transform,background-color,left]`, or animate a child element instead.
  */
 @utility pressable {
-  transition:
-    transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1),
-    background-color 0.12s;
+  transition-property: transform, background-color;
+  transition-duration: 0.12s;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
   &:not(:disabled):active {
     transform: scale(0.94);
   }
   @media (prefers-reduced-motion: reduce) {
-    transition: none;
+    transition-duration: 0s;
     &:not(:disabled):active {
       transform: none;
     }
@@ -85,16 +88,16 @@ body {
 }
 
 @utility pressable-card {
-  transition:
-    transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1),
-    background-color 0.12s;
-  &:has(> a:active) {
+  transition-property: transform, background-color;
+  transition-duration: 0.12s;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  &:has(a:active) {
     transform: scale(0.97);
     background-color: color-mix(in srgb, var(--surface), var(--text) 5%);
   }
   @media (prefers-reduced-motion: reduce) {
-    transition: none;
-    &:has(> a:active) {
+    transition-duration: 0s;
+    &:has(a:active) {
       transform: none;
     }
   }

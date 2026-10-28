@@ -8,9 +8,10 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
  * Link (LinkPending), a loading skeleton (PendingWhileMounted), or a server action and the
  * navigation after it (useNavPending with a transition's isPending). NavProgress shows the bar.
  */
-type NavPending = { count: number; begin: () => () => void };
-
-const NavPendingContext = createContext<NavPending>({ count: 0, begin: () => () => {} });
+// Two contexts: `begin` never changes, so the many LinkPendings (one per card and chip) do not
+// re-render when the count does; only NavProgress reads the count.
+const BeginContext = createContext<() => () => void>(() => () => {});
+const CountContext = createContext(0);
 
 export function NavPendingProvider({ children }: { children: React.ReactNode }) {
   const [count, setCount] = useState(0);
@@ -23,12 +24,16 @@ export function NavPendingProvider({ children }: { children: React.ReactNode }) 
       setCount((n) => n - 1);
     };
   }, []);
-  return <NavPendingContext.Provider value={{ count, begin }}>{children}</NavPendingContext.Provider>;
+  return (
+    <BeginContext.Provider value={begin}>
+      <CountContext.Provider value={count}>{children}</CountContext.Provider>
+    </BeginContext.Provider>
+  );
 }
 
 /** Counts as waiting while `pending` is true (e.g. a transition's isPending). */
 export function useNavPending(pending: boolean) {
-  const { begin } = useContext(NavPendingContext);
+  const begin = useContext(BeginContext);
   useEffect(() => (pending ? begin() : undefined), [pending, begin]);
 }
 
@@ -55,7 +60,7 @@ export function PendingWhileMounted() {
  * Fixed to the viewport: keep it out of anything that may be transformed (a pressed card).
  */
 export function NavProgress() {
-  const { count } = useContext(NavPendingContext);
+  const count = useContext(CountContext);
   const [state, setState] = useState<"idle" | "run" | "done">("idle");
   const running = useRef(false);
   useEffect(() => {
