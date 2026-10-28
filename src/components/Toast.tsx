@@ -6,15 +6,17 @@ import { useNavPending } from "./NavPending";
 // How long a toast stays when nobody presses 「元に戻す」.
 const TOAST_MS = 4000;
 
-type Toast = { key: number; message: string; undo?: () => Promise<void> };
+type Toast = { key: number; message: string; undo?: () => Promise<void>; failed?: boolean };
 
 type ToastApi = {
   /** Shows `message` with 「元に戻す」 running `undo`, in place of any toast already showing. */
   show: (message: string, undo?: () => Promise<void>) => void;
+  /** Shows that something could not be saved, as an alert in place of any toast showing. */
+  fail: (message: string) => void;
   hide: () => void;
 };
 
-const ToastContext = createContext<ToastApi>({ show: () => {}, hide: () => {} });
+const ToastContext = createContext<ToastApi>({ show: () => {}, fail: () => {}, hide: () => {} });
 
 export function useToast() {
   return useContext(ToastContext);
@@ -32,8 +34,12 @@ export function ToastProvider({ className, children }: { className?: string; chi
     setToast({ key: next.current++, message, undo });
     setOpen(true);
   }, []);
+  const fail = useCallback((message: string) => {
+    setToast({ key: next.current++, message, failed: true });
+    setOpen(true);
+  }, []);
   const hide = useCallback(() => setOpen(false), []);
-  const api = useMemo(() => ({ show, hide }), [show, hide]);
+  const api = useMemo(() => ({ show, fail, hide }), [show, fail, hide]);
 
   // A new toast starts its own 4 seconds.
   useEffect(() => {
@@ -74,7 +80,9 @@ function ToastHost({
         inert={!open}
         className="toast pointer-events-auto flex items-center justify-between gap-3 rounded-xl bg-text py-2.5 pl-4 pr-2 text-sm text-bg shadow-[0_8px_30px_rgba(0,0,0,0.25)]"
       >
-        <span className="min-w-0">{toast?.message}</span>
+        <span role={toast?.failed ? "alert" : undefined} className="min-w-0">
+          {toast?.message}
+        </span>
         {toast?.undo && (
           <button
             type="button"

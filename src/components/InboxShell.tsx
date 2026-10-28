@@ -368,10 +368,10 @@ export function CardSkipButton({ id }: { id: number }) {
           try {
             await done;
           } catch (e) {
-            // Puts the card back rather than showing the error page.
+            // Puts the card back and says so, rather than showing the error page.
             console.error(e);
             setLeaving(id, null);
-            toast.hide();
+            toast.fail("保存できませんでした。もう一度押してください");
             return;
           }
           refreshAfterLeave(router, since);

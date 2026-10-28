@@ -294,7 +294,7 @@ await db.insert(schema.articles).values(pressArticles);
 const leaveFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける"].map(
+    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける", "E2E スキップに失敗"].map(
       (name, i) => ({ name, position: 70 + i }),
     ),
   )

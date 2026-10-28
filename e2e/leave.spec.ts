@@ -167,3 +167,25 @@ test("動きを減らす設定では、カードは動かずすぐ消え、ト�
   expect(await style(toast(page).locator(".toast"), "transition-duration")).toBe("0s");
   await expect(count(page)).toHaveText(/^2 本/);
 });
+
+test("一覧のスキップが保存できなければ、カードは戻ってエラーページではなくメッセージが出る", async ({ page }) => {
+  const folder = "E2E スキップに失敗";
+  await openFolder(page, folder);
+  await page.route("**/*", (route) =>
+    "next-action" in route.request().headers() ? route.abort() : route.fallback(),
+  );
+
+  await card(page, `${folder} 1`).getByRole("button", { name: "スキップ" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" })).toBeVisible();
+  await expect(page.locator("li[data-leaving]")).toHaveCount(0);
+  await expect(card(page, `${folder} 1`)).toBeVisible();
+  await expect(list(page).getByRole("listitem")).toHaveCount(3);
+  await expect(undo(page)).toBeHidden();
+  await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+
+  // Pressing again once the server answers skips the card.
+  await page.unrouteAll();
+  await card(page, `${folder} 1`).getByRole("button", { name: "スキップ" }).click();
+  await expect(card(page, `${folder} 1`)).toHaveCount(0);
+  await expect(count(page)).toHaveText(/^2 本/);
+});
