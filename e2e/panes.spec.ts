@@ -76,6 +76,11 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(page).toHaveURL(new RegExp(`/articles/\\d+\\${filtered}$`));
     await expect(card(page, "量産記事 20")).toHaveAttribute("aria-current", "true");
     await expect(chat(page)).toBeVisible();
+    // The PC layout: a 320px list, the article, and the chat as a 380px column, not a drawer.
+    expect((await pane(page).boundingBox())!.width).toBe(320);
+    const column = (await chat(page).boundingBox())!;
+    expect([column.x + column.width, column.width]).toEqual([1440, 380]);
+    await expect(chat(page).getByRole("button", { name: "閉じる" })).toBeHidden();
 
     await card(page, "量産記事 21").getByRole("link").click();
     await expect(heading(page)).toHaveText("量産記事 21");
@@ -415,6 +420,87 @@ test.describe("狭い PC 幅", () => {
     await expect(chat(page)).toBeHidden();
   });
 });
+
+/** Whether the page scrolls sideways. */
+const overflowsX = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+
+// An unfolded iPhone Duo (the estimated portrait width, and portrait and landscape as measured in
+// the simulator) reads with the list and the article side by side, like a PC; the chat is a
+// drawer from the right.
+for (const viewport of [
+  { width: 626, height: 890 }, // unfolded portrait, estimated
+  { width: 669, height: 825 },
+  { width: 951, height: 543 },
+]) {
+  test.describe(`展開したスマホ幅 ${viewport.width}×${viewport.height}`, () => {
+    test.use({ viewport });
+
+    test("一覧と記事が横に並び、横にはみ出さない。対話は右からの引き出しで、入力欄が見える", async ({ page }) => {
+      await openFolder(page, "E2E たくさん");
+      await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeVisible();
+      expect(await overflowsX(page)).toBe(false);
+
+      await card(page, "量産記事 9").getByRole("link").click();
+      await expect(heading(page)).toHaveText("量産記事 9");
+      await expect(list(page)).toBeVisible();
+      await expect(page.getByRole("link", { name: "Reading Room" })).toBeVisible();
+      const listBox = (await pane(page).boundingBox())!;
+      const mainBox = (await page.getByRole("main").boundingBox())!;
+      expect(listBox.x).toBe(0);
+      expect(mainBox.x).toBeGreaterThanOrEqual(listBox.x + listBox.width);
+      expect(mainBox.x + mainBox.width).toBeLessThanOrEqual(viewport.width);
+      expect(Math.abs(mainBox.y - listBox.y)).toBeLessThan(100);
+      expect(await overflowsX(page)).toBe(false);
+      // The cards fit the narrower list pane instead of scrolling it sideways.
+      expect(await pane(page).evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+
+      // The phone's bottom bar gives way to the actions under the article.
+      await expect(page.getByRole("button", { name: "AI に質問する" })).toBeHidden();
+      await expect(chat(page)).toBeHidden();
+      await page.getByRole("button", { name: "AI と話す" }).click();
+      await expect(chat(page)).toBeVisible();
+      const drawer = (await chat(page).boundingBox())!;
+      expect(drawer.x + drawer.width).toBeCloseTo(viewport.width, 0);
+      expect(drawer.y).toBe(0);
+      const input = chat(page).getByPlaceholder("質問や感想を書く");
+      await expect(input).toBeInViewport({ ratio: 1 });
+      await input.fill("引き出しから質問");
+      await expect(chat(page).getByRole("button", { name: "送信" })).toBeInViewport({ ratio: 1 });
+      await chat(page).getByRole("button", { name: "閉じる" }).click();
+      await expect(chat(page)).toBeHidden();
+
+      // Another card opens beside the list without leaving it.
+      await card(page, "量産記事 10").getByRole("link").click();
+      await expect(heading(page)).toHaveText("量産記事 10");
+      await expect(card(page, "量産記事 10")).toHaveAttribute("aria-current", "true");
+    });
+  });
+}
+
+// A folded iPhone Duo stays a phone: the list and the article are separate screens.
+for (const width of [382, 466]) {
+  test.describe(`閉じたスマホ幅 ${width}`, () => {
+    test.use({ viewport: { width, height: 800 } });
+
+    test("一覧と記事が別の画面になる", async ({ page }) => {
+      await openFolder(page, "E2E たくさん");
+      await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
+      expect(await overflowsX(page)).toBe(false);
+
+      await card(page, "量産記事 9").getByRole("link").click();
+      await expect(heading(page)).toHaveText("量産記事 9");
+      await expect(list(page)).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Reading Room" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "AI に質問する" })).toBeVisible();
+      expect(await overflowsX(page)).toBe(false);
+
+      await page.getByRole("link", { name: "戻る" }).click();
+      await expect(heading(page)).toHaveCount(0);
+      await expect(card(page, "量産記事 9")).toBeVisible();
+    });
+  });
+}
 
 test("スマホ幅の記事画面には一覧もヘッダーも出ず、キー操作も効かない @mobile", async ({ page }) => {
   await page.goto("/");

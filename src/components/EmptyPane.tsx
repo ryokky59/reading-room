@@ -20,7 +20,7 @@ export function EmptyPane({ query }: { query: string }) {
   }, [first, query, router]);
 
   return (
-    <div className="hidden flex-1 items-center justify-center p-8 text-center text-sm text-muted lg:flex">
+    <div className="hidden flex-1 items-center justify-center p-8 text-center text-sm text-muted split:flex">
       {ids === null ? null : first === undefined ? (
         <p>未読の記事はありません。</p>
       ) : (

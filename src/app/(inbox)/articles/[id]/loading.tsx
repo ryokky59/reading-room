@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 // Shown at once when an article is tapped, while the server renders it.
-// On PCs it fills only the article pane; the list beside it stays.
+// Beside the list (`split` and up) it fills only the article pane; the list beside it stays.
 export default function Loading() {
   return (
-    <div className="min-h-dvh lg:min-h-0 lg:min-w-0 lg:flex-1 lg:overflow-y-auto">
+    <div className="min-h-dvh split:min-h-0 split:min-w-0 split:flex-1 split:overflow-y-auto">
       <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-14 max-w-2xl items-center px-4 lg:max-w-3xl lg:px-8">
           <Link href="/" className="py-1 pr-2 text-muted" aria-label="戻る">
