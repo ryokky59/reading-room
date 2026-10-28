@@ -12,7 +12,7 @@ Steps:
 2. Mark it started: `gh issue edit <n> --add-label in-progress --remove-label ready`.
 3. Work on a branch `issue-<n>-<slug>` created from the latest `origin/main`. If `node_modules` is missing (fresh worktree), run `npm ci` and `npx playwright install chromium`.
 4. Implement the change in the style of the surrounding code. Keep the diff to what the Issue asks.
-5. Add or update E2E tests in `e2e/` for each acceptance criterion that a test can check.
+5. Add or update E2E tests in `e2e/` for each acceptance criterion that a test can check. For a layout change, also look at a phone in portrait (390×844) and landscape (844×390) and at a PC width. The app uses `viewport-fit=cover`, so anything placed at a screen edge needs `env(safe-area-inset-*)` padding; Chromium cannot show the notch, so say so in the PR.
 6. Run lint, typecheck, build and `npm run test:e2e` (use a distinct `E2E_PORT` if another worktree may be testing). Fix failures; do not weaken tests to pass.
 7. Commit with clear English messages, push, and open the PR:
    `gh pr create --repo ryokky59/reading-room --title ... --body-file ...`
