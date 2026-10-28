@@ -53,8 +53,19 @@ async function mapLimit<T, R>(items: T[], n: number, fn: (item: T) => Promise<R>
   return out;
 }
 
-async function save(candidates: Candidate[]): Promise<number> {
-  if (candidates.length === 0) return 0;
+// Postgres rejects NUL in text, and one such value fails the whole batch insert. linkedom and
+// Readability keep NUL from the page, and feeds can carry it in titles and snippets.
+function withoutNul<T extends object>(o: T): T {
+  return Object.fromEntries(
+    Object.entries(o).map(([k, v]) => [k, typeof v === "string" ? v.replaceAll("\0", "") : v]),
+  ) as T;
+}
+
+const causeOf = (err: unknown) => (err instanceof Error && err.cause) || err;
+
+async function save(input: Candidate[]): Promise<number> {
+  if (input.length === 0) return 0;
+  const candidates = input.map(withoutNul);
   const db = await getDb();
   const known = await db
     .select({ url: articles.url })
@@ -66,14 +77,16 @@ async function save(candidates: Candidate[]): Promise<number> {
   const rows = await mapLimit(fresh, 6, async (c) => {
     // Anything unexpected while extracting one article saves it without its body rather than
     // failing every article in the run.
-    const ex = await extractArticle(c.url).catch((err) => {
-      console.error("extract failed", c.url, err);
-      return EMPTY;
-    });
+    const ex = withoutNul(
+      await extractArticle(c.url).catch((err) => {
+        console.error("extract failed", c.url, err);
+        return EMPTY;
+      }),
+    );
     const title = c.title !== "(無題)" ? c.title : (ex.title ?? c.title);
     const excerpt = ex.excerpt ?? c.summary;
     const digest = await tryDigest({ title, text: ex.text, excerpt });
-    return {
+    return withoutNul({
       url: c.url,
       title,
       ...digest,
@@ -84,15 +97,27 @@ async function save(candidates: Candidate[]): Promise<number> {
       contentText: ex.text,
       excerpt,
       charCount: ex.text?.length ?? 0,
-    };
+    });
   });
   if (rows.length === 0) return 0;
-  const inserted = await db
-    .insert(articles)
-    .values(rows)
-    .onConflictDoNothing({ target: articles.url })
-    .returning({ id: articles.id });
-  return inserted.length;
+  const insert = (values: typeof rows) =>
+    db.insert(articles).values(values).onConflictDoNothing({ target: articles.url }).returning({ id: articles.id });
+  try {
+    return (await insert(rows)).length;
+  } catch (err) {
+    // One bad row fails the whole batch, so save the rows one by one and skip the ones that fail.
+    // Log the cause: the error message itself repeats every value, whole bodies included.
+    console.error("batch insert failed; saving one by one", causeOf(err));
+    let added = 0;
+    for (const row of rows) {
+      try {
+        added += (await insert([row])).length;
+      } catch (rowErr) {
+        console.error("insert failed", row.url, causeOf(rowErr));
+      }
+    }
+    return added;
+  }
 }
 
 async function tryDigest(a: Parameters<typeof digestArticle>[0]): Promise<Partial<Digest>> {
