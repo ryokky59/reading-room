@@ -103,6 +103,44 @@ body {
   }
 }
 
+/*
+ * Folder and site chips (ChipRow.tsx). A pill behind the row slides to the chip that was
+ * pressed and stays on the chosen one; that chip only turns accent and lets the pill show
+ * through. While another chip in the row waits for its list, the chosen one looks like the rest.
+ * Before the pill is placed (the page has not hydrated yet), the chosen chip fills itself.
+ */
+.chip-pill {
+  position: absolute;
+  z-index: 0;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  pointer-events: none;
+  transition:
+    left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.chip-row a[aria-current="page"],
+.chip-row a:has([data-pending="true"]) {
+  color: var(--accent);
+  background-color: transparent;
+  border-color: transparent;
+}
+.chip-row:has([data-pending="true"]) a[aria-current="page"]:not(:has([data-pending="true"])) {
+  color: var(--muted);
+  background-color: var(--surface);
+  border-color: var(--line);
+}
+.chip-row:not([data-pill]) a[aria-current="page"] {
+  background-color: var(--accent-soft);
+  border-color: var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip-pill {
+    transition: none;
+  }
+}
+
 /* A spinner in front of a button's label while its action runs (BusyButton). */
 .spin {
   display: inline-block;
