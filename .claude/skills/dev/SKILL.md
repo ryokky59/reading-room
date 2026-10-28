@@ -11,3 +11,4 @@ Issue numbers from the owner: $ARGUMENTS
 3. When a developer reports a PR, start a `reviewer` agent for it with that PR number.
 4. If the reviewer asks for changes, send the findings back to the developer (SendMessage to the same agent) to fix and push, then review again. Stop after two rounds and report to the owner instead of looping.
 5. Report to the owner in Japanese, per Issue: the PR URL, the reviewer's 判定, what to check on the phone (the Vercel preview URL is on the PR), and anything they must do before merging. Merging is theirs.
+6. Then run the `retro` skill for each Issue (Skill tool, args: the PR number) and add its result to the report.
