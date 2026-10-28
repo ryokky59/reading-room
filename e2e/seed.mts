@@ -2,7 +2,7 @@
 // every article already has its digest, and one has a saved conversation.
 import { mkdirSync, rmSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "../src/lib/db/schema";
@@ -54,6 +54,9 @@ await db.insert(schema.messages).values([
 
 // The migration has already turned the seeded Tech / Business feeds into folders.
 // These rows let the folder tests change state without touching each other.
+// They point at real sites; 「今すぐ取得」 must not reach the network, so they point at a closed
+// local port instead (see `feed` below).
+await db.update(schema.feeds).set({ url: sql`'http://localhost:9/e2e/feeds/seeded-' || ${schema.feeds.id}` });
 const allFolders = await db.select().from(schema.folders);
 const tech = allFolders.find((f) => f.name === "Tech")!;
 const [, toDelete] = await db
@@ -63,9 +66,10 @@ const [, toDelete] = await db
     { name: "E2E 消すフォルダ", position: 3 },
   ])
   .returning();
+// Nothing listens on port 9, so 「今すぐ取得」 (e2e/fetch.spec.ts) fails these at once without the network.
 const feed = (slug: string, name: string, folderId: number) => ({
   name,
-  url: `https://example.com/e2e/feeds/${slug}`,
+  url: `http://localhost:9/e2e/feeds/${slug}`,
   folderId,
   enabled: false, // never fetched
 });
@@ -196,7 +200,7 @@ const scrollArticles = scrollFeeds.flatMap((f, i) =>
 await db.insert(schema.articles).values(scrollArticles);
 
 // Pause rows (e2e/pause-feed.spec.ts): one enabled feed per screen width, in its own folder.
-// No test runs "今すぐ取得", so these feeds are never fetched.
+// 「今すぐ取得」 tries them too and fails at once (see `feed` above).
 const pauseFolders = await db
   .insert(schema.folders)
   .values(["E2E PC で止める", "E2E スマホで止める"].map((name, i) => ({ name, position: 30 + i })))
