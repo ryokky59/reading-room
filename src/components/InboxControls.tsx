@@ -15,6 +15,14 @@ export function InboxControls() {
       return state;
     } catch (e) {
       console.error(e);
+      // The fetch takes about a minute, and a phone that locks or leaves Safari meanwhile can drop
+      // the connection while the server finishes and saves the articles. Refresh so they show.
+      router.refresh();
+      // fetch() rejects with a TypeError when the connection fails ("Failed to fetch" in Chrome,
+      // "Load failed" in Safari). An error the server sent back reaches here as a plain Error.
+      if (e instanceof TypeError) {
+        return { error: "通信が切れました。取得が終わっていれば一覧に出ています。出ていなければもう一度押してください" };
+      }
       return { error: "取得できませんでした。もう一度押してください" };
     }
   }, {});
