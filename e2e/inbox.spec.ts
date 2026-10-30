@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { openFeed } from "./nav";
 
 // Folder / site filter rows are seeded at the end of e2e/seed.mts.
 
@@ -10,14 +11,15 @@ const chip = (nav: Locator, label: string, count: number | string = "\\d+") =>
   nav.getByRole("link", { name: new RegExp(`^${escape(label)}\\s*${count}$`) });
 const cards = (page: Page) => page.getByRole("list", { name: "記事" }).getByRole("listitem");
 const card = (page: Page, title: string) => cards(page).filter({ hasText: title });
+const column = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
 
-test("フォルダを選ぶとそのフォルダの記事だけになり、サイトが未読数つきで並ぶ", async ({ page }) => {
-  await page.goto("/");
+test("「既読を含む」でフォルダを選ぶとそのフォルダの記事だけになり、サイトが未読数つきで並ぶ", async ({ page }) => {
+  await page.goto("/?a=1");
   await expect(chip(folderNav(page), "すべて")).toHaveAttribute("aria-current", "page");
   await expect(siteNav(page)).toHaveCount(0);
 
   await chip(folderNav(page), "Business").click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
   await expect(chip(folderNav(page), "Business")).toHaveAttribute("aria-current", "page");
   await expect(card(page, "ビジネスの記事")).toBeVisible();
   await expect(card(page, "速報の2本目")).toBeVisible();
@@ -27,26 +29,26 @@ test("フォルダを選ぶとそのフォルダの記事だけになり、サ�
   // Each card shows its folder instead of Tech / Business.
   await expect(card(page, "週報の記事")).toContainText("Business");
 
-  await expect(chip(siteNav(page), "E2E ビジネス速報", 2)).toBeVisible();
-  await expect(chip(siteNav(page), "E2E ビジネス週報", 1)).toBeVisible();
+  await expect(chip(siteNav(page), "E2E ビジネス速報")).toBeVisible();
+  await expect(chip(siteNav(page), "E2E ビジネス週報")).toBeVisible();
   // A site whose articles are all read gets no chip.
   await expect(siteNav(page).getByRole("link", { name: /E2E 読了だけのサイト/ })).toHaveCount(0);
 });
 
 test("サイトを選ぶとそのサイトの記事だけになる", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Opening marks the card seen; other tests open these.
   await chip(folderNav(page), "Business").click();
-  await chip(siteNav(page), "E2E ビジネス速報", 2).click();
-  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
-  await expect(chip(siteNav(page), "E2E ビジネス速報", 2)).toHaveAttribute("aria-current", "page");
+  await chip(siteNav(page), "E2E ビジネス速報").click();
+  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+&a=1$/);
+  await expect(page.getByRole("heading", { name: "E2E ビジネス速報", exact: true })).toBeVisible();
   await expect(cards(page)).toHaveCount(2);
   await expect(card(page, "ビジネスの記事")).toBeVisible();
   await expect(card(page, "速報の2本目")).toBeVisible();
   await expect(card(page, "週報の記事")).toHaveCount(0);
 
-  await siteNav(page).getByRole("link", { name: "このフォルダすべて" }).click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
-  await expect(card(page, "週報の記事")).toBeVisible();
+  await page.getByRole("link", { name: "‹ ボード" }).click();
+  await expect(page).toHaveURL("/");
+  await expect(column(page, "E2E ビジネス週報")).toBeVisible();
 });
 
 test("記事を開いて戻っても、選んだフォルダ / サイトのまま", async ({ page }) => {
@@ -62,7 +64,7 @@ test("記事を開いて戻っても、選んだフォルダ / サイトのま�
   await expect(page.getByRole("main")).toContainText("Business");
   await page.getByRole("link", { name: "戻る", exact: true }).click();
   await expect(page).toHaveURL(filtered);
-  await expect(chip(siteNav(page), "E2E ビジネス速報")).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "E2E ビジネス速報", exact: true })).toBeVisible();
   await expect(cards(page)).toHaveCount(2);
 
   // The browser's back button.
@@ -102,22 +104,17 @@ test("記事ページで読了にすると、選んでいたフォルダの一�
   await expect(card(page, "読了の戻り先 2")).toBeVisible();
 });
 
-test("サイトの最後の未読を読み終えると、そのフォルダの一覧に戻る", async ({ page }) => {
-  await page.goto("/");
-  await chip(folderNav(page), "E2E 読み終わり").click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
-  const folderUrl = page.url();
-  await chip(siteNav(page), "E2E 最後の1本のサイト", 1).click();
-  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
+test("サイトの最後の未読を読み終えると、そのフォルダのボードに戻る", async ({ page }) => {
+  await openFeed(page, "E2E 読み終わり", "E2E 最後の1本のサイト");
+  const folderUrl = page.url().replace(/&s=\d+$/, "");
   await card(page, "最後の1本").getByRole("link").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("最後の1本");
   await page.getByRole("button", { name: "読了" }).first().click();
   // The site has nothing unread now, so its folder is shown instead of an empty list.
   await expect(page).toHaveURL(folderUrl);
   await expect(chip(folderNav(page), "E2E 読み終わり", 1)).toHaveAttribute("aria-current", "page");
-  await expect(siteNav(page).getByRole("link", { name: "このフォルダすべて" })).toHaveAttribute("aria-current", "page");
-  await expect(siteNav(page).getByRole("link", { name: /E2E 最後の1本のサイト/ })).toHaveCount(0);
-  await expect(card(page, "残るサイトの記事")).toBeVisible();
+  await expect(column(page, "E2E 最後の1本のサイト").getByRole("listitem")).toHaveText(["未読はありません"]);
+  await expect(column(page, "E2E 残るサイト")).toContainText("残るサイトの記事");
 });
 
 test("「もっと見る」でも選んだフォルダが保たれる", async ({ page }) => {
@@ -160,7 +157,7 @@ test("Tech / Business の固定表示がなく、フォルダ名か「未分類�
 });
 
 test("スマホ幅でチップが横スクロールでき、画面全体は横にはみ出さない @mobile", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1");
   const pageOverflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(await pageOverflow()).toBeLessThanOrEqual(0);
 
@@ -177,13 +174,13 @@ test("スマホ幅でチップが横スクロールでき、画面全体は横�
   expect(await page.evaluate(() => window.scrollX)).toBe(0);
 
   await chip(folderNav(page), "E2E サイトの多いフォルダ").click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
   const sites = siteNav(page).getByRole("list");
   expect(await scrollable(sites)).toBe(true);
   const lastSite = chip(siteNav(page), "E2E 横に並ぶサイト 6", 1);
   await expect(lastSite).not.toBeInViewport();
   await lastSite.click();
-  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+&a=1$/);
   await expect(cards(page)).toHaveCount(1);
   await expect(card(page, "並ぶサイトの記事 6")).toBeVisible();
   expect(await pageOverflow()).toBeLessThanOrEqual(0);

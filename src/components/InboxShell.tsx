@@ -17,6 +17,7 @@ import { markFeedSeen, markFolderSeen, restoreArticle, skipArticle, unmarkSeen }
 import { OPENED_COOKIE, parseOpened, serializeOpened } from "@/lib/opened";
 import { BusyButton } from "./BusyButton";
 import { Header } from "./Header";
+import { InboxControls } from "./InboxControls";
 import { useNavPending } from "./NavPending";
 import { ToastProvider, useToast } from "./Toast";
 
@@ -73,8 +74,11 @@ type Opened = {
   opened: ReadonlySet<number>;
   /** Stops fading a card, once its article is unread again. */
   forget: (id: number) => void;
-  /** After 「すべて既読」: the list keeps only the open article. */
-  clear: () => void;
+  /**
+   * After 「すべて既読」: `rows` (a Board column's) leave; without them, the list keeps only the
+   * open article.
+   */
+  clear: (rows?: number[]) => void;
 };
 
 const OpenedContext = createContext<Opened>({ opened: new Set(), forget: () => {}, clear: () => {} });
@@ -105,10 +109,10 @@ function useOpened(openId: number | null): Opened {
       return next;
     });
   }, []);
-  const clear = useCallback(() => {
-    const ids = openIdRef.current === null ? [] : [openIdRef.current];
-    setOpened(new Set(ids));
-    writeOpened(ids);
+  const clear = useCallback((rows?: number[]) => {
+    const keep = (id: number) => (rows ? !rows.includes(id) : id === openIdRef.current);
+    setOpened((s) => new Set([...s].filter(keep)));
+    writeOpened(readOpened().filter(keep));
   }, []);
   // A layout effect: the cookie must be there before ListAfterFullLoad's effect asks for the list.
   useLayoutEffect(() => {
@@ -225,11 +229,106 @@ function useOpenId() {
   return match ? Number(match[1]) : null;
 }
 
+type BoardOrigin = {
+  /** The Board last shown, with its folder tab; null until one has shown. */
+  href: string | null;
+  /** Whether the Board, not a feed list, was on screen when the open article was opened. */
+  openedFrom: boolean;
+};
+
+const BoardOriginContext = createContext<BoardOrigin>({ href: null, openedFrom: false });
+
+/** The URL if it shows the Board, else null. Reads the params of showsBoard in lib/inbox.ts. */
+function useBoardUrl() {
+  const params = useSearchParams();
+  const atBoard = usePathname() === "/" && !/^[1-9]\d{0,9}$/.test(params.get("s") ?? "") && params.get("a") !== "1";
+  return atBoard ? `/${params.size ? `?${params}` : ""}` : null;
+}
+
+/**
+ * Remembers the Board an article was opened from. A Board row links to `/articles/<id>?f&s`, so
+ * the article's filter alone would lead back to the feed list, and only the Board has the place
+ * the owner left. Held here and not in the URL: the article URL stays what a feed list links to,
+ * and a reload (which forgets this) goes to that feed list.
+ */
+function useBoardOrigin(open: boolean): BoardOrigin {
+  const board = useBoardUrl();
+  const [href, setHref] = useState(board);
+  const [openedFrom, setOpenedFrom] = useState(board !== null);
+  if (board !== null && board !== href) setHref(board);
+  if (!open && openedFrom !== (board !== null)) setOpenedFrom(board !== null);
+  return useMemo(() => ({ href, openedFrom }), [href, openedFrom]);
+}
+
+/** Where leaving an article goes: its Board if it was opened from one, else `inboxHref`. */
+export function useLeaveHref(inboxHref: string) {
+  const { href, openedFrom } = useContext(BoardOriginContext);
+  return openedFrom && href ? href : inboxHref;
+}
+
+/** 「‹ ボード」 on a feed list: back to the folder tab it came from. It closes an open article. */
+export function BoardLink({ className, children }: { className?: string; children: React.ReactNode }) {
+  const { href } = useContext(BoardOriginContext);
+  return (
+    <Link href={href ?? "/"} className={className}>
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * Holds the Board. Next.js keeps the list slot as it was when an article opens from a Board row,
+ * but the pane beside an article is too narrow for columns: from `split` up it gets the feed list
+ * instead, by the same route as an article loaded directly (ListAfterFullLoad). Phones hide the
+ * slot and keep the Board under the article, so ← finds it where it was.
+ */
+export function BoardPane({ children }: { children: React.ReactNode }) {
+  const open = useOpenId() !== null;
+  return (
+    <>
+      {open && <ListAfterFullLoad />}
+      <div className={`${open ? "split:hidden" : "split:flex"} split:h-full split:min-w-0 split:flex-col`}>{children}</div>
+    </>
+  );
+}
+
+/** A row of a Board column, faded once it is seen, like a list card (see useFaded). */
+export function BoardRow({
+  id,
+  seen,
+  className,
+  children,
+}: {
+  id: number;
+  seen: boolean;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const faded = useFaded(id, seen);
+  return (
+    <li
+      data-row={id}
+      data-seen={faded ? "" : undefined}
+      className={`${className} ${faded ? "opacity-60" : ""} has-[[data-pending=true]]:bg-accent-soft`}
+    >
+      {children}
+    </li>
+  );
+}
+
 /**
  * Holds the list pane and the page beside it. The list is a parallel route slot, so opening
  * another article swaps only `children`: the list keeps its scroll position and filter.
  */
-export function InboxShell({ list, children }: { list: React.ReactNode; children: React.ReactNode }) {
+export function InboxShell({
+  list,
+  lastFetched,
+  children,
+}: {
+  list: React.ReactNode;
+  lastFetched: string | null;
+  children: React.ReactNode;
+}) {
   const [ids, setIds] = useState<number[] | null>(null);
   const [leaving, setLeavingMap] = useState<ReadonlyMap<number, LeavingCard>>(new Map());
   const setLeaving = useCallback((id: number, card: LeavingCard | null) => {
@@ -277,35 +376,49 @@ export function InboxShell({ list, children }: { list: React.ReactNode; children
   usePhoneListScroll(open);
   useArticleUrlAfterListChange();
   useRefreshOnLeavingArticle(open, leaving.size > 0);
+  const boardOrigin = useBoardOrigin(open);
+  // The Board takes the whole width; nothing goes beside it.
+  const board = useBoardUrl() !== null;
   return (
     <InboxNavContext.Provider value={{ ids: shownIds, setIds: syncIds }}>
       <LeavingContext.Provider value={leavingValue}>
         <OpenedContext.Provider value={openedValue}>
+        <BoardOriginContext.Provider value={boardOrigin}>
         {/* Phones: bottom centre, and hidden over an article, whose buttons sit at the bottom.
             Beside an article (`split` and up): over the bottom of the list pane. */}
         <ToastProvider
           className={`${open ? "hidden split:block" : ""} pointer-events-none fixed z-40 bottom-[calc(1rem+env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] split:right-auto split:left-[calc(1rem+env(safe-area-inset-left))] split:w-[15.5rem] lg:w-[18rem]`}
         >
           <div className="split:flex split:h-dvh split:flex-col">
-            <Header active="inbox" className={open ? "hidden split:block" : undefined} panes />
+            <Header
+              active="inbox"
+              className={open ? "hidden split:block" : undefined}
+              panes
+              controls={<InboxControls lastFetched={lastFetched} />}
+            />
             <div className="split:flex split:min-h-0 split:flex-1">
               {/* A role, not an element, so the list is not remounted when an article opens. */}
               {/* The safe-area insets (0 on PCs) keep the panes clear of a landscape iPhone's notch and corners. */}
               <div
                 role={open ? "region" : "main"}
                 aria-label={open ? "新着一覧" : undefined}
-                className={`${open ? "hidden split:block" : ""} split:w-[calc(17.5rem+env(safe-area-inset-left))] lg:w-[calc(20rem+env(safe-area-inset-left))] split:shrink-0 split:overflow-y-auto split:overscroll-contain split:border-r split:border-line split:pl-[env(safe-area-inset-left)]`}
+                className={`${open ? "hidden split:block" : ""} ${
+                  board
+                    ? "split:min-w-0 split:flex-1 split:pr-[env(safe-area-inset-right)]"
+                    : "split:w-[calc(17.5rem+env(safe-area-inset-left))] lg:w-[calc(20rem+env(safe-area-inset-left))] split:shrink-0 split:overflow-y-auto split:overscroll-contain split:border-r split:border-line"
+                } split:pl-[env(safe-area-inset-left)]`}
               >
                 {list}
               </div>
               <div
-                className={`${open ? "" : "hidden"} split:flex split:min-w-0 split:flex-1 split:pr-[env(safe-area-inset-right)]`}
+                className={`${open ? "" : "hidden"} ${board ? "" : "split:flex"} split:min-w-0 split:flex-1 split:pr-[env(safe-area-inset-right)]`}
               >
                 {children}
               </div>
             </div>
           </div>
         </ToastProvider>
+        </BoardOriginContext.Provider>
         </OpenedContext.Provider>
       </LeavingContext.Provider>
     </InboxNavContext.Provider>
@@ -601,8 +714,18 @@ function CardUnseeButton({ id }: { id: number }) {
   );
 }
 
-/** 「すべて既読」 for the site or folder the list shows. Unconfirmed: 「既読を含む」 still has the articles. */
-export function MarkAllSeenButton({ target }: { target: { feedId: number } | { folderId: number | null } }) {
+/**
+ * 「すべて既読」 for a site, a folder, or (feedId null) the articles with no feed. Unconfirmed:
+ * 「既読を含む」 still has the articles. In a Board column, `rows` are the column's rows, so the
+ * seen rows of the other columns stay.
+ */
+export function MarkAllSeenButton({
+  target,
+  rows,
+}: {
+  target: { feedId: number | null } | { folderId: number | null };
+  rows?: number[];
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   useNavPending(pending);
@@ -621,7 +744,7 @@ export function MarkAllSeenButton({ target }: { target: { feedId: number } | { f
             toast.fail(FAILED);
             return;
           }
-          clear();
+          clear(rows);
           router.refresh();
         })
       }

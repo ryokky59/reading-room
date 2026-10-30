@@ -33,6 +33,15 @@ export function formatDateTime(date: Date | null): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hh}:${mm}`;
 }
 
+/** How long ago `date` was, for 「12 分前に取得」. */
+export function formatAgo(date: Date, now = new Date()): string {
+  const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
+  if (minutes < 1) return "たった今";
+  if (minutes < 60) return `${minutes} 分前`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} 時間前`;
+  return `${Math.floor(minutes / (24 * 60))} 日前`;
+}
+
 export function hostname(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");

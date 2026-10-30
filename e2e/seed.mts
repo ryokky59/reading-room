@@ -9,6 +9,7 @@ import * as schema from "../src/lib/db/schema";
 
 const dir = process.env.PGLITE_DIR;
 if (!dir) throw new Error("PGLITE_DIR is required");
+const stub = `http://localhost:${process.env.E2E_STUB_PORT}`;
 
 rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
@@ -54,9 +55,9 @@ await db.insert(schema.messages).values([
 
 // The migration has already turned the seeded Tech / Business feeds into folders.
 // These rows let the folder tests change state without touching each other.
-// They point at real sites; 「今すぐ取得」 must not reach the network, so they point at a closed
-// local port instead (see `feed` below).
-await db.update(schema.feeds).set({ url: sql`'http://localhost:9/e2e/feeds/seeded-' || ${schema.feeds.id}` });
+// They point at real sites; 「今すぐ取得」 must not reach the network, so they point at the local
+// stub instead (see `feed` below).
+await db.update(schema.feeds).set({ url: sql`${stub} || '/e2e/feeds/seeded-' || ${schema.feeds.id}` });
 const allFolders = await db.select().from(schema.folders);
 const tech = allFolders.find((f) => f.name === "Tech")!;
 const [, toDelete] = await db
@@ -66,12 +67,11 @@ const [, toDelete] = await db
     { name: "E2E 消すフォルダ", position: 3 },
   ])
   .returning();
-// Nothing listens on port 9, so 「今すぐ取得」 (e2e/fetch.spec.ts) fails these at once without the network.
+// Running feeds, so the Board gives them a column. 「今すぐ取得」 finds them empty (e2e/stub.mts).
 const feed = (slug: string, name: string, folderId: number) => ({
   name,
-  url: `http://localhost:9/e2e/feeds/${slug}`,
+  url: `${stub}/e2e/feeds/${slug}`,
   folderId,
-  enabled: false, // never fetched
 });
 const seededFeeds = await db
   .insert(schema.feeds)
@@ -199,15 +199,14 @@ const scrollArticles = scrollFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(scrollArticles);
 
-// Pause rows (e2e/pause-feed.spec.ts): one enabled feed per screen width, in its own folder.
-// 「今すぐ取得」 tries them too and fails at once (see `feed` above).
+// Pause rows (e2e/pause-feed.spec.ts): one feed per screen width, in its own folder.
 const pauseFolders = await db
   .insert(schema.folders)
   .values(["E2E PC で止める", "E2E スマホで止める"].map((name, i) => ({ name, position: 30 + i })))
   .returning();
 const pauseFeeds = await db
   .insert(schema.feeds)
-  .values(pauseFolders.map((f, i) => ({ ...feed(`pause-${i}`, `${f.name}サイト`, f.id), enabled: true })))
+  .values(pauseFolders.map((f, i) => feed(`pause-${i}`, `${f.name}サイト`, f.id)))
   .returning();
 const pauseArticles = pauseFeeds.flatMap((f, i) =>
   [1, 2].map((j) =>
@@ -246,7 +245,8 @@ const [sameFeed, beforeFeed, afterFeed] = await db
   .insert(schema.feeds)
   .values([
     feed("same-time", "E2E 同時刻のサイト", sameFolder.id),
-    feed("before-switch", "E2E 切り替え前のサイト", beforeFolder.id),
+    // Stopped: e2e/panes.spec.ts resumes it beside the list.
+    { ...feed("before-switch", "E2E 切り替え前のサイト", beforeFolder.id), enabled: false },
     feed("after-switch", "E2E 切り替え後のサイト", afterFolder.id),
   ])
   .returning();
@@ -361,6 +361,75 @@ const seenArticles = seenFolders.flatMap((f, i) => {
 });
 await db.insert(schema.articles).values(seenArticles);
 
+// The Board (e2e/board.spec.ts): one folder per test that changes state.
+const boardFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E ボード", "E2E ボードで開く", "E2E ボードで既読", "E2E ボードで失敗", "E2E ボードのスマホ", "E2E ボードから読了", "E2E ボードから戻す"].map(
+      (name, i) => ({ name, position: 110 + i }),
+    ),
+  )
+  .returning();
+const [boardShow, boardOpen, boardSeen, boardFail, boardPhone, boardRead, boardBack] = boardFolders;
+const boardFeeds = await db
+  .insert(schema.feeds)
+  .values([
+    feed("board-many", "E2E 列 たくさん", boardShow.id),
+    { ...feed("board-few", "E2E 列 少ない", boardShow.id), lastFetchedAt: new Date(now - 12 * 60_000) },
+    feed("board-none", "E2E 列 未読なし", boardShow.id),
+    // Other columns must not see these: the articles stay behind 止まっているフィード.
+    { ...feed("board-paused", "E2E 列 止めた", boardShow.id), enabled: false },
+    // On a closed port, so 「今すぐ取得」 keeps its error.
+    { ...feed("board-error", "E2E 列 エラー", boardShow.id), url: "http://localhost:9/e2e/feeds/board-error", lastError: "fetch failed" },
+    feed("board-open-a", "E2E 開く A", boardOpen.id),
+    feed("board-open-b", "E2E 開く B", boardOpen.id),
+    feed("board-seen-a", "E2E 既読 A", boardSeen.id),
+    feed("board-seen-b", "E2E 既読 B", boardSeen.id),
+    feed("board-fail", "E2E 失敗の列", boardFail.id),
+    feed("board-phone", "E2E スマホの列", boardPhone.id),
+    feed("board-read", "E2E 読了の列", boardRead.id),
+    feed("board-back", "E2E 戻す列", boardBack.id),
+    // Beside 「URL から追加」 in 未分類: its 「すべて既読」 must leave this feed alone.
+    { ...feed("board-unfiled", "E2E 未分類の列", boardShow.id), folderId: null },
+  ])
+  .returning();
+const feedNamed = (name: string) => boardFeeds.find((f) => f.name === name)!;
+let boardN = 2000;
+const boardRows = (name: string, count: number, extra = {}) =>
+  Array.from({ length: count }, (_, i) =>
+    article(boardN++, {
+      title: `${name} ${i + 1}`,
+      titleJa: `${name} ${i + 1}`,
+      source: name,
+      feedId: feedNamed(name).id,
+      fetchedAt: old(2000 + boardN),
+      ...extra,
+    }),
+  );
+const boardArticles = [
+  ...boardRows("E2E 列 たくさん", 55),
+  ...boardRows("E2E 列 少ない", 2, { lang: "other", title: "A short column", titleJa: null }).map((a, i) => ({
+    ...a,
+    title: `A short column ${i + 1}`,
+    titleJa: `E2E 列 少ない ${i + 1}`,
+  })),
+  ...boardRows("E2E 列 未読なし", 1, { seenAt: new Date(now) }),
+  ...boardRows("E2E 列 止めた", 1),
+  ...boardRows("E2E 列 エラー", 1),
+  ...boardRows("E2E 開く A", 3),
+  ...boardRows("E2E 開く B", 2),
+  ...boardRows("E2E 既読 A", 2),
+  ...boardRows("E2E 既読 B", 2),
+  ...boardRows("E2E 失敗の列", 2),
+  ...boardRows("E2E スマホの列", 5),
+  ...boardRows("E2E 読了の列", 2),
+  ...boardRows("E2E 戻す列", 2),
+  ...boardRows("E2E 未分類の列", 1),
+];
+const boardInserted = await db.insert(schema.articles).values(boardArticles).returning();
+const boardTalked = boardInserted.find((a) => a.titleJa === "E2E 列 少ない 2")!;
+await db.insert(schema.messages).values({ articleId: boardTalked.id, role: "user", content: "列の対話です" });
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length} articles into ${dir}`,
 );

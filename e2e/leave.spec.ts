@@ -1,10 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { openFeed } from "./nav";
 
 // Read and skipped cards leave the list (スキップ to the left, 読了 to the right), the cards
 // below close up, and a toast offers 「元に戻す」 for 4 seconds.
 // Each test uses its own folder from the end of e2e/seed.mts, with 3 articles.
 
-const folderNav = (page: Page) => page.getByRole("navigation", { name: "フォルダ" });
 const list = (page: Page) => page.getByRole("list", { name: "記事" });
 const card = (page: Page, title: string) =>
   list(page).getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
@@ -19,9 +19,7 @@ const style = (el: Locator, prop: string) =>
   el.evaluate((e, p) => getComputedStyle(e).getPropertyValue(p), prop);
 
 async function openFolder(page: Page, name: string) {
-  await page.goto("/");
-  await folderNav(page).getByRole("link", { name: new RegExp(`^${name}\\s*\\d+$`) }).click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await openFeed(page, name);
   await expect(list(page).getByRole("listitem")).toHaveCount(3);
   await expect(count(page)).toHaveText(/^3 本/);
 }

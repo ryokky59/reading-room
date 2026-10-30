@@ -66,8 +66,9 @@ test("押したチップへ、一覧が届く前から背景がすべって移�
   await expect(all).toHaveCSS("color", MUTED);
 });
 
-test("サイトの行は「このフォルダすべて」に背景がある状態で現れ、サイトを押すとそこへすべる", async ({ page }) => {
-  await page.goto("/");
+test("サイトの行は「このフォルダすべて」に背景がある状態で現れ、サイトを押すとそこへすべってフィードの一覧になる", async ({ page }) => {
+  await slowPages(page);
+  await page.goto("/?a=1");
   await chip(folderNav(page), "Business").click();
   const nav = siteNav(page);
   await expect(nav).toBeVisible();
@@ -78,9 +79,8 @@ test("サイトの行は「このフォルダすべて」に背景がある状�
   const site = chip(nav, "E2E ビジネス週報");
   await site.click();
   await expect.poll(() => sliding(pill(nav))).toBeGreaterThan(0);
-  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
-  await expect(site).toHaveAttribute("aria-current", "page");
-  await expectPillOn(nav, site);
+  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+&a=1$/);
+  await expect(page.getByRole("link", { name: "‹ ボード" })).toBeVisible();
 });
 
 test("横スクロールする行で画面外のチップが選ばれていても、そのチップと背景が見えている @mobile", async ({ page }) => {
@@ -100,14 +100,6 @@ test("横スクロールする行で画面外のチップが選ばれていて�
   await expectPillOn(folderNav(page), last);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
-  await chip(folderNav(page), "E2E サイトの多いフォルダ").click();
-  const lastSite = chip(siteNav(page), "E2E 横に並ぶサイト 6");
-  await lastSite.click();
-  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
-  await page.reload();
-  await expect(lastSite).toBeInViewport({ ratio: 1 });
-  await expect(pill(siteNav(page))).toBeInViewport({ ratio: 1 });
-  await expectPillOn(siteNav(page), lastSite);
   expect(await pageOverflow()).toBeLessThanOrEqual(0);
 });
 
@@ -177,10 +169,6 @@ for (const viewport of [
     await expect(page).toHaveURL(/\/articles\/\d+(\/list)?\?f=\d+&a=1$/);
     await expect(chip(nav, "E2E たくさん")).toHaveAttribute("aria-current", "page");
     await expectPillOn(nav, chip(nav, "E2E たくさん"));
-
-    await chip(siteNav(page), "E2E 量産サイト").click();
-    await expect(chip(siteNav(page), "E2E 量産サイト")).toHaveAttribute("aria-current", "page");
-    await expectPillOn(siteNav(page), chip(siteNav(page), "E2E 量産サイト"));
 
     await chip(nav, "すべて").click();
     await expect(chip(nav, "すべて")).toHaveAttribute("aria-current", "page");

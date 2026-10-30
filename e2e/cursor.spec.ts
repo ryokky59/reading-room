@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 const cursor = (el: Element) => getComputedStyle(el).cursor;
 
 test("押せるところにカーソルを合わせると指になる", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // The plain list, whose cards have スキップ.
   const card = page.getByRole("listitem").filter({ hasText: "本番で動くエージェント" });
   expect(await card.getByRole("link").first().evaluate(cursor)).toBe("pointer");
   expect(await card.getByRole("button", { name: "スキップ" }).evaluate(cursor)).toBe("pointer");

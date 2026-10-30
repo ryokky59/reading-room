@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { openFeed } from "./nav";
 
 // PC panes: the list on the left, the article in the middle, the chat on the right.
 // Folders used here are seeded at the end of e2e/seed.mts; tests that read or skip use their own.
@@ -8,6 +9,7 @@ const list = (page: Page) => page.getByRole("list", { name: "記事" });
 const card = (page: Page, title: string) => list(page).getByRole("listitem").filter({ hasText: title });
 const chat = (page: Page) => page.getByRole("complementary", { name: "AI と話す" });
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
+const feedTitle = (page: Page, name: string) => page.getByRole("heading", { name, exact: true, level: 2 });
 /** The scrolling list pane around the cards. */
 const pane = (page: Page) => list(page).locator("xpath=ancestor::div[@role][1]");
 const scrollTop = (el: Locator) => el.evaluate((e) => e.scrollTop);
@@ -52,18 +54,18 @@ const listsIn = (responses: boolean[]) => responses.filter(Boolean).length;
 /** The HTML the server sends for a full load of `url`. */
 const fullLoad = async (page: Page, url: string) => (await page.request.get(url)).text();
 
-/** With `includeSeen` (a=1), rows that other tests have opened, and so marked seen, stay listed. */
-async function openFolder(page: Page, name: string, { includeSeen = false } = {}) {
-  await page.goto(includeSeen ? "/?a=1" : "/");
+/** The folder in the list with 既読を含む (a=1): rows that other tests have opened stay listed. */
+async function openWithSeen(page: Page, name: string) {
+  await page.goto("/?a=1");
   await folderNav(page).getByRole("link", { name: new RegExp(`^${name}\\s*\\d+$`) }).click();
-  await expect(page).toHaveURL(includeSeen ? /\/\?f=\d+&a=1$/ : /\/\?f=\d+$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
 }
 
 test.describe("PC 幅(3 ペイン)", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test("一覧を残したまま本文が切り替わり、一覧のスクロール位置と絞り込みが保たれる", async ({ page }) => {
-    await openFolder(page, "E2E たくさん");
+    await openFeed(page, "E2E たくさん");
     const filtered = new URL(page.url()).search;
     // Marks the list's DOM: if switching articles re-rendered the pane, the mark would be gone.
     await list(page).evaluate((el) => (el.dataset.e2e = "kept"));
@@ -90,7 +92,7 @@ test.describe("PC 幅(3 ペイン)", () => {
 
     expect(await scrollTop(pane(page))).toBe(top);
     await expect(list(page)).toHaveAttribute("data-e2e", "kept");
-    await expect(folderNav(page).getByRole("link", { name: /^E2E たくさん/ })).toHaveAttribute("aria-current", "page");
+    await expect(feedTitle(page, "E2E 量産サイト")).toBeVisible();
     await expect(list(page).getByRole("listitem")).toHaveCount(30);
   });
 
@@ -104,8 +106,8 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(chat(page).getByRole("button", { name: "要約してもらう" })).toBeVisible();
   });
 
-  test("読了 / スキップで次の記事が開き、一覧から消える。次がなければ空の状態", async ({ page }) => {
-    await openFolder(page, "E2E ペインで読む");
+  test("読了 / スキップで次の記事が開き、一覧から消える。次がなければフォルダのボード", async ({ page }) => {
+    await openFeed(page, "E2E ペインで読む");
     const filtered = new URL(page.url()).search;
     await card(page, "E2E ペインで読む 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E ペインで読む 1");
@@ -121,14 +123,13 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(card(page, "E2E ペインで読む 2")).toHaveCount(0);
 
     await page.getByRole("main").getByRole("button", { name: "読了にする" }).click();
-    await expect(page).toHaveURL(`/${filtered}`);
+    await expect(page).toHaveURL(`/${filtered.replace(/&s=\d+$/, "")}`);
     await expect(heading(page)).toHaveCount(0);
-    await expect(list(page)).toHaveCount(0);
-    await expect(page.getByText("未読の記事はありません。", { exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "E2E ペインで読むのサイト" }).getByLabel("未読 0 本")).toBeVisible();
   });
 
   test("読み込み済みの最後の記事で読了 / スキップすると、「もっと見る」の先の次の未読が開く", async ({ page }) => {
-    await openFolder(page, "E2E 読み進める");
+    await openFeed(page, "E2E 読み進める");
     const filtered = new URL(page.url()).search;
     await expect(list(page).getByRole("listitem")).toHaveCount(30);
     await expect(card(page, "読み進める 31")).toHaveCount(0);
@@ -180,13 +181,6 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(list(page).getByRole("listitem")).toHaveCount(35);
     await kept();
 
-    await page.getByRole("navigation", { name: "サイト" }).getByRole("link", { name: /^E2E 量産サイト/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&s=\\d+&a=1$`));
-    await expect(
-      page.getByRole("navigation", { name: "サイト" }).getByRole("link", { name: /^E2E 量産サイト/ }),
-    ).toHaveAttribute("aria-current", "page");
-    await kept();
-
     await folderNav(page).getByRole("link", { name: /^すべて/ }).click();
     await expect(page).toHaveURL(`${path}?a=1`);
     await expect(card(page, "対話のある記事")).toHaveAttribute("aria-current", "true");
@@ -205,9 +199,17 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(page).toHaveURL(`${path}${filtered}`);
     await expect(heading(page)).toHaveText("対話のある記事");
 
+    // A site chip turns the list into the feed's, under its hero. (The reload took the draft.)
+    await input.fill("書きかけの質問");
+    await page.getByRole("navigation", { name: "サイト" }).getByRole("link", { name: /^E2E 量産サイト/ }).click();
+    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&s=\\d+&a=1$`));
+    await expect(feedTitle(page, "E2E 量産サイト")).toBeVisible();
+    await kept();
+    const site = new URL(page.url()).search;
+
     // ← goes back to the inbox with the list's filter.
     await page.getByRole("link", { name: "戻る", exact: true }).click();
-    await expect(page).toHaveURL(`/${filtered}`);
+    await expect(page).toHaveURL(`/${site}`);
     await expect(heading(page)).toHaveCount(0);
   });
 
@@ -215,7 +217,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     const titles = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `同時刻 ${from + i}`);
     const headings = () => list(page).getByRole("heading");
 
-    await openFolder(page, "E2E 同時刻");
+    await openFeed(page, "E2E 同時刻");
     const filtered = new URL(page.url()).search;
     await expect(headings()).toHaveText(titles(1, 30));
     await page.getByRole("link", { name: /もっと見る/ }).click();
@@ -246,7 +248,7 @@ test.describe("PC 幅(3 ペイン)", () => {
   });
 
   test("記事を開いたまま一覧を切り替えると、e / s / j とボタンは新しい一覧の中で動く", async ({ page }) => {
-    await openFolder(page, "E2E 切り替え前");
+    await openWithSeen(page, "E2E 切り替え前");
     await markPage(page);
     await card(page, "切り替え前 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("切り替え前 1");
@@ -257,7 +259,7 @@ test.describe("PC 幅(3 ペイン)", () => {
 
     await folderNav(page).getByRole("link", { name: /^E2E 切り替え後\s*\d+$/ }).click();
     await expect(page).not.toHaveURL(before);
-    await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+$/);
+    await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&a=1$/);
     const filtered = new URL(page.url()).search;
     await expect(heading(page)).toHaveText("切り替え前 2");
     await expect(card(page, "切り替え後 1")).toBeVisible();
@@ -288,14 +290,14 @@ test.describe("PC 幅(3 ペイン)", () => {
   });
 
   test("記事の URL を直接開いても 3 ペインで表示され、戻るで前の記事に戻る", async ({ page }) => {
-    await openFolder(page, "E2E 直接開く");
+    await openFeed(page, "E2E 直接開く");
     const href = (await card(page, "E2E 直接開く 2").getByRole("link").getAttribute("href"))!;
 
     await page.goto(href);
     await expect(heading(page)).toHaveText("E2E 直接開く 2");
     await expect(list(page).getByRole("listitem")).toHaveCount(3);
     await expect(card(page, "E2E 直接開く 2")).toHaveAttribute("aria-current", "true");
-    await expect(folderNav(page).getByRole("link", { name: /^E2E 直接開く/ })).toHaveAttribute("aria-current", "page");
+    await expect(feedTitle(page, "E2E 直接開くのサイト")).toBeVisible();
     await expect(chat(page)).toBeVisible();
 
     await card(page, "E2E 直接開く 3").getByRole("link").click();
@@ -311,7 +313,7 @@ test.describe("PC 幅(3 ペイン)", () => {
   });
 
   test("記事を開いてもサーバーは一覧を作らず、チップや「もっと見る」では一覧を 1 回だけ作る", async ({ page }) => {
-    await openFolder(page, "E2E たくさん", { includeSeen: true });
+    await openWithSeen(page, "E2E たくさん");
     let responses = await serverLists(page, async () => {
       await card(page, "量産記事 5").getByRole("link").click();
       await expect(heading(page)).toHaveText("量産記事 5");
@@ -329,7 +331,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     responses = await serverLists(page, async () => {
       await sites.getByRole("link", { name: /^E2E 量産サイト/ }).click();
       await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+&a=1$/);
-      await expect(sites.getByRole("link", { name: /^E2E 量産サイト/ })).toHaveAttribute("aria-current", "page");
+      await expect(feedTitle(page, "E2E 量産サイト")).toBeVisible();
     });
     expect(listsIn(responses)).toBe(1);
 
@@ -357,7 +359,7 @@ test.describe("PC 幅(3 ペイン)", () => {
   });
 
   test("j / k で移動、e で読了、s でスキップ。入力中は効かない", async ({ page }) => {
-    await openFolder(page, "E2E キーボード");
+    await openFeed(page, "E2E キーボード");
     const filtered = new URL(page.url()).search;
     await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeVisible();
 
@@ -384,7 +386,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(heading(page)).toHaveText("E2E キーボード 3");
     await expect(card(page, "E2E キーボード 2")).toHaveCount(0);
     await page.keyboard.press("e");
-    // Nothing comes after 3, so the empty state opens beside the list.
+    // Nothing comes after 3, so the feed's list is left with no article beside it.
     await expect(page).toHaveURL(`/${filtered}`);
     await expect(card(page, "E2E キーボード 3")).toHaveCount(0);
     await expect(card(page, "E2E キーボード 1")).toBeVisible();
@@ -392,8 +394,8 @@ test.describe("PC 幅(3 ペイン)", () => {
     await page.keyboard.press("j");
     await expect(heading(page)).toHaveText("E2E キーボード 1");
     await page.keyboard.press("e");
-    await expect(page).toHaveURL(`/${filtered}`);
-    await expect(list(page)).toHaveCount(0);
+    await expect(page).toHaveURL(`/${filtered.replace(/&s=\d+$/, "")}`);
+    await expect(heading(page)).toHaveCount(0);
 
     await page.goto("/read");
     for (const n of [1, 3]) await expect(page.getByText(`E2E キーボード ${n}`)).toBeVisible();
@@ -405,7 +407,7 @@ test.describe("狭い PC 幅", () => {
   test.use({ viewport: { width: 1100, height: 800 } });
 
   test("対話は右からの引き出しになり、本文が読める幅になる", async ({ page }) => {
-    await openFolder(page, "E2E たくさん");
+    await openFeed(page, "E2E たくさん");
     await card(page, "量産記事 9").getByRole("link").click();
     await expect(heading(page)).toHaveText("量産記事 9");
     await expect(list(page)).toBeVisible();
@@ -438,7 +440,7 @@ for (const viewport of [
     test.use({ viewport });
 
     test("一覧と記事が横に並び、横にはみ出さない。対話は右からの引き出しで、入力欄が見える", async ({ page }) => {
-      await openFolder(page, "E2E たくさん", { includeSeen: true });
+      await openWithSeen(page, "E2E たくさん");
       await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeVisible();
       expect(await overflowsX(page)).toBe(false);
 
@@ -485,7 +487,7 @@ for (const width of [382, 466]) {
     test.use({ viewport: { width, height: 800 } });
 
     test("一覧と記事が別の画面になる", async ({ page }) => {
-      await openFolder(page, "E2E たくさん", { includeSeen: true });
+      await openWithSeen(page, "E2E たくさん");
       await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
       expect(await overflowsX(page)).toBe(false);
 

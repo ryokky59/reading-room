@@ -4,7 +4,8 @@ import { unstable_rethrow, useRouter } from "next/navigation";
 import { useActionState, useState } from "react";
 import { addArticle, fetchNow, type ActionState } from "@/lib/actions";
 
-export function InboxControls() {
+/** 今すぐ取得 and URL を追加, in the header; `lastFetched` reads like 「12 分前に取得」. */
+export function InboxControls({ lastFetched }: { lastFetched: string | null }) {
   const router = useRouter();
   // A failed request shows a message under the button instead of the error page, so it can be
   // pressed again.
@@ -40,21 +41,22 @@ export function InboxControls() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <form action={fetchAction}>
           <button
             disabled={fetching}
-            className="pressable rounded-full border border-line bg-surface px-4 py-2 text-sm disabled:opacity-60"
+            className="pressable rounded-full border border-line bg-surface px-3 py-1 text-sm disabled:opacity-60"
           >
             {fetching ? "取得中…(1分ほど)" : "今すぐ取得"}
           </button>
         </form>
         <button
           onClick={() => setShowAdd((v) => !v)}
-          className="pressable rounded-full border border-line bg-surface px-4 py-2 text-sm"
+          className="pressable rounded-full border border-line bg-surface px-3 py-1 text-sm"
         >
           URL を追加
         </button>
+        {lastFetched && <p className="text-xs text-muted">{lastFetched}</p>}
       </div>
       {fetchState.message && <p className="text-sm text-muted">{fetchState.message}</p>}
       {fetchState.error && (
@@ -63,7 +65,7 @@ export function InboxControls() {
         </p>
       )}
       {showAdd && (
-        <form action={addAction} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
+        <form action={addAction} className="flex max-w-md flex-col gap-2 rounded-xl border border-line bg-surface p-3">
           <input
             name="url"
             type="url"

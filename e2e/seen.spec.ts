@@ -4,7 +4,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // sites A (2 unread) and B (1 unread, 1 seen, 1 skipped, 1 read).
 
 const folderNav = (page: Page) => page.getByRole("navigation", { name: "フォルダ" });
-const siteNav = (page: Page) => page.getByRole("navigation", { name: "サイト" });
 const list = (page: Page) => page.getByRole("list", { name: "記事" });
 const card = (page: Page, title: string) =>
   list(page).getByRole("listitem").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
@@ -12,6 +11,10 @@ const heading = (page: Page) => page.getByRole("heading", { level: 1 });
 const unread = (page: Page) => page.getByText(/^\d+ 本/);
 const includeSeen = (page: Page) => page.getByRole("switch", { name: "既読を含む" });
 const markAll = (page: Page) => page.getByRole("button", { name: "すべて既読" });
+const column = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
+const columnRow = (page: Page, site: string, title: string) =>
+  column(page, site).getByRole("listitem").filter({ hasText: title });
+const openColumn = (page: Page, site: string) => column(page, site).getByRole("link", { name: site, exact: true }).click();
 const chip = (nav: Locator, label: string, count: number) =>
   nav.getByRole("link", { name: new RegExp(`^${label}\\s*${count}$`) });
 const failed = (page: Page) => page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" });
@@ -29,19 +32,20 @@ for (const [name, tag] of [
 ]) {
   test(`サイトの「すべて既読」でその記事が消え、サイトとフォルダの未読数が減る${tag}`, async ({ page }) => {
     await openFolder(page, name);
-    await chip(siteNav(page), `${name} A`, 2).click();
+    await openColumn(page, `${name} A`);
     await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
     await expect(list(page).getByRole("listitem")).toHaveCount(2);
 
     await markAll(page).click();
-    // The site has nothing left, so its folder is shown.
+    // The site has nothing left, so its folder's Board is shown.
     await expect(page).toHaveURL(/\/\?f=\d+$/);
-    await expect(card(page, `${name} A1`)).toHaveCount(0);
-    await expect(card(page, `${name} A2`)).toHaveCount(0);
-    await expect(card(page, `${name} B1`)).toBeVisible();
+    await expect(page.getByText(`${name} A1`)).toHaveCount(0);
+    await expect(page.getByText(`${name} A2`)).toHaveCount(0);
+    await expect(columnRow(page, `${name} B`, `${name} B1`)).toBeVisible();
     await expect(chip(folderNav(page), name, 1)).toHaveAttribute("aria-current", "page");
-    await expect(siteNav(page).getByRole("link", { name: new RegExp(`${name} A`) })).toHaveCount(0);
-    await expect(chip(siteNav(page), `${name} B`, 1)).toBeVisible();
+    // Phones hide a column with nothing unread, so this looks past the accessibility tree.
+    await expect(page.locator("[data-feed]").filter({ hasText: `${name} A` }).getByLabel("未読 0 本")).toBeAttached();
+    await expect(column(page, `${name} B`).getByLabel("未読 1 本")).toBeVisible();
 
     // Still there under 既読を含む; a reload agrees.
     await page.reload();
@@ -51,17 +55,18 @@ for (const [name, tag] of [
   });
 }
 
-test("フォルダの「すべて既読」で一覧が空になり、「すべて」にはボタンが出ない", async ({ page }) => {
+test("フォルダの「すべて既読」で列が空になり、「すべて」にはフォルダのボタンが出ない", async ({ page }) => {
   const name = "E2E フォルダをすべて既読";
   await openFolder(page, name);
-  await markAll(page).click();
-  await expect(page.getByText("未読の記事はありません。", { exact: true })).toBeVisible();
+  // The folder's button comes before the columns' own.
+  await markAll(page).first().click();
+  await expect(page.getByText("未読の記事はありません。", { exact: false })).toBeVisible();
   await expect(chip(folderNav(page), name, 0)).toHaveAttribute("aria-current", "page");
   await expect(markAll(page)).toHaveCount(0);
 
   await page.goto("/");
   await expect(unread(page)).toBeVisible();
-  await expect(markAll(page)).toHaveCount(0);
+  await expect(markAll(page).first().locator("xpath=ancestor::section[@data-feed]")).toHaveCount(1);
 });
 
 test("「すべて既読」が保存できなければメッセージが出て、もう一度押せる", async ({ page }) => {
@@ -70,14 +75,13 @@ test("「すべて既読」が保存できなければメッセージが出て�
   await page.route("**/*", (route) =>
     "next-action" in route.request().headers() ? route.abort() : route.fallback(),
   );
-  await markAll(page).click();
+  await markAll(page).first().click();
   await expect(failed(page)).toBeVisible();
-  await expect(list(page).getByRole("listitem")).toHaveCount(3);
+  await expect(chip(folderNav(page), name, 3)).toBeVisible();
   await expect(page.getByText("This page couldn't load")).toHaveCount(0);
 
   await page.unrouteAll();
-  await markAll(page).click();
-  await expect(list(page)).toHaveCount(0);
+  await markAll(page).first().click();
   await expect(chip(folderNav(page), name, 0)).toBeVisible();
 });
 
@@ -117,7 +121,7 @@ for (const [name, tag] of [
 
     await includeSeen(page).click();
     await expect(page).toHaveURL(/\/\?f=\d+$/);
-    await expect(card(page, `${name} 既読`)).toBeVisible();
+    await expect(page.getByText(`${name} 既読`, { exact: true })).toBeVisible();
   });
 }
 
@@ -140,10 +144,10 @@ test("一覧の「未読に戻す」が保存できなければメッセージ�
   await expect(unread(page)).toHaveText(/^4 本/);
 });
 
-test("PC で記事を開くと一覧に薄く残り、戻ると未読数に入らない。リロードで一覧から消える", async ({ page }) => {
+test("PC で記事を開くと一覧に薄く残り、ボードに戻ると未読数に入らない。リロードで消える", async ({ page }) => {
   const name = "E2E 開いて戻る";
   await openFolder(page, name);
-  await card(page, `${name} A1`).getByRole("link").click();
+  await columnRow(page, `${name} A`, `${name} A1`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A1`);
   await page.keyboard.press("j");
   await expect(heading(page)).toHaveText(`${name} A2`);
@@ -153,36 +157,37 @@ test("PC で記事を開くと一覧に薄く残り、戻ると未読数に入�
   await expect(heading(page)).toHaveCount(0);
   await expect(unread(page)).toHaveText(/^1 本/);
   await expect(chip(folderNav(page), name, 1)).toBeVisible();
-  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
-  await expect(card(page, `${name} A2`)).toHaveAttribute("data-seen", "");
-  await expect(card(page, `${name} B1`)).not.toHaveAttribute("data-seen", "");
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(columnRow(page, `${name} A`, `${name} A2`)).toHaveAttribute("data-seen", "");
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).not.toHaveAttribute("data-seen", "");
 
   await page.reload();
-  await expect(card(page, `${name} A1`)).toHaveCount(0);
-  await expect(card(page, `${name} B1`)).toBeVisible();
+  await expect(page.getByText(`${name} A1`)).toHaveCount(0);
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).toBeVisible();
   await expect(unread(page)).toHaveText(/^1 本/);
 });
 
-test("スマホで記事を開いて戻ると未読数に入らず、一覧から消える。ブラウザの戻るでも同じ @mobile", async ({ page }) => {
+test("スマホで記事を開いて戻ると未読数に入らず、ボードから消える。ブラウザの戻るでも同じ @mobile", async ({ page }) => {
   const name = "E2E スマホで開いて戻る";
   await openFolder(page, name);
-  await card(page, `${name} A1`).getByRole("link").click();
+  await columnRow(page, `${name} A`, `${name} A1`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A1`);
   await page.getByRole("link", { name: "戻る", exact: true }).click();
   await expect(unread(page)).toHaveText(/^2 本/);
-  await expect(card(page, `${name} A1`)).toHaveCount(0);
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).toHaveCount(0);
 
-  await card(page, `${name} A2`).getByRole("link").click();
+  await columnRow(page, `${name} A`, `${name} A2`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A2`);
   await page.goBack();
   await expect(unread(page)).toHaveText(/^1 本/);
-  await expect(card(page, `${name} A2`)).toHaveCount(0);
+  await expect(page.getByText(`${name} A2`)).toHaveCount(0);
   await expect(chip(folderNav(page), name, 1)).toBeVisible();
 });
 
 test("PC で開いている記事を「未読に戻す」と、記事が閉じて未読に戻り、次の更新でも未読のまま", async ({ page }) => {
   const name = "E2E 開いた記事を戻す";
   await openFolder(page, name);
+  await openColumn(page, `${name} A`);
   await card(page, `${name} A1`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A1`);
   await page.keyboard.press("j");
@@ -190,12 +195,12 @@ test("PC で開いている記事を「未読に戻す」と、記事が閉じ�
   // The open card is highlighted rather than faded, and still offers the way back.
   await card(page, `${name} A2`).getByRole("button", { name: "未読に戻す" }).click();
   await expect(heading(page)).toHaveCount(0);
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
-  await expect(unread(page)).toHaveText(/^2 本/);
+  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
+  await expect(unread(page)).toHaveText(/^1 本/);
   await expect(card(page, `${name} A2`)).not.toHaveAttribute("data-seen", "");
 
   await page.reload();
-  await expect(unread(page)).toHaveText(/^2 本/);
+  await expect(unread(page)).toHaveText(/^1 本/);
   await expect(card(page, `${name} A2`)).toBeVisible();
 });
 
@@ -215,18 +220,25 @@ test("読了を「未読に戻す」と既読でも読了でもなくなる。�
 
   await chip(folderNav(page), name, 4).click();
   await expect(unread(page)).toHaveText(/^4 本/);
-  await expect(card(page, `${name} 読了`)).toBeVisible();
-  await expect(card(page, `${name} 読了`)).not.toHaveAttribute("data-seen", "");
+  await expect(columnRow(page, `${name} B`, `${name} 読了`)).toBeVisible();
+  await expect(columnRow(page, `${name} B`, `${name} 読了`)).not.toHaveAttribute("data-seen", "");
   await page.goto("/read");
   await expect(page.getByText(`${name} 読了`)).toHaveCount(0);
 });
 
-test("一覧を表示しているだけでは、見えている記事が既読にならない", async ({ page }) => {
+test("ボードや一覧を表示しているだけでは、見えている記事が既読にならない", async ({ page }) => {
   const name = "E2E 先読み";
   await openFolder(page, name);
-  for (const title of ["A1", "A2", "B1"]) await expect(card(page, `${name} ${title}`)).toBeInViewport();
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).toBeInViewport();
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).toBeInViewport();
   await page.waitForTimeout(1500); // Gives the link prefetches time to reach the server.
   await page.reload();
   await expect(unread(page)).toHaveText(/^3 本/);
-  await expect(list(page).getByRole("listitem")).toHaveCount(3);
+
+  await openColumn(page, `${name} A`);
+  for (const title of ["A1", "A2"]) await expect(card(page, `${name} ${title}`)).toBeInViewport();
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await expect(unread(page)).toHaveText(/^2 本/);
+  await expect(list(page).getByRole("listitem")).toHaveCount(2);
 });
