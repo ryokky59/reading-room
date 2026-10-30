@@ -179,6 +179,8 @@ export function ArticleView({
   /** 読了 / スキップ, then the next article beside the list (`split` and up) or the list. */
   function leave(kind: "read" | "skip"): Promise<boolean> {
     const wide = isWide();
+    // Until the list has arrived after a direct load, the next article is not known.
+    if (wide && listIds === null) return Promise.resolve(false);
     const planned = wide ? neighbor(1) : undefined;
     return run(
       kind,
@@ -246,7 +248,8 @@ export function ArticleView({
   const busy = (kind: LeaveKind) => leaving && leavingBy === kind;
   // The button that was not pressed fades while the other one runs.
   const held = (kind: LeaveKind) => (leaving && leavingBy !== kind ? "opacity-50" : "");
-  const actions = (
+  // `waiting`: the buttons beside a list that is still loading, which read as not pressable yet.
+  const actions = (waiting: boolean) => (
     <div className="flex flex-col gap-2">
       {failed && !leaving && (
         <p role="alert" className="text-center text-xs text-accent">
@@ -269,16 +272,16 @@ export function ArticleView({
           <BusyButton
             onClick={() => void leave("skip")}
             busy={busy("skip")}
-            disabled={leaving}
-            className={`h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted ${held("skip")}`}
+            disabled={leaving || waiting}
+            className={`h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted ${waiting ? "opacity-50" : held("skip")}`}
           >
             スキップ
           </BusyButton>
           <BusyButton
             onClick={() => void leave("read")}
             busy={busy("read")}
-            disabled={leaving}
-            className={`h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white ${held("read")}`}
+            disabled={leaving || waiting}
+            className={`h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white ${waiting ? "opacity-50" : held("read")}`}
           >
             読了にする
           </BusyButton>
@@ -366,7 +369,7 @@ export function ArticleView({
               >
                 <span className="font-medium text-accent">AI</span> と話す
               </button>
-              <div className="flex-1">{actions}</div>
+              <div className="flex-1">{actions(listIds === null)}</div>
             </div>
           </main>
         </div>
@@ -435,7 +438,7 @@ export function ArticleView({
             <span className="font-medium text-accent">AI</span>
             {msgs.length > 0 ? "対話の続きを開く" : "AI に質問する"}
           </button>
-          {actions}
+          {actions(false)}
         </div>
       </div>
 
