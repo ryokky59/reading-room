@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ArticleView } from "@/components/ArticleView";
 import { articles, feeds, folders, getDb, messages } from "@/lib/db";
@@ -22,6 +22,15 @@ export default async function ArticlePage({ params, searchParams }: PageProps<"/
     .where(eq(articles.id, id));
   if (!row) notFound();
   const { article, folder, feedId, feedEnabled } = row;
+  // Opening an article counts as seeing it. Link prefetches stop at this route's loading.tsx, so
+  // only a real visit gets here; a router.refresh() beside the article does too (see
+  // CardUnseeButton in InboxShell.tsx).
+  if (article.status === "inbox" && !article.seenAt) {
+    await db
+      .update(articles)
+      .set({ seenAt: new Date() })
+      .where(and(eq(articles.id, id), eq(articles.status, "inbox"), isNull(articles.seenAt)));
+  }
   const history = await db
     .select({ id: messages.id, role: messages.role, content: messages.content })
     .from(messages)

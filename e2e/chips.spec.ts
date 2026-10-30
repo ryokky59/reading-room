@@ -112,7 +112,7 @@ test("横スクロールする行で画面外のチップが選ばれていて�
 });
 
 test("スマホで記事から戻ったとき、背景は左端から伸びずに選択中チップの上にある @mobile", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Keeps the article listed once another test has opened it.
   const nav = folderNav(page);
   const business = chip(nav, "Business");
   await business.click();
@@ -168,13 +168,13 @@ for (const viewport of [
 ]) {
   test(`記事を開いたまま(${viewport.width}px)チップを切り替えても背景が選んだチップに移る`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await page.goto("/?a=1"); // Keeps the article listed once another test has opened it.
     await page.getByRole("list", { name: "記事" }).getByRole("link").filter({ hasText: "対話のある記事" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("対話のある記事");
 
     const nav = folderNav(page);
     await chip(nav, "E2E たくさん").click();
-    await expect(page).toHaveURL(/\/articles\/\d+(\/list)?\?f=\d+$/);
+    await expect(page).toHaveURL(/\/articles\/\d+(\/list)?\?f=\d+&a=1$/);
     await expect(chip(nav, "E2E たくさん")).toHaveAttribute("aria-current", "page");
     await expectPillOn(nav, chip(nav, "E2E たくさん"));
 
