@@ -16,6 +16,7 @@ Work is tracked as GitHub Issues in `ryokky59/reading-room` and moves through la
 
 Rules:
 
+- Issues are drafted by the `planner` agent, including small follow-ups from a review.
 - One Issue, one branch, one PR. Branch names are `issue-<number>-<short-slug>`.
 - Never push to `main` directly. Merging is the owner's call; agents do not merge.
 - A PR body starts with `Closes #<number>` and lists how each acceptance criterion was checked.
