@@ -10,6 +10,8 @@ const cards = (page: Page) => page.getByRole("list", { name: "記事" }).getByRo
 const card = (page: Page, title: string) => cards(page).filter({ hasText: title });
 const fetchButton = (page: Page) => page.getByRole("button", { name: "今すぐ取得" });
 const fetchFailure = (page: Page) => page.getByRole("alert").filter({ hasText: "取得できませんでした" });
+const fetchCut = (page: Page) => page.getByRole("alert").filter({ hasText: "通信が切れました" });
+const cutMessage = "通信が切れました。取得が終わっていれば一覧に出ています。出ていなければもう一度押してください";
 const abortActions =(page: Page) =>
   page.route("**/*", (route) => ("next-action" in route.request().headers() ? route.abort() : route.fallback()));
 
@@ -32,6 +34,7 @@ const pages: Record<string, string> = {
   "/nul/good": good("NUL テスト 正常な記事"),
   "/nul/body": withNul("NUL テスト 本文に NUL がある記事"),
   "/nul/title": good("NUL テスト タイトルに NUL がある項目"),
+  "/cut/good": good("通信切れテスト 保存された記事"),
   "/pages/nul": withNul("URL 追加 本文に NUL がある記事"),
   "/posts/empty": empty,
   "/posts/fragment": fragment,
@@ -45,6 +48,7 @@ test.describe("本文を取り出せないページ", () => {
   // The feeds are empty while they are added, so their articles come in through 「今すぐ取得」.
   let listItems = false;
   let listNulItems = false;
+  let listCutItems = false;
 
   test.beforeAll(async () => {
     server = createServer((req, res) => {
@@ -78,6 +82,13 @@ ${listNulItems ? `<item><ti\u0000tle>壊れた項目</title><link>${origin}/nul/
         res.end(`<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><title>NUL テスト</title><link>${origin}/</link>
 ${listNulItems ? items.map(([t, p]) => `<item><title>${t}</title><link>${origin}${p}</link><description>${t} の概要</description><pubDate>${now}</pubDate></item>`).join("") : ""}
+</channel></rss>`);
+      } else if (req.url === "/cut.xml") {
+        const now = new Date().toUTCString();
+        res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+        res.end(`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>通信切れテスト</title><link>${origin}/</link>
+${listCutItems ? `<item><title>通信切れテスト 保存された記事</title><link>${origin}/cut/good</link><pubDate>${now}</pubDate></item>` : ""}
 </channel></rss>`);
       } else if (req.url && req.url in pages) {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -155,6 +166,40 @@ ${listNulItems ? items.map(([t, p]) => `<item><title>${t}</title><link>${origin}
     await expect(page.getByRole("main").getByText(/^取得失敗: Invalid character in tag name/)).toBeVisible();
   });
 
+  test("「今すぐ取得」の応答の前に通信が切れても、通信が切れたと出て、サーバーで保存された記事が一覧に出る", async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.goto("/feeds");
+    await page.getByLabel("サイトを追加").fill(`${origin}/cut.xml`);
+    await page.getByPlaceholder("表示名(空ならサイト名を使います)").fill("通信切れテスト");
+    await page.getByRole("button", { name: "追加する" }).click();
+    await expect(page.getByText("「通信切れテスト」を追加し、0 本を取り込みました")).toBeVisible({ timeout: 60_000 });
+
+    listCutItems = true;
+    await page.goto("/");
+    await expect(card(page, "通信切れテスト 保存された記事")).toHaveCount(0);
+    // The request reaches the server, which fetches and saves everything; only the response is lost.
+    let reachedServer = false;
+    await page.route("**/*", async (route) => {
+      if (!("next-action" in route.request().headers())) return route.fallback();
+      await route.fetch({ timeout: 90_000 });
+      reachedServer = true;
+      await route.abort();
+    });
+    await fetchButton(page).click();
+    await expect(fetchCut(page)).toHaveText(cutMessage, { timeout: 90_000 });
+    expect(reachedServer).toBe(true);
+    await expect(fetchFailure(page)).toHaveCount(0);
+    await expect(card(page, "通信切れテスト 保存された記事")).toBeVisible();
+    await expect(fetchButton(page)).toBeEnabled();
+
+    // Pressing again is harmless: the article is not added twice.
+    await page.unrouteAll();
+    await fetchButton(page).click();
+    await expect(page.getByText(/^0 本の新着を追加しました/)).toBeVisible({ timeout: 90_000 });
+    await expect(fetchCut(page)).toHaveCount(0);
+    await expect(card(page, "通信切れテスト 保存された記事")).toHaveCount(1);
+  });
+
   test("「URL を追加」で NUL 文字を含むページを追加すると、記事が開く", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto("/");
@@ -179,12 +224,33 @@ ${listNulItems ? items.map(([t, p]) => `<item><title>${t}</title><link>${origin}
   }
 });
 
-test("「今すぐ取得」の通信が失敗すると、ボタンの下にメッセージが出て、もう一度押せる", async ({ page }) => {
+test("「今すぐ取得」の通信が切れると、ボタンの下に通信が切れたと出て、もう一度押せる", async ({ page }) => {
   test.setTimeout(90_000);
   await page.goto("/");
   await abortActions(page);
   await fetchButton(page).click();
+  await expect(fetchCut(page)).toHaveText(cutMessage);
+  await expect(fetchFailure(page)).toHaveCount(0);
+  await expect(fetchButton(page)).toBeEnabled();
+
+  await page.unrouteAll();
+  await fetchButton(page).click();
+  await expect(page.getByText(/本の新着を追加しました/)).toBeVisible({ timeout: 60_000 });
+  await expect(fetchCut(page)).toHaveCount(0);
+});
+
+test("「今すぐ取得」でサーバーがエラーを返すと、取得できなかったと出て、もう一度押せる", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto("/");
+  // What the browser gets when the function crashes or times out on Vercel.
+  await page.route("**/*", (route) =>
+    "next-action" in route.request().headers()
+      ? route.fulfill({ status: 500, contentType: "text/plain", body: "Internal Server Error" })
+      : route.fallback(),
+  );
+  await fetchButton(page).click();
   await expect(fetchFailure(page)).toHaveText("取得できませんでした。もう一度押してください");
+  await expect(fetchCut(page)).toHaveCount(0);
   await expect(fetchButton(page)).toBeEnabled();
 
   await page.unrouteAll();
