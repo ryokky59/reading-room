@@ -8,6 +8,7 @@ Issue numbers from the owner: $ARGUMENTS
 
 1. For each Issue, check it exists and is open. If it is still `idea`, confirm with the owner before starting, then relabel it `ready`.
 2. Run at most 3 at once. For each Issue, start a `developer` agent (Agent tool, subagent_type `developer`, isolation `worktree`) in the same message so they run in parallel. Give each a distinct `E2E_PORT` (3211, 3212, 3213) and the Issue number.
+   Do not run two Issues that add a migration at once. Give a developer on a series the later Issues to read.
    An Issue that builds on another Issue's unmerged PR starts from that PR's branch (and opens its PR against it) only after that PR has passed review once; until then, its shared pieces may still change.
 3. When a developer reports a PR, start a `reviewer` agent for it with that PR number.
 4. If the reviewer asks for changes, send the findings back to the developer (SendMessage to the same agent) to fix and push, then review again. Stop after two rounds and report to the owner instead of looping.
