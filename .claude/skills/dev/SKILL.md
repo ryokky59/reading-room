@@ -11,5 +11,6 @@ Issue numbers from the owner: $ARGUMENTS
    An Issue that builds on another Issue's unmerged PR starts from that PR's branch (and opens its PR against it) only after that PR has passed review once; until then, its shared pieces may still change.
 3. When a developer reports a PR, start a `reviewer` agent for it with that PR number.
 4. If the reviewer asks for changes, send the findings back to the developer (SendMessage to the same agent) to fix and push, then review again. Stop after two rounds and report to the owner instead of looping.
-5. Report to the owner in Japanese, per Issue: the PR URL, the reviewer's 判定, what to check on the phone (the Vercel preview URL is on the PR), and anything they must do before merging. Merging is theirs.
-6. Then run the `retro` skill for each Issue (Skill tool, args: the PR number) and add its result to the report.
+5. If the developer or reviewer left a follow-up (a same-cause path not fixed, a finding out of scope), have the `planner` draft it as an `idea` Issue, and link it in the report.
+6. Report to the owner in Japanese, per Issue: the PR URL, the reviewer's 判定, what to check on the phone (the Vercel preview URL is on the PR), and anything they must do before merging. Merging is theirs.
+7. Then run the `retro` skill for each Issue (Skill tool, args: the PR number) and add its result to the report.
