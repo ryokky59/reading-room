@@ -1,4 +1,4 @@
-// Articles opened beside the list (PCs) are seen, so the list query would drop them on its next
+// Articles opened beside the list (PCs) or from the Board are seen, so the list query would drop them on its next
 // refresh, while they should stay there, faded, for j / k and for keeping one's place. The list
 // is a Server Component that router.refresh() refetches from the URL it was loaded from, so the
 // only way to tell it which ones is on the request: a session cookie that InboxShell writes.

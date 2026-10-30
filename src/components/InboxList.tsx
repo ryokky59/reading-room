@@ -16,8 +16,9 @@ import {
   ListLink,
   MarkAllSeenButton,
 } from "@/components/InboxShell";
-import { faviconUrl, feedColor, folderList, unreadBuckets, type Bucket } from "@/lib/board";
+import { feedColor, folderList, unreadBuckets, type Bucket } from "@/lib/board";
 import { articles, feeds, folders, getDb } from "@/lib/db";
+import { faviconUrl } from "@/lib/favicon";
 import { formatAgo, formatDate, hostname, isForeign, readingMinutes } from "@/lib/format";
 import { inboxOrder, inboxQuery, listedWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
 import { OPENED_COOKIE, parseOpened } from "@/lib/opened";

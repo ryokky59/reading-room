@@ -167,21 +167,25 @@ test("PC で記事を開くと一覧に薄く残り、ボードに戻ると未�
   await expect(unread(page)).toHaveText(/^1 本/);
 });
 
-test("スマホで記事を開いて戻ると未読数に入らず、ボードから消える。ブラウザの戻るでも同じ @mobile", async ({ page }) => {
+test("スマホでボードから開いて戻ると未読数に入らず、行は薄く残る。ブラウザの戻るでも同じ。リロードで消える @mobile", async ({ page }) => {
   const name = "E2E スマホで開いて戻る";
   await openFolder(page, name);
   await columnRow(page, `${name} A`, `${name} A1`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A1`);
   await page.getByRole("link", { name: "戻る", exact: true }).click();
   await expect(unread(page)).toHaveText(/^2 本/);
-  await expect(columnRow(page, `${name} A`, `${name} A1`)).toHaveCount(0);
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).toHaveAttribute("data-seen", "");
 
   await columnRow(page, `${name} A`, `${name} A2`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A2`);
   await page.goBack();
   await expect(unread(page)).toHaveText(/^1 本/);
-  await expect(page.getByText(`${name} A2`)).toHaveCount(0);
+  await expect(columnRow(page, `${name} A`, `${name} A2`)).toHaveAttribute("data-seen", "");
   await expect(chip(folderNav(page), name, 1)).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByText(`${name} A2`)).toHaveCount(0);
+  await expect(unread(page)).toHaveText(/^1 本/);
 });
 
 test("PC で開いている記事を「未読に戻す」と、記事が閉じて未読に戻り、次の更新でも未読のまま", async ({ page }) => {

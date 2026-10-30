@@ -365,12 +365,12 @@ await db.insert(schema.articles).values(seenArticles);
 const boardFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E ボード", "E2E ボードで開く", "E2E ボードで既読", "E2E ボードで失敗", "E2E ボードのスマホ", "E2E ボードから読了", "E2E ボードから戻す"].map(
+    ["E2E ボード", "E2E ボードで開く", "E2E ボードで既読", "E2E ボードで失敗", "E2E ボードのスマホ", "E2E ボードから読了", "E2E ボードから戻す", "E2E 遅い一覧", "E2E 最後の未読", "E2E ファビコン", "E2E 五十本を越える", "E2E 止まりだけ"].map(
       (name, i) => ({ name, position: 110 + i }),
     ),
   )
   .returning();
-const [boardShow, boardOpen, boardSeen, boardFail, boardPhone, boardRead, boardBack] = boardFolders;
+const [boardShow, boardOpen, boardSeen, boardFail, boardPhone, boardRead, boardBack, boardSlow, boardLast, boardIcons, boardOver, boardStopped] = boardFolders;
 const boardFeeds = await db
   .insert(schema.feeds)
   .values([
@@ -389,6 +389,16 @@ const boardFeeds = await db
     feed("board-phone", "E2E スマホの列", boardPhone.id),
     feed("board-read", "E2E 読了の列", boardRead.id),
     feed("board-back", "E2E 戻す列", boardBack.id),
+    feed("board-slow-a", "E2E 遅い A", boardSlow.id),
+    feed("board-slow-b", "E2E 遅い B", boardSlow.id),
+    feed("board-last", "E2E 1 本の列", boardLast.id),
+    feed("board-below", "E2E 下の列", boardLast.id),
+    feed("board-icon-good", "E2E 画像あり", boardIcons.id),
+    feed("board-icon-404", "E2E 画像 404", boardIcons.id),
+    feed("board-icon-empty", "E2E 画像 空", boardIcons.id),
+    feed("board-icon-hang", "E2E 画像 無応答", boardIcons.id),
+    feed("board-over", "E2E 五十二本", boardOver.id),
+    { ...feed("board-only-stopped", "E2E 止まりの列", boardStopped.id), enabled: false },
     // Beside 「URL から追加」 in 未分類: its 「すべて既読」 must leave this feed alone.
     { ...feed("board-unfiled", "E2E 未分類の列", boardShow.id), folderId: null },
   ])
@@ -425,6 +435,19 @@ const boardArticles = [
   ...boardRows("E2E 読了の列", 2),
   ...boardRows("E2E 戻す列", 2),
   ...boardRows("E2E 未分類の列", 1),
+  ...boardRows("E2E 遅い A", 52),
+  ...boardRows("E2E 遅い B", 2),
+  ...boardRows("E2E 1 本の列", 1),
+  ...boardRows("E2E 下の列", 3),
+  // What the favicon service answers depends on the host (e2e/stub.mts).
+  ...[
+    ["E2E 画像あり", "good.example"],
+    ["E2E 画像 404", "notfound.example"],
+    ["E2E 画像 空", "empty.example"],
+    ["E2E 画像 無応答", "hang.example"],
+  ].flatMap(([name, host]) => boardRows(name, 1).map((a) => ({ ...a, url: `https://${host}/e2e/${a.title}` }))),
+  ...boardRows("E2E 五十二本", 52),
+  ...boardRows("E2E 止まりの列", 1),
 ];
 const boardInserted = await db.insert(schema.articles).values(boardArticles).returning();
 const boardTalked = boardInserted.find((a) => a.titleJa === "E2E 列 少ない 2")!;

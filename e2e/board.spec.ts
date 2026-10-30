@@ -140,7 +140,8 @@ test.describe("PC 幅", () => {
     await expect(column(page, "E2E 開く A")).toBeVisible();
     await page.goto(articleUrl);
     await expect(heading(page)).toHaveText("E2E 開く A 1");
-    await expect(feedList(page).getByRole("listitem")).toHaveCount(1);
+    await expect(card(page, "E2E 開く A 1")).toHaveAttribute("aria-current", "true");
+    await expect(card(page, "E2E 開く B 1")).toHaveCount(0);
     await page.reload();
     await expect(heading(page)).toHaveText("E2E 開く A 1");
     // Without a Board to go back to, ← goes to the feed the URL names.
@@ -221,6 +222,13 @@ test.describe("PC 幅", () => {
     await expect(tab(page, "未分類", 1)).toHaveAttribute("aria-current", "page");
   });
 
+  test("未読が止まっているフィードにしかなければ、「未読の記事はありません」とは出さない", async ({ page }) => {
+    await openTab(page, "E2E 止まりだけ");
+    await expect(page.getByText(/^1 本/)).toBeVisible();
+    await expect(page.getByText(/未読の記事はありません/)).toHaveCount(0);
+    await expect(page.getByText("止まっているフィードに未読が 1 本あります。")).toBeVisible();
+  });
+
   test("「既読を含む」は一覧に切り替わり、切ればボードに戻る", async ({ page }) => {
     await openTab(page, "E2E ボード");
     const url = page.url();
@@ -279,33 +287,107 @@ test.describe("PC 幅", () => {
     await expect(page).toHaveURL("/");
   });
 
-  test("ファビコンが取れれば列に出て、取れなければ頭文字になる。外のサービスには取りに行かない", async ({ page }) => {
+  test("ボードから開いた記事で一覧が届く前に j / k / 読了を押しても、別のフィードへ移らない", async ({ page }) => {
+    // Holds the feed list back, as a slow connection does, until the test lets it through.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(/\/articles\/\d+\/list/, async (route) => {
+      await held;
+      await route.fallback().catch(() => {});
+    });
+    const main = page.getByRole("main");
+
+    await openTab(page, "E2E 遅い一覧");
+    await row(page, "E2E 遅い B", "E2E 遅い B 1").getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 遅い B 1");
+    await page.keyboard.press("k"); // Would be the last row of A.
+    await page.waitForTimeout(300);
+    await expect(heading(page)).toHaveText("E2E 遅い B 1");
+    await expect(feedList(page)).toHaveCount(0);
+
+    await openTab(page, "E2E 遅い一覧");
+    const lastRow = rows(page, "E2E 遅い A").nth(49);
+    await expect(lastRow).toContainText("E2E 遅い A 50");
+    await lastRow.getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 遅い A 50");
+    await page.keyboard.press("j"); // Would be the first row of B.
+    await page.waitForTimeout(300);
+    await expect(heading(page)).toHaveText("E2E 遅い A 50");
+    await expect(feedList(page)).toHaveCount(0);
+
+    // Past the column's 50 rows, 読了 goes on in the same feed.
+    // Pressed before the list arrives. The lookup of the next article then waits for the list's
+    // navigation in the router's queue, so the list is let through right after the press.
+    await main.getByRole("button", { name: "読了にする" }).click();
+    release();
+    await expect(heading(page)).toHaveText("E2E 遅い A 51");
+    await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
+    // The list that arrives is that feed's (it loads 30 cards, so not as far as 51).
+    await expect(card(page, "E2E 遅い A 1")).toBeVisible();
+    await expect(card(page, "E2E 遅い B 1")).toHaveCount(0);
+  });
+
+  test("列の「すべて既読」で、50 本より後の開いた行も列に残らない", async ({ page }) => {
+    await openTab(page, "E2E 五十本を越える");
+    const url = page.url();
+    await column(page, "E2E 五十二本").getByRole("link", { name: "E2E 五十二本", exact: true }).click();
+    await page.getByRole("link", { name: /もっと見る/ }).click();
+    await card(page, "E2E 五十二本 52").getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 五十二本 52");
+    await boardLink(page).click();
+    await expect(page).toHaveURL(url);
+    await expect(unreadIn(page, "E2E 五十二本")).toHaveText("51");
+
+    await markAll(page, "E2E 五十二本").click();
+    await expect(unreadIn(page, "E2E 五十二本")).toHaveText("0");
+    await expect(rows(page, "E2E 五十二本")).toHaveText(["未読はありません"]);
+  });
+
+  test("ボードから開いた記事を一覧のカードで「未読に戻す」と、ボードに戻る", async ({ page }) => {
+    await openTab(page, "E2E ボードから戻す");
+    const url = page.url();
+    await row(page, "E2E 戻す列", "E2E 戻す列 1").getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 戻す列 1");
+    await card(page, "E2E 戻す列 1").getByRole("button", { name: "未読に戻す" }).click();
+    await expect(page).toHaveURL(url);
+    await expect(unreadIn(page, "E2E 戻す列")).toHaveText("2");
+    await expect(row(page, "E2E 戻す列", "E2E 戻す列 1")).not.toHaveAttribute("data-seen", "");
+  });
+
+  test("ファビコンは取れたときだけ出て、失敗の形によらず頭文字になる。ブラウザは外へ出ない", async ({ page }) => {
     const hosts: string[] = [];
     page.on("request", (r) => hosts.push(new URL(r.url()).hostname));
+    const badge = (name: string) => column(page, name).locator("header span[aria-hidden]");
 
-    await openTab(page, "E2E ボード");
-    const badge = column(page, "E2E 列 少ない").locator("header span[aria-hidden]");
-    // The stub has no icons: the initial stays, and no broken image is left.
-    await expect(badge).toHaveText("E");
-    await expect(badge.locator("img")).toHaveCount(0);
+    await openTab(page, "E2E ファビコン");
+    await expect(badge("E2E 画像あり").locator("img")).toBeVisible();
+    await expect.poll(() => badge("E2E 画像あり").locator("img").evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1);
+    // A 404 whose body is an image, as DuckDuckGo sends, and an empty 200.
+    for (const name of ["E2E 画像 404", "E2E 画像 空"]) {
+      await expect(badge(name).locator("img")).toHaveCount(0);
+      await expect(badge(name)).toHaveText("E");
+    }
+    // No answer at all: nothing hides the initial meanwhile, and it stays when the request gives up.
+    const waiting = badge("E2E 画像 無応答").locator("img");
+    await expect(waiting).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(waiting).toHaveCount(0, { timeout: 10_000 });
+    await expect(badge("E2E 画像 無応答")).toHaveText("E");
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>`;
-    await page.route("**/favicons/**", (route) => route.fulfill({ contentType: "image/svg+xml", body: svg }));
-    await page.reload();
-    await expect(badge.locator("img")).toBeVisible();
-    await expect(badge.locator("img")).toHaveAttribute("src", /\/favicons\/example\.com\.ico$/);
-    // The hero shows it as well, from the same host.
-    await column(page, "E2E 列 少ない").getByRole("link", { name: "E2E 列 少ない", exact: true }).click();
+    // The hero shows it too.
+    await column(page, "E2E 画像あり").getByRole("link", { name: "E2E 画像あり", exact: true }).click();
     await expect(page).toHaveURL(/&s=\d+$/);
     await expect(page.getByRole("main").locator("img")).toBeVisible();
 
     expect(new Set(hosts)).toEqual(new Set(["localhost"]));
+
+    // Only a host name reaches the service.
+    expect((await page.request.get("/api/favicon/a%2Fb")).status()).toBe(404);
   });
 });
 
 for (const viewport of [
   { width: 669, height: 825 }, // an unfolded phone
-  { width: 844, height: 390 }, // a phone on its side
+  { width: 951, height: 543 }, // an unfolded phone on its side
 ]) {
   test.describe(`横に並ぶ幅 ${viewport.width}×${viewport.height}`, () => {
     test.use({ viewport });
@@ -327,6 +409,30 @@ for (const viewport of [
     });
   });
 }
+
+test.describe("横向きのスマホ 844×390", () => {
+  test.use({ viewport: { width: 844, height: 390 } });
+
+  test("縦積みになり、「URL を追加」を開いても読める高さが残る", async ({ page }) => {
+    await openTab(page, "E2E ボード");
+    const many = column(page, "E2E 列 たくさん");
+    await expect(many.getByRole("list").getByRole("listitem")).toHaveCount(3);
+    await expect(many.getByRole("link", { name: /^もっと見る\(あと \d+ 件\)›$/ })).toBeVisible();
+    const few = (await column(page, "E2E 列 少ない").boundingBox())!;
+    const box = (await many.boundingBox())!;
+    expect(few.x).toBe(box.x);
+    expect(few.y).toBeGreaterThanOrEqual(box.y + box.height);
+    expect(await overflowsX(page)).toBe(false);
+
+    await page.getByRole("button", { name: "URL を追加" }).click();
+    await expect(page.getByPlaceholder("https://…")).toBeVisible();
+    const pane = page.getByRole("main");
+    expect(await pane.evaluate((el) => el.clientHeight)).toBeGreaterThan(150);
+    await column(page, "E2E 列 少ない").scrollIntoViewIfNeeded();
+    await expect(column(page, "E2E 列 少ない")).toBeInViewport();
+    expect(await overflowsX(page)).toBe(false);
+  });
+});
 
 test.describe("スマホ @mobile", () => {
   test("フィードごとに見出し 3 本と「もっと見る」が出て、そのフィードの一覧になり、「‹ ボード」で戻れる @mobile", async ({ page }) => {
@@ -395,6 +501,27 @@ test.describe("スマホ @mobile", () => {
     await page.goBack();
     await expect(page).toHaveURL("/");
     await expect.poll(async () => Math.abs((await scrollY(page)) - y)).toBeLessThanOrEqual(2);
+  });
+
+  test("列の最後の未読を開いて戻っても、セクションは薄い行で残り、下のセクションの位置が動かない @mobile", async ({ page }) => {
+    await page.goto("/");
+    await rows(page, "E2E 1 本の列").first().scrollIntoViewIfNeeded();
+    const y = await scrollY(page);
+    expect(y).toBeGreaterThan(500);
+    const below = (await column(page, "E2E 下の列").boundingBox())!.y;
+
+    await rows(page, "E2E 1 本の列").first().getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 1 本の列 1");
+    await page.getByRole("link", { name: "戻る", exact: true }).click();
+    await expect(page).toHaveURL("/");
+    await expect(unreadIn(page, "E2E 1 本の列")).toHaveText("0");
+    await expect(rows(page, "E2E 1 本の列").first()).toHaveAttribute("data-seen", "");
+    await expect.poll(() => scrollY(page)).toBe(y);
+    await expect.poll(async () => (await column(page, "E2E 下の列").boundingBox())!.y).toBe(below);
+
+    // A full load drops the seen row, and the section with it.
+    await page.reload();
+    await expect(column(page, "E2E 1 本の列")).toBeHidden();
   });
 
   test("ボードから開いた記事を読了すると、ボードに戻って元に戻せる。もっと見るから開いた記事はフィードの一覧に戻る @mobile", async ({

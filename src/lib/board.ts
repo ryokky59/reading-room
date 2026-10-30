@@ -1,7 +1,8 @@
 import "server-only";
-import { and, asc, count, desc, eq, isNotNull, isNull, lte, max, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, max, or, sql } from "drizzle-orm";
 import { articles, feeds, folders, getDb } from "./db";
-import { formatAgo, hostname } from "./format";
+import { faviconUrl } from "./favicon";
+import { formatAgo } from "./format";
 import { inboxQuery, inboxWhere, listedWhere, type InboxFilter } from "./inbox";
 
 /** Rows a column shows on PCs; the rest are behind 「あと N 件」. */
@@ -30,17 +31,6 @@ export function feedColor(feedId: number | null) {
   if (feedId === null) return "var(--muted)";
   // A multiplicative hash: neighbouring ids, usually added together, land apart.
   return PALETTE[(Math.imul(feedId, 2654435761) >>> 0) % PALETTE.length];
-}
-
-/**
- * The favicon of the site of `url`, from an outside service: the browser sends it the host names
- * of the owner's feeds. `FAVICON_SERVICE` swaps the service, and blank turns favicons off (the
- * initial shows instead). E2E points it at a local stub.
- */
-export function faviconUrl(url: string | undefined) {
-  const service = process.env.FAVICON_SERVICE ?? "https://icons.duckduckgo.com/ip3";
-  const host = url && hostname(url);
-  return service && host ? `${service}/${host}.ico` : null;
 }
 
 /** Unread counts per folder (null = 未分類) and site; articles without a feed count as 未分類. */
@@ -90,6 +80,8 @@ export type BoardColumn = {
   lastFetchedAt: Date | null;
   unread: number;
   rows: BoardRowData[];
+  /** What 「すべて既読」 takes off the column: its rows, and seen ones kept past COLUMN_ROWS. */
+  clearIds: number[];
   /** Search string a row's article opens with. */
   articleQuery: string;
   /** Search string of the list behind the column. */
@@ -137,7 +129,7 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
     .leftJoin(feeds, eq(feeds.id, articles.feedId))
     .where(and(listedWhere({ f: filter.f }, kept), running))
     .as("ranked");
-  const [rows, feedRows, latest, folderRows, buckets] = await Promise.all([
+  const [rows, feedRows, latest, folderRows, buckets, keptRows] = await Promise.all([
     db.select().from(ranked).where(lte(ranked.place, COLUMN_ROWS)).orderBy(ranked.place),
     db
       .select({
@@ -158,12 +150,18 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
       .orderBy(articles.feedId, desc(articles.fetchedAt)),
     folderList(),
     unreadBuckets(),
+    kept.length
+      ? db.select({ id: articles.id, feedId: articles.feedId }).from(articles).where(inArray(articles.id, kept))
+      : [],
   ]);
   type FeedRow = (typeof feedRows)[number];
 
   const urlOf = new Map(latest.map((a) => [a.feedId, a.url]));
   const unreadOf = (feedId: number | null) => buckets.filter((b) => b.feedId === feedId).reduce((t, b) => t + b.n, 0);
   const rowsOf = (feedId: number | null) => rows.filter((r) => r.feedId === feedId);
+  const clearIds = (feedId: number | null) => [
+    ...new Set([...rowsOf(feedId), ...keptRows.filter((r) => r.feedId === feedId)].map((r) => r.id)),
+  ];
   const folderParam = (id: number | null) => (id === null ? "none" : String(id));
   const shown = (id: number | null) => filter.f === undefined || filter.f === folderParam(id);
   const isStopped = (f: FeedRow) => !f.enabled || f.lastError !== null;
@@ -182,6 +180,7 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
       lastFetchedAt: f.lastFetchedAt,
       unread,
       rows: rowsOf(f.id),
+      clearIds: clearIds(f.id),
       articleQuery: inboxQuery({ f: folderParam(f.folderId), s: String(f.id) }),
       listQuery: feedList(f, unread),
     };
@@ -190,8 +189,9 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
     feedRows
       .filter((f) => f.folderId === id && !isStopped(f))
       .map(column)
-      // Stable, unlike sorting by count: a column stays put as it is read, until it is empty.
-      .sort((a, b) => Number(b.unread > 0) - Number(a.unread > 0));
+      // Stable, unlike sorting by count: a column stays put as it is read, until it has no rows.
+      // A seen row kept in it holds its place, or coming back from it would swap two sections.
+      .sort((a, b) => Number(b.rows.length > 0 || b.unread > 0) - Number(a.rows.length > 0 || a.unread > 0));
 
   const groups: BoardGroup[] = folderRows
     .filter((f) => shown(f.id))
@@ -207,6 +207,7 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
       lastFetchedAt: null,
       unread,
       rows: noFeed,
+      clearIds: clearIds(null),
       // These have no `s` to narrow by, so they open and list as 未分類; with `a`, as without it
       // the list would be this Board.
       articleQuery: inboxQuery({ f: "none" }),

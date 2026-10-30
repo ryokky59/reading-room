@@ -90,9 +90,10 @@ export function useForgetOpened() {
 
 /**
  * Keeps the articles opened beside the list (see lib/opened.ts). A full load of the list starts
- * without them; beside an article, a reload keeps them.
+ * without them; beside an article, a reload keeps them. Phones have no list beside the article
+ * and drop a seen card, but a row opened from the Board stays: it may be its section's last.
  */
-function useOpened(openId: number | null): Opened {
+function useOpened(openId: number | null, fromBoard: boolean): Opened {
   const router = useRouter();
   const [opened, setOpened] = useState<ReadonlySet<number>>(() => new Set(openId === null ? [] : [openId]));
   const [lastOpenId, setLastOpenId] = useState(openId);
@@ -117,9 +118,8 @@ function useOpened(openId: number | null): Opened {
   // A layout effect: the cookie must be there before ListAfterFullLoad's effect asks for the list.
   useLayoutEffect(() => {
     openIdRef.current = openId;
-    // Phones show no list beside the article; theirs drops it, as it does for any seen article.
-    if (openId !== null && isWide()) writeOpened([...readOpened().filter((id) => id !== openId), openId]);
-  }, [openId]);
+    if (openId !== null && (isWide() || fromBoard)) writeOpened([...readOpened().filter((id) => id !== openId), openId]);
+  }, [openId, fromBoard]);
   useLayoutEffect(() => {
     if (openIdRef.current !== null || readOpened().length === 0) return;
     writeOpened([]);
@@ -281,13 +281,19 @@ export function BoardLink({ className, children }: { className?: string; childre
  * but the pane beside an article is too narrow for columns: from `split` up it gets the feed list
  * instead, by the same route as an article loaded directly (ListAfterFullLoad). Phones hide the
  * slot and keep the Board under the article, so ← finds it where it was.
+ *
+ * `columns` are the row ids of each column. An open article moves only within its own column,
+ * from before the feed list arrives; with no article open every row counts as listed.
  */
-export function BoardPane({ children }: { children: React.ReactNode }) {
-  const open = useOpenId() !== null;
+export function BoardPane({ columns, children }: { columns: number[][]; children: React.ReactNode }) {
+  const openId = useOpenId();
+  const open = openId !== null;
+  const ids = open ? (columns.find((c) => c.includes(openId)) ?? []) : columns.flat();
   return (
     <>
+      <InboxNavSync ids={ids} />
       {open && <ListAfterFullLoad />}
-      <div className={`${open ? "split:hidden" : "split:flex"} split:h-full split:min-w-0 split:flex-col`}>{children}</div>
+      <div className={`${open ? "split:hidden" : "board:flex"} board:h-full board:min-w-0 board:flex-col`}>{children}</div>
     </>
   );
 }
@@ -372,11 +378,11 @@ export function InboxShell({
   const shownIds = useMemo(() => ids && ids.filter((id) => !leaving.has(id)), [ids, leaving]);
   const openId = useOpenId();
   const open = openId !== null;
-  const openedValue = useOpened(openId);
+  const boardOrigin = useBoardOrigin(open);
+  const openedValue = useOpened(openId, boardOrigin.openedFrom);
   usePhoneListScroll(open);
   useArticleUrlAfterListChange();
   useRefreshOnLeavingArticle(open, leaving.size > 0);
-  const boardOrigin = useBoardOrigin(open);
   // The Board takes the whole width; nothing goes beside it.
   const board = useBoardUrl() !== null;
   return (
@@ -404,7 +410,7 @@ export function InboxShell({
                 aria-label={open ? "新着一覧" : undefined}
                 className={`${open ? "hidden split:block" : ""} ${
                   board
-                    ? "split:min-w-0 split:flex-1 split:pr-[env(safe-area-inset-right)]"
+                    ? "split:min-w-0 split:flex-1 split:overflow-y-auto split:pr-[env(safe-area-inset-right)]"
                     : "split:w-[calc(17.5rem+env(safe-area-inset-left))] lg:w-[calc(20rem+env(safe-area-inset-left))] split:shrink-0 split:overflow-y-auto split:overscroll-contain split:border-r split:border-line"
                 } split:pl-[env(safe-area-inset-left)]`}
               >
@@ -688,6 +694,7 @@ function CardUnseeButton({ id }: { id: number }) {
   useNavPending(pending);
   const forget = useForgetOpened();
   const toast = useToast();
+  const leaveHref = useLeaveHref(`/${search ? `?${search}` : ""}`);
   return (
     <button
       type="button"
@@ -703,7 +710,7 @@ function CardUnseeButton({ id }: { id: number }) {
             return;
           }
           forget(id);
-          if (openId === id) router.push(`/${search ? `?${search}` : ""}`);
+          if (openId === id) router.push(leaveHref);
           else router.refresh();
         })
       }

@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { FeedBadge } from "@/components/FeedBadge";
 import { FolderTabs } from "@/components/FolderTabs";
-import { BoardPane, BoardRow, InboxNavSync, ListLink, MarkAllSeenButton } from "@/components/InboxShell";
+import { BoardPane, BoardRow, ListLink, MarkAllSeenButton } from "@/components/InboxShell";
 import { LinkPending } from "@/components/NavPending";
 import { COLUMN_ROWS, loadBoard, PHONE_ROWS, type BoardColumn, type StoppedFeed } from "@/lib/board";
 import { formatAgo, formatDate, isForeign, readingMinutes } from "@/lib/format";
@@ -10,10 +10,11 @@ import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
 import { OPENED_COOKIE, parseOpened } from "@/lib/opened";
 
 /**
- * The inbox with no site chosen: a column per feed, grouped by folder. From `split` up the columns
- * scroll sideways and each scrolls on its own; phones stack the feeds as sections with a few
- * headlines, on the window's scroll. Both come from one markup, so the server need not know
- * the screen and a rotated phone just changes layout.
+ * The inbox with no site chosen: a column per feed, grouped by folder. With the `board` variant
+ * (globals.css) the columns scroll sideways and each scrolls on its own; phones stack the feeds as
+ * sections with a few headlines. Both come from one markup, so the server need not know the
+ * screen and a rotated phone just changes layout. A column shows while it has rows, so that
+ * coming back from its last unread article does not pull the page up.
  */
 export async function Board({
   searchParams,
@@ -27,10 +28,11 @@ export async function Board({
   const total = buckets
     .filter((b) => selected === "all" || b.folderId === selected)
     .reduce((t, b) => t + b.n, 0);
-  const anyUnread = groups.some((g) => g.columns.some((c) => c.unread > 0));
+  const shown = (c: BoardColumn) => c.unread > 0 || c.rows.length > 0;
+  const anyShown = groups.some((g) => g.columns.some(shown));
+  const stoppedUnread = stopped.reduce((t, f) => t + f.unread, 0);
   return (
-    <BoardPane>
-      <InboxNavSync ids={groups.flatMap((g) => g.columns.flatMap((c) => c.rows.map((r) => r.id)))} />
+    <BoardPane columns={groups.flatMap((g) => g.columns.map((c) => c.rows.map((r) => r.id)))}>
       <div className="shrink-0 px-4 pt-3">
         <FolderTabs folders={folders} buckets={buckets} selected={selected} />
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
@@ -50,24 +52,26 @@ export async function Board({
       </div>
 
       {/* The bottom padding keeps the last section clear of the toast (InboxShell). */}
-      <div className="mt-2 flex flex-col gap-6 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] split:min-h-0 split:flex-1 split:flex-row split:gap-5 split:overflow-x-auto split:overscroll-x-contain split:pb-[calc(1rem+env(safe-area-inset-bottom))]">
+      <div className="mt-2 flex flex-col gap-6 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] board:min-h-0 board:flex-1 board:flex-row board:gap-5 board:overflow-x-auto board:overscroll-x-contain board:pb-[calc(1rem+env(safe-area-inset-bottom))]">
         {groups.map((group) => (
           <section
             key={group.key}
             aria-label={group.name}
-            className={`${group.columns.some((c) => c.unread > 0) ? "flex" : "hidden split:flex"} min-w-0 flex-col gap-2 split:min-h-0 split:shrink-0`}
+            className={`${group.columns.some(shown) ? "flex" : "hidden board:flex"} min-w-0 flex-col gap-2 board:min-h-0 board:shrink-0`}
           >
             <h2 className="shrink-0 truncate text-xs font-bold text-muted">{group.name}</h2>
-            <div className="flex flex-col gap-4 split:min-h-0 split:flex-1 split:flex-row split:gap-3">
+            <div className="flex flex-col gap-4 board:min-h-0 board:flex-1 board:flex-row board:gap-3">
               {group.columns.map((column) => (
                 <Column key={column.feedId ?? "none"} column={column} />
               ))}
             </div>
           </section>
         ))}
-        {!anyUnread && (
-          <p className="my-12 text-center text-muted split:my-auto split:w-60 split:shrink-0">
-            未読の記事はありません。「今すぐ取得」で新着を取ってこられます。
+        {!anyShown && (
+          <p className="my-12 text-center text-muted board:my-auto board:w-60 board:shrink-0">
+            {stoppedUnread > 0
+              ? `止まっているフィードに未読が ${stoppedUnread} 本あります。`
+              : "未読の記事はありません。「今すぐ取得」で新着を取ってこられます。"}
           </p>
         )}
         {stopped.length > 0 && <Stopped feeds={stopped} />}
@@ -82,7 +86,7 @@ function unreadLeft(column: BoardColumn, limit: number) {
 }
 
 function Column({ column }: { column: BoardColumn }) {
-  const { feedId, name, color, favicon, lastFetchedAt, unread, rows, articleQuery, listQuery } = column;
+  const { feedId, name, color, favicon, lastFetchedAt, unread, rows, clearIds, articleQuery, listQuery } = column;
   const phoneLeft = unreadLeft(column, PHONE_ROWS);
   const columnLeft = unreadLeft(column, COLUMN_ROWS);
   return (
@@ -90,7 +94,7 @@ function Column({ column }: { column: BoardColumn }) {
       aria-label={name}
       data-feed={feedId ?? "none"}
       style={{ borderTopColor: color }}
-      className={`${unread > 0 ? "flex" : "hidden split:flex split:opacity-60"} min-w-0 flex-col overflow-hidden rounded-xl border border-t-[3px] border-line bg-surface split:min-h-0 split:w-[260px] split:shrink-0`}
+      className={`${unread > 0 || rows.length > 0 ? "flex" : "hidden board:flex"} ${unread > 0 ? "" : "board:opacity-60"} min-w-0 flex-col overflow-hidden rounded-xl border border-t-[3px] border-line bg-surface board:min-h-0 board:w-[260px] board:shrink-0`}
     >
       <header className="shrink-0 border-b border-line px-3 py-2">
         <div className="flex items-center gap-2">
@@ -109,18 +113,18 @@ function Column({ column }: { column: BoardColumn }) {
           {lastFetchedAt && <span className="truncate">{formatAgo(lastFetchedAt)}に取得</span>}
           {unread > 0 && (
             <span className="ml-auto shrink-0">
-              <MarkAllSeenButton target={{ feedId }} rows={rows.map((r) => r.id)} />
+              <MarkAllSeenButton target={{ feedId }} rows={clearIds} />
             </span>
           )}
         </div>
       </header>
-      <ul aria-label={`${name}の記事`} className="split:min-h-0 split:flex-1 split:overflow-y-auto split:overscroll-contain">
+      <ul aria-label={`${name}の記事`} className="board:min-h-0 board:flex-1 board:overflow-y-auto board:overscroll-contain">
         {rows.map((row, i) => (
           <BoardRow
             key={row.id}
             id={row.id}
             seen={row.seenAt !== null}
-            className={`${i < PHONE_ROWS ? "" : "hidden split:block"} border-b border-line last:border-b-0`}
+            className={`${i < PHONE_ROWS ? "" : "hidden board:block"} border-b border-line last:border-b-0`}
           >
             <Link href={`/articles/${row.id}${articleQuery}`} className="pressable flex gap-2 px-3 py-2">
               <LinkPending />
@@ -148,7 +152,7 @@ function Column({ column }: { column: BoardColumn }) {
       {phoneLeft > 0 && (
         <Link
           href={`/${listQuery}`}
-          className="pressable block shrink-0 border-t border-line px-3 py-2 text-center text-sm text-accent split:hidden"
+          className="pressable block shrink-0 border-t border-line px-3 py-2 text-center text-sm text-accent board:hidden"
         >
           もっと見る(あと {phoneLeft} 件)›
           <LinkPending />
@@ -157,7 +161,7 @@ function Column({ column }: { column: BoardColumn }) {
       {columnLeft > 0 && (
         <Link
           href={`/${listQuery}`}
-          className="pressable hidden shrink-0 border-t border-line px-3 py-2 text-center text-xs text-accent split:block"
+          className="pressable hidden shrink-0 border-t border-line px-3 py-2 text-center text-xs text-accent board:block"
         >
           あと {columnLeft} 件 ›
           <LinkPending />
@@ -173,7 +177,7 @@ const STOPPED = "止まっているフィード";
 function Stopped({ feeds }: { feeds: StoppedFeed[] }) {
   const items = (
     <>
-      <ul className="split:min-h-0 split:flex-1 split:overflow-y-auto">
+      <ul className="board:min-h-0 board:flex-1 board:overflow-y-auto">
         {feeds.map((f) => (
           <li key={f.id} className="border-b border-line px-3 py-2 last:border-b-0">
             <Link href={`/${f.listQuery}`} className="pressable block text-sm font-medium break-words">
@@ -195,7 +199,7 @@ function Stopped({ feeds }: { feeds: StoppedFeed[] }) {
   );
   return (
     <>
-      <details className="rounded-xl border border-line bg-surface split:hidden">
+      <details className="rounded-xl border border-line bg-surface board:hidden">
         <summary className="px-3 py-2 text-sm font-bold text-muted">
           {STOPPED} <span className="font-normal">{feeds.length}</span>
         </summary>
@@ -203,7 +207,7 @@ function Stopped({ feeds }: { feeds: StoppedFeed[] }) {
       </details>
       <section
         aria-label={STOPPED}
-        className="hidden min-h-0 w-[180px] shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-surface split:flex"
+        className="hidden min-h-0 w-[180px] shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-surface board:flex"
       >
         <h2 className="shrink-0 border-b border-line px-3 py-2 text-xs font-bold text-muted">
           {STOPPED} <span className="font-normal">{feeds.length}</span>
