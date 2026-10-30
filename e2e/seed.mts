@@ -6,6 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "../src/lib/db/schema";
+import { DIGEST_ATTEMPT_LIMIT } from "../src/lib/format";
 
 const dir = process.env.PGLITE_DIR;
 if (!dir) throw new Error("PGLITE_DIR is required");
@@ -114,11 +115,25 @@ const [flash, weekly, readOnly, bulk, backFeed, lastFeed, stayFeed, readBackFeed
     ...[1, 2, 3, 4, 5, 6].map((i) => feed(`crowded-${i}`, `E2E 横に並ぶサイト ${i}`, crowded.id)),
   ])
   .returning();
+// An article the AI refused to summarize (e2e/digest.spec.ts).
+const [refusedFolder] = await db.insert(schema.folders).values({ name: "E2E 要約できない", position: 65 }).returning();
+const [refusedFeed] = await db.insert(schema.feeds).values(feed("refused", "E2E 要約できないサイト", refusedFolder.id)).returning();
 const biz = inserted.find((a) => a.title === "ビジネスの記事")!;
 await db.update(schema.articles).set({ source: flash.name, feedId: flash.id }).where(eq(schema.articles.id, biz.id));
 // Older than the articles above so they stay out of the first page of すべて.
 const old = (i: number) => new Date(now - 86_400_000 - i * 60_000);
 const filterArticles = [
+  article(10, {
+    title: "要約を断られた記事",
+    lang: null,
+    summary: null,
+    excerpt: "要約を断られた記事の RSS の概要です。",
+    digestAttempts: DIGEST_ATTEMPT_LIMIT,
+    digestError: "refused",
+    source: refusedFeed.name,
+    feedId: refusedFeed.id,
+    fetchedAt: old(90),
+  }),
   article(7, { title: "速報の2本目", titleJa: "速報の2本目", source: flash.name, feedId: flash.id }),
   article(8, { title: "週報の記事", titleJa: "週報の記事", source: weekly.name, feedId: weekly.id }),
   article(9, {
