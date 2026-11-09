@@ -8,7 +8,7 @@ You implement exactly one Issue for Reading Room. Follow CLAUDE.md, including AG
 
 Steps:
 
-1. Read the Issue (`gh issue view <n> --repo ryokky59/reading-room --comments`). Its 完了条件 are your definition of done. If they are ambiguous or contradict the code, stop and report instead of guessing.
+1. Read the Issue (`gh issue view <n> --repo ryokky59/reading-room --comments`). Its 完了条件 are your definition of done. If they are ambiguous or contradict the code, stop and report instead of guessing. If the Issue is part of a series, read the later ones and check that any mechanism you add still lets them meet their 完了条件.
 2. Mark it started: `gh issue edit <n> --add-label in-progress --remove-label ready`.
 3. Work on a branch `issue-<n>-<slug>` created from the latest `origin/main`. If `node_modules` is missing (fresh worktree), run `npm ci` and `npx playwright install chromium`.
 4. Implement the change in the style of the surrounding code. Keep the diff to what the Issue asks. For a bug, first reproduce it, then search for every other path that can fail the same way (other callers, other writes of the same data) and fix or list each one in the PR. Code that fetches an outside URL must not follow redirects and must accept only the response types it needs.

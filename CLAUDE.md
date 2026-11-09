@@ -41,7 +41,8 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 
 ## Notes
 
-- Local dev without `DATABASE_URL` uses PGlite under `.data/` and migrates automatically. Schema changes need a Drizzle migration in `drizzle/`; say in the PR that it must be applied to production Neon before deploy.
+- Local dev without `DATABASE_URL` uses PGlite under `.data/` and migrates automatically. Schema changes need a Drizzle migration in `drizzle/`; say in the PR that it must be applied to production Neon before deploy. If two migrations collide on a number, regenerate one with `drizzle-kit generate`; a renamed file keeps its old `when`, and Drizzle silently skips it in production.
 - Production is protected by Vercel Authentication; there is no app-level login.
+- Vercel has one `DATABASE_URL` entry for Production and Preview, so a preview may be using the production database. A PR with a migration or a new write says so in what the owner should check.
 - Models are set in `src/lib/ai.ts`.
 - On phones the list stays mounted under `display: none` while an article is open (see `InboxShell.tsx`). Code that measures or animates the list must cope with zero sizes while it is hidden.
