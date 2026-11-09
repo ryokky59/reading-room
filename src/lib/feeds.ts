@@ -1,10 +1,11 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import { parseHTML } from "linkedom";
 import Parser from "rss-parser";
 import { digestArticle, type Digest } from "./ai";
 import { articles, feeds, getDb, type Feed } from "./db";
 import { EMPTY, extractArticle } from "./extract";
+import { DIGEST_ATTEMPT_LIMIT } from "./format";
 
 type Candidate = {
   url: string;
@@ -95,7 +96,7 @@ async function save(input: Candidate[]): Promise<number> {
     );
     const title = c.title !== "(無題)" ? c.title : (ex.title ?? c.title);
     const excerpt = ex.excerpt ?? c.summary;
-    const digest = await tryDigest({ title, text: ex.text, excerpt });
+    const digest = await tryDigest({ title, text: ex.text, excerpt }, 0);
     return withoutNul({
       url: c.url,
       title,
@@ -134,32 +135,60 @@ async function save(input: Candidate[]): Promise<number> {
   }
 }
 
-async function tryDigest(a: Parameters<typeof digestArticle>[0]): Promise<Partial<Digest>> {
+type DigestColumns = Partial<Digest> & { digestAttempts: number; digestError: string | null };
+
+/** Returns the columns to store: the digest if it worked, and the record of this attempt. */
+async function tryDigest(a: Parameters<typeof digestArticle>[0], attempts: number): Promise<DigestColumns> {
   try {
-    return await digestArticle(a);
+    return { ...(await digestArticle(a)), digestAttempts: attempts + 1, digestError: null };
   } catch (err) {
     console.error("digest failed", a.title, err);
-    return {};
+    const digestError = brief(err).slice(0, 200);
+    // A refusal would only repeat, so it uses up the attempts at once.
+    return { digestAttempts: digestError === "refused" ? DIGEST_ATTEMPT_LIMIT : attempts + 1, digestError };
   }
 }
 
-/** Fills in the AI title/summary for unread articles that don't have one yet. */
-async function digestMissing(limit: number): Promise<void> {
+/**
+ * Fills in the AI title/summary for unread articles that don't have one yet and still have
+ * attempts left. Articles fetched at or after `before` were just tried by save(), so they wait
+ * for the next run: a second try seconds later would use up an attempt on the same outage.
+ */
+async function digestMissing(limit: number, before: Date): Promise<void> {
   const db = await getDb();
   const rows = await db
-    .select({ id: articles.id, title: articles.title, text: articles.contentText, excerpt: articles.excerpt })
+    .select({
+      id: articles.id,
+      title: articles.title,
+      text: articles.contentText,
+      excerpt: articles.excerpt,
+      attempts: articles.digestAttempts,
+    })
     .from(articles)
-    .where(and(eq(articles.status, "inbox"), isNull(articles.summary)))
+    .where(
+      and(
+        eq(articles.status, "inbox"),
+        isNull(articles.summary),
+        lt(articles.digestAttempts, DIGEST_ATTEMPT_LIMIT),
+        lt(articles.fetchedAt, before),
+      ),
+    )
     .orderBy(desc(articles.fetchedAt))
     .limit(limit);
   await mapLimit(rows, 6, async (r) => {
-    const digest = await tryDigest(r);
-    if (digest.summary) await db.update(articles).set(withoutNul(digest)).where(eq(articles.id, r.id));
+    const digest = await tryDigest(r, r.attempts);
+    // Not worth failing the run: the article is simply tried again next time.
+    await db
+      .update(articles)
+      .set(withoutNul(digest))
+      .where(eq(articles.id, r.id))
+      .catch((err) => console.error("digest update failed", r.id, brief(err)));
   });
 }
 
 /** Collects from the given feeds, recording each feed's outcome. */
 async function run(list: Feed[]): Promise<FetchResult> {
+  const startedAt = new Date();
   const db = await getDb();
   const failedFeeds: string[] = [];
   const lists = await Promise.all(
@@ -181,7 +210,7 @@ async function run(list: Feed[]): Promise<FetchResult> {
   );
   const added = await save(lists.flat());
   // Catches up on articles saved before digests existed or whose digest failed.
-  await digestMissing(60);
+  await digestMissing(60, startedAt);
   return { added, failedFeeds };
 }
 

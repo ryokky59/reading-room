@@ -207,7 +207,9 @@ ${body || "(本文なし)"}
   if (msg.stop_reason === "refusal") throw new Error("refused");
   const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   const out = JSON.parse(text) as { lang: "ja" | "other"; title_ja: string; summary: string };
-  return { lang: out.lang, titleJa: out.title_ja.trim() || a.title, summary: out.summary.trim() };
+  const summary = out.summary.trim();
+  if (!summary) throw new Error("empty summary");
+  return { lang: out.lang, titleJa: out.title_ja.trim() || a.title, summary };
 }
 
 /**
@@ -217,6 +219,8 @@ ${body || "(本文なし)"}
  */
 export function streamTranslation(a: { title: string; markdown: string }, onDone: (text: string) => Promise<void>) {
   const encoder = new TextEncoder();
+  // ArticleView's Translation shows 「やり直す」 when it sees this text.
+  const failure = "\n\n(日本語にまとめられませんでした。やり直してください)";
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       let full = "";
@@ -241,9 +245,10 @@ export function streamTranslation(a: { title: string; markdown: string }, onDone
         const final = await stream.finalMessage();
         // Only a complete translation is kept, so a cut-off one is retried next time.
         if (final.stop_reason === "end_turn" && full.trim()) await onDone(full);
+        else if (final.stop_reason === "refusal" || !full.trim()) controller.enqueue(encoder.encode(failure));
       } catch (err) {
         console.error("translation failed", err);
-        controller.enqueue(encoder.encode("\n\n(日本語にまとめられませんでした。やり直してください)"));
+        controller.enqueue(encoder.encode(failure));
       } finally {
         controller.close();
       }

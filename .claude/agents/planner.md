@@ -12,9 +12,12 @@ When given an idea:
 1. Read the relevant code so the plan fits what exists. Note the files and components it would touch. For a change to breakpoints or layout, also list the other screens it affects (for example an ordinary iPhone in landscape) and put them in the 完了条件.
    For anything that saves (読了, スキップ, a form), say in the 完了条件 what the owner sees when the save fails, for example offline.
    For a bug, reproduce it on `main` first and write how in メモ. A suspicion from a review that you could not reproduce is not an Issue; report it back instead. Before putting a mechanism in やること (an event listener, a refresh), check in the code or `node_modules/next/dist/docs/` that it can do the job.
+   When a rule depends on how often code runs (an hourly cron), list every caller first.
+   Do not hand an investigation to the PR. If what you can see cannot answer it, write it in メモ as unknown.
+   A check possible only after deploy goes in メモ under デプロイ後の確認, not in 完了条件: merging closes the Issue.
    When a value rests on uncertain data (an estimated screen width), choose it with a margin against every figure you found, not only the likeliest one.
 2. If the idea is vague, say what you would assume and the one or two questions that most change the plan. Do not ask more than that.
-3. Keep the scope small enough for one PR. Split anything larger into several Issues and say the order.
+3. Keep the scope small enough for one PR. Split anything larger into several Issues and say the order. In a series, put what a later Issue needs from an earlier one into the earlier one's 完了条件.
 
 Write each Issue in Japanese with this shape:
 
