@@ -49,12 +49,17 @@ export function ChipRow({ children, small }: { children: React.ReactNode; small?
     // After the list changes, bring the chosen chip into the row's view (not the page's: the
     // page keeps its scroll) so the pill is not left off screen.
     if (on && on !== shown.current) {
+      // A row already scrolled at mount (before hydration finished) is left where it is: moving it
+      // now would pull the chip under the finger away.
+      const keep = shown.current === null && ul.scrollLeft > 0;
       shown.current = on;
-      const pad = parseFloat(getComputedStyle(ul).paddingLeft) || 0;
-      const left = on.offsetLeft - pad;
-      const right = on.offsetLeft + on.offsetWidth + pad;
-      if (left < ul.scrollLeft) ul.scrollLeft = left;
-      else if (right > ul.scrollLeft + ul.clientWidth) ul.scrollLeft = right - ul.clientWidth;
+      if (!keep) {
+        const pad = parseFloat(getComputedStyle(ul).paddingLeft) || 0;
+        const left = on.offsetLeft - pad;
+        const right = on.offsetLeft + on.offsetWidth + pad;
+        if (left < ul.scrollLeft) ul.scrollLeft = left;
+        else if (right > ul.scrollLeft + ul.clientWidth) ul.scrollLeft = right - ul.clientWidth;
+      }
     }
   }, []);
 
