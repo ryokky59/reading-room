@@ -35,7 +35,7 @@ test("一覧でスキップするとカードが左へ抜けて詰まり、ト�
   await expect(toast(page).getByText("スキップしました")).toBeVisible();
   await expect(card(page, `${folder} 1`)).toHaveCount(0, { timeout: 1000 });
   // The card below has moved up into the gap.
-  await expect.poll(async () => (await card(page, `${folder} 2`).boundingBox())!.y).toBeCloseTo(firstTop, 0);
+  await expect.poll(async () => (await card(page, `${folder} 2`).boundingBox())?.y ?? -Infinity).toBeCloseTo(firstTop, 0);
   await expect(count(page)).toHaveText(/^2 本/);
 
   await undo(page).click();

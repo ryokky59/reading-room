@@ -569,7 +569,7 @@ test.describe("スマホ @mobile", () => {
     await expect(unreadIn(page, "E2E 1 本の列")).toHaveText("0");
     await expect(rows(page, "E2E 1 本の列").first()).toHaveAttribute("data-seen", "");
     await expect.poll(() => scrollY(page)).toBe(y);
-    await expect.poll(async () => (await column(page, "E2E 下の列").boundingBox())!.y).toBe(below);
+    await expect.poll(async () => (await column(page, "E2E 下の列").boundingBox())?.y ?? -Infinity).toBe(below);
 
     // A full load drops the seen row, and the section with it.
     await page.reload();
