@@ -714,7 +714,11 @@ function CardUnseeButton({ id }: { id: number }) {
             return;
           }
           forget(id);
-          if (openId === id) router.push(leaveHref);
+          // Browser back (or forward) during the save has already moved to another page; pushing
+          // now would replace it (#76). Refreshing there still shows the card as unread.
+          const here = `/articles/${id}`;
+          const stillOpen = window.location.pathname === here || window.location.pathname === `${here}/list`;
+          if (openId === id && stillOpen) router.push(leaveHref);
           else router.refresh();
         })
       }
