@@ -27,7 +27,7 @@ jobs:
       # The E2E server uses a seeded local database; no API keys are needed.
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: ${{ !cancelled() }}
         with:
           name: playwright-report
           path: |
