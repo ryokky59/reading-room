@@ -105,7 +105,7 @@ const [flash, weekly, readOnly, bulk, backFeed, lastFeed, stayFeed, readBackFeed
   .values([
     feed("flash", "E2E ビジネス速報", business.id),
     feed("weekly", "E2E ビジネス週報", business.id),
-    feed("read-only", "E2E 既読だけのサイト", business.id),
+    feed("read-only", "E2E 読了だけのサイト", business.id),
     feed("bulk", "E2E 量産サイト", many.id),
     feed("back", "E2E 戻り先サイト", back.id),
     feed("last-one", "E2E 最後の1本のサイト", lastOne.id),
@@ -122,8 +122,8 @@ const filterArticles = [
   article(7, { title: "速報の2本目", titleJa: "速報の2本目", source: flash.name, feedId: flash.id }),
   article(8, { title: "週報の記事", titleJa: "週報の記事", source: weekly.name, feedId: weekly.id }),
   article(9, {
-    title: "既読だけのサイトの記事",
-    titleJa: "既読だけのサイトの記事",
+    title: "読了だけのサイトの記事",
+    titleJa: "読了だけのサイトの記事",
     source: readOnly.name,
     feedId: readOnly.id,
     status: "read",
@@ -298,7 +298,7 @@ await db.insert(schema.articles).values(pressArticles);
 const leaveFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける", "E2E スキップに失敗", "E2E 読了して履歴を遡る", "E2E 直接開いて読了", "E2E 元に戻すに失敗", "E2E 続けてスキップ"].map(
+    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける", "E2E スキップに失敗", "E2E 読了して履歴を遡る", "E2E 直接開いて読了", "E2E 元に戻すに失敗", "E2E 続けてスキップ", "E2E 一覧待ちで読了", "E2E 一覧待ちでスキップ", "E2E 一覧待ちのキー", "E2E 一覧待ちで失敗", "E2E 一覧待ちの横向き", "E2E 一覧が届かない"].map(
       (name, i) => ({ name, position: 70 + i }),
     ),
   )
@@ -320,6 +320,47 @@ const leaveArticles = leaveFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(leaveArticles);
 
+// 既読 (e2e/seen.spec.ts): one folder per test, with two sites. Each folder has 3 unread articles,
+// one seen, one skipped and one read.
+const seenFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E PC ですべて既読", "E2E スマホですべて既読", "E2E フォルダをすべて既読", "E2E すべて既読に失敗", "E2E 既読を見返す", "E2E スマホで見返す", "E2E 未読に戻すに失敗", "E2E 開いて戻る", "E2E スマホで開いて戻る", "E2E 読了を戻す", "E2E 開いた記事を戻す", "E2E 先読み"].map(
+      (name, i) => ({ name, position: 90 + i }),
+    ),
+  )
+  .returning();
+const seenFeeds = await db
+  .insert(schema.feeds)
+  .values(
+    seenFolders.flatMap((f, i) => [
+      feed(`seen-${i}-a`, `${f.name} A`, f.id),
+      feed(`seen-${i}-b`, `${f.name} B`, f.id),
+    ]),
+  )
+  .returning();
+const seenArticles = seenFolders.flatMap((f, i) => {
+  const [a, b] = [seenFeeds[i * 2], seenFeeds[i * 2 + 1]];
+  const row = (n: number, title: string, site: typeof a, extra = {}) =>
+    article(1600 + i * 10 + n, {
+      title,
+      titleJa: title,
+      source: site.name,
+      feedId: site.id,
+      fetchedAt: old(1600 + i * 10 + n),
+      ...extra,
+    });
+  return [
+    row(1, `${f.name} A1`, a),
+    row(2, `${f.name} A2`, a),
+    row(3, `${f.name} B1`, b),
+    row(4, `${f.name} 既読`, b, { seenAt: new Date(now) }),
+    row(5, `${f.name} スキップ`, b, { status: "skipped" as const }),
+    row(6, `${f.name} 読了`, b, { status: "read" as const, readAt: new Date(now) }),
+  ];
+});
+await db.insert(schema.articles).values(seenArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length} articles into ${dir}`,
 );
