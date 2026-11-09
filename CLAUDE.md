@@ -13,12 +13,14 @@ Work is tracked as GitHub Issues in `ryokky59/reading-room` and moves through la
 - `idea`: written by the planner; not yet approved.
 - `ready`: the owner approved it; it can be picked up.
 - `in-progress`: a developer has a branch for it.
+- `auto`: needs no decision from the owner (a bug or test fix, a review follow-up with one obvious fix). The planner gives it instead of `idea`, with `ready`. An Orca automation picks these up one at a time, develops, reviews and merges them by `.claude/automation/pick-issue.md`.
+- `auto:blocked`: the automation stopped and asked the owner on the Issue. Removing the label lets it pick the Issue up again.
 
 Rules:
 
 - Issues are drafted by the `planner` agent, including small follow-ups from a review.
 - One Issue, one branch, one PR. Branch names are `issue-<number>-<short-slug>`.
-- Never push to `main` directly. Merging is the owner's call; agents do not merge.
+- Never push to `main` directly. Merging is the owner's call; agents do not merge. The one exception is the automation, for `auto` Issues and only under the conditions in `.claude/automation/pick-issue.md`.
 - A PR body starts with `Closes #<number>` and lists how each acceptance criterion was checked.
 - The owner checks PRs on their phone through the Vercel preview URL.
 - After each Issue's PR is reviewed, run a retrospective (`/retro`) and turn what went wrong into changes to these process files. Those changes go in their own PR on a `retro-<issue>-<slug>` branch.
