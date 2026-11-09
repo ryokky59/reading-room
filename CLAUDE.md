@@ -38,6 +38,7 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 
 - E2E tests live in `e2e/` and run against a production build with a seeded PGlite database (`e2e/seed.mts`). They must not call the Anthropic API or the network.
 - Add or update an E2E test for each user-visible change. Add seed rows rather than relying on test order.
+- To show a timing bug is fixed, run the test several times with a fresh seed before each run. `--repeat-each` reuses one seed, so tests that open or mark rows fail from the second repeat on.
 - When several worktrees test at once, set `E2E_PORT` at least 2 apart.
 - If new Tailwind classes have no effect, delete `.next` and build again.
 
