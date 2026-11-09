@@ -35,6 +35,9 @@ export const articles = pgTable(
     titleJa: text("title_ja"), // Japanese title (same as title for Japanese articles)
     summary: text("summary"), // short Japanese summary for the inbox
     lang: text("lang"), // "ja" or "other"
+    // Tries so far and why the last one failed; at DIGEST_ATTEMPT_LIMIT it is not tried again.
+    digestAttempts: integer("digest_attempts").notNull().default(0),
+    digestError: text("digest_error"),
     source: text("source").notNull(),
     // The feed the article came from; null for articles added by URL or whose feed was deleted.
     feedId: integer("feed_id").references(() => feeds.id, { onDelete: "set null" }),

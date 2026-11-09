@@ -15,7 +15,7 @@ import {
   MarkAllSeenButton,
 } from "@/components/InboxShell";
 import { articles, feeds, folders, getDb } from "@/lib/db";
-import { formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
+import { DIGEST_ATTEMPT_LIMIT, formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
 import { inboxOrder, inboxQuery, inboxWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
 import { OPENED_COOKIE, parseOpened } from "@/lib/opened";
 
@@ -66,6 +66,7 @@ async function List({
         title: articles.title,
         titleJa: articles.titleJa,
         summary: articles.summary,
+        digestAttempts: articles.digestAttempts,
         lang: articles.lang,
         url: articles.url,
         source: articles.source,
@@ -242,7 +243,12 @@ async function List({
                     {a.summary}
                   </p>
                 ) : (
-                  a.excerpt && <p className="mt-1 line-clamp-2 text-sm leading-snug text-muted">{a.excerpt}</p>
+                  <>
+                    {a.digestAttempts >= DIGEST_ATTEMPT_LIMIT && (
+                      <p className="mt-1 text-xs text-muted">AI 要約できませんでした</p>
+                    )}
+                    {a.excerpt && <p className="mt-1 line-clamp-2 text-sm leading-snug text-muted">{a.excerpt}</p>}
+                  </>
                 )}
                 <div className="mt-1 flex min-h-4 gap-2 text-xs text-muted">
                   {a.charCount > 0 && <span>{readingMinutes(a.charCount)}分</span>}
