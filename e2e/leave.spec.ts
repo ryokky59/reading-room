@@ -449,3 +449,67 @@ test.describe("記事を直接開いて一覧が届く前", () => {
     });
   });
 });
+
+// Browser back pressed while 読了 / スキップ is still being saved: the list it went back to stays,
+// without the card, instead of the next article opening over it once the save is done.
+test.describe("保存中にブラウザの戻る", () => {
+  /** Opens the first article of `folder` from its list, and holds server actions back 1.5 s. */
+  async function openFirstSlowly(page: Page, folder: string, fail = false) {
+    await openFolder(page, folder);
+    const folderUrl = page.url();
+    await card(page, `${folder} 1`).getByRole("link").click();
+    await expect(heading(page)).toHaveText(`${folder} 1`);
+    let done = () => {};
+    const answered = new Promise<void>((r) => (done = r));
+    await page.route("**/*", async (route) => {
+      if (!("next-action" in route.request().headers())) return route.fallback();
+      await new Promise((r) => setTimeout(r, 1500));
+      await (fail ? route.abort() : route.fallback()).catch(() => {});
+      done();
+    });
+    return { folderUrl, answered };
+  }
+
+  for (const [kind, button, message] of [
+    ["読了", readButton, "読了にしました"],
+    ["スキップ", skipButton, "スキップしました"],
+  ] as const) {
+    test(`PC で${kind}の保存中に戻ると、保存のあとも一覧のままでカードが抜ける`, async ({ page }) => {
+      const folder = `E2E ${kind}の保存中に戻る`;
+      const { folderUrl, answered } = await openFirstSlowly(page, folder);
+
+      await button(page).click();
+      await page.waitForTimeout(200);
+      await page.goBack();
+      await answered;
+
+      await expect(card(page, `${folder} 1`)).toHaveCount(0);
+      await expect(count(page)).toHaveText(/^2 本/);
+      await expect(toast(page).getByText(message)).toBeVisible();
+      await expect(heading(page)).toHaveCount(0);
+      // Long enough for a late push to the next article to have landed.
+      await page.waitForTimeout(1000);
+      expect(page.url()).toBe(folderUrl);
+      await expect(heading(page)).toHaveCount(0);
+    });
+  }
+
+  test("PC で保存に失敗してから戻った一覧には、カードが残ってエラーページにならない", async ({ page }) => {
+    const folder = "E2E 保存に失敗して戻る";
+    const { folderUrl, answered } = await openFirstSlowly(page, folder, true);
+
+    await readButton(page).click();
+    await page.waitForTimeout(200);
+    await page.goBack();
+    await answered;
+
+    await page.waitForTimeout(1000);
+    expect(page.url()).toBe(folderUrl);
+    await expect(heading(page)).toHaveCount(0);
+    await expect(card(page, `${folder} 1`)).toBeVisible();
+    await expect(list(page).getByRole("listitem")).toHaveCount(3);
+    // Opening the article marked it seen (既読), so the unread count is one less than the cards.
+    await expect(count(page)).toHaveText(/^2 本/);
+    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+  });
+});
