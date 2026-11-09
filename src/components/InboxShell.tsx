@@ -13,7 +13,9 @@ import {
   useState,
   useTransition,
 } from "react";
-import { restoreArticle, skipArticle } from "@/lib/actions";
+import { markFeedSeen, markFolderSeen, restoreArticle, skipArticle, unmarkSeen } from "@/lib/actions";
+import { OPENED_COOKIE, parseOpened, serializeOpened } from "@/lib/opened";
+import { BusyButton } from "./BusyButton";
 import { Header } from "./Header";
 import { useNavPending } from "./NavPending";
 import { ToastProvider, useToast } from "./Toast";
@@ -54,6 +56,72 @@ const InboxNavContext = createContext<InboxNav>({ ids: null, setIds: () => {} })
  */
 export function useInboxIds() {
   return useContext(InboxNavContext).ids;
+}
+
+function readOpened() {
+  const match = new RegExp(`(?:^|; )${OPENED_COOKIE}=([^;]*)`).exec(document.cookie);
+  return parseOpened(match?.[1]);
+}
+
+function writeOpened(ids: number[]) {
+  const age = ids.length ? "" : "; max-age=0";
+  document.cookie = `${OPENED_COOKIE}=${serializeOpened(ids)}; path=/; samesite=lax${age}`;
+}
+
+type Opened = {
+  /** The articles opened beside the list since the shell mounted; their cards fade at once. */
+  opened: ReadonlySet<number>;
+  /** Stops fading a card, once its article is unread again. */
+  forget: (id: number) => void;
+  /** After 「すべて既読」: the list keeps only the open article. */
+  clear: () => void;
+};
+
+const OpenedContext = createContext<Opened>({ opened: new Set(), forget: () => {}, clear: () => {} });
+
+/** Forgets that an article was opened beside the list, for when it goes back to unread. */
+export function useForgetOpened() {
+  return useContext(OpenedContext).forget;
+}
+
+/**
+ * Keeps the articles opened beside the list (see lib/opened.ts). A full load of the list starts
+ * without them; beside an article, a reload keeps them.
+ */
+function useOpened(openId: number | null): Opened {
+  const router = useRouter();
+  const [opened, setOpened] = useState<ReadonlySet<number>>(() => new Set(openId === null ? [] : [openId]));
+  const [lastOpenId, setLastOpenId] = useState(openId);
+  if (openId !== lastOpenId) {
+    setLastOpenId(openId);
+    if (openId !== null) setOpened(new Set(opened).add(openId));
+  }
+  const openIdRef = useRef(openId);
+  const forget = useCallback((id: number) => {
+    setOpened((s) => {
+      if (!s.has(id)) return s;
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+  const clear = useCallback(() => {
+    const ids = openIdRef.current === null ? [] : [openIdRef.current];
+    setOpened(new Set(ids));
+    writeOpened(ids);
+  }, []);
+  // A layout effect: the cookie must be there before ListAfterFullLoad's effect asks for the list.
+  useLayoutEffect(() => {
+    openIdRef.current = openId;
+    // Phones show no list beside the article; theirs drops it, as it does for any seen article.
+    if (openId !== null && isWide()) writeOpened([...readOpened().filter((id) => id !== openId), openId]);
+  }, [openId]);
+  useLayoutEffect(() => {
+    if (openIdRef.current !== null || readOpened().length === 0) return;
+    writeOpened([]);
+    router.refresh();
+  }, [router]);
+  return useMemo(() => ({ opened, forget, clear }), [opened, forget, clear]);
 }
 
 /** Which way a list card leaves: スキップ to the left, 読了 to the right. */
@@ -123,6 +191,7 @@ export function useLeftInbox() {
   const { setLeaving } = useContext(LeavingContext);
   const toast = useToast();
   const router = useRouter();
+  const forget = useForgetOpened();
   return useCallback(
     (id: number, kind: "read" | "skip", { done = Promise.resolve(), refetched = false } = {}) => {
       const dir = kind === "read" ? "right" : "left";
@@ -131,6 +200,7 @@ export function useLeftInbox() {
       // puts it where the list has it.
       const undo = async () => {
         setLeaving(id, null);
+        forget(id);
         try {
           // The restore must not reach the server before the read / skip does.
           await done.catch(() => {});
@@ -145,7 +215,7 @@ export function useLeftInbox() {
       };
       toast.show(kind === "read" ? "読了にしました" : "スキップしました", { owner: id, undo });
     },
-    [setLeaving, toast, router],
+    [setLeaving, toast, router, forget],
   );
 }
 
@@ -201,12 +271,16 @@ export function InboxShell({ list, children }: { list: React.ReactNode; children
   }, [leaving]);
   const leavingValue = useMemo(() => ({ leaving, listed: ids, setLeaving }), [leaving, ids, setLeaving]);
   const shownIds = useMemo(() => ids && ids.filter((id) => !leaving.has(id)), [ids, leaving]);
-  const open = useOpenId() !== null;
+  const openId = useOpenId();
+  const open = openId !== null;
+  const openedValue = useOpened(openId);
   usePhoneListScroll(open);
   useArticleUrlAfterListChange();
+  useRefreshOnLeavingArticle(open, leaving.size > 0);
   return (
     <InboxNavContext.Provider value={{ ids: shownIds, setIds: syncIds }}>
       <LeavingContext.Provider value={leavingValue}>
+        <OpenedContext.Provider value={openedValue}>
         {/* Phones: bottom centre, and hidden over an article, whose buttons sit at the bottom.
             Beside an article (`split` and up): over the bottom of the list pane. */}
         <ToastProvider
@@ -232,9 +306,29 @@ export function InboxShell({ list, children }: { list: React.ReactNode; children
             </div>
           </div>
         </ToastProvider>
+        </OpenedContext.Provider>
       </LeavingContext.Provider>
     </InboxNavContext.Provider>
   );
+}
+
+/**
+ * The article page marks its article as seen on the server, and the list keeps what it showed
+ * until told otherwise (browser back brings it from the router's cache, too). So coming back
+ * from an article refreshes it, for the unread counts. A card leaving the list has its refresh
+ * coming, timed so that the card can finish leaving.
+ */
+function useRefreshOnLeavingArticle(open: boolean, cardLeaving: boolean) {
+  const router = useRouter();
+  const wasOpen = useRef(open);
+  const hold = useRef(cardLeaving);
+  useEffect(() => {
+    hold.current = cardLeaving;
+  });
+  useEffect(() => {
+    if (wasOpen.current && !open && !hold.current) router.refresh();
+    wasOpen.current = open;
+  }, [open, router]);
 }
 
 /**
@@ -348,13 +442,19 @@ export function ListAfterFullLoad() {
   );
 }
 
+/** Whether a card shows as seen: the server says so, or its article was opened since the list came. */
+function useFaded(id: number, seen: boolean) {
+  return useContext(OpenedContext).opened.has(id) || seen;
+}
+
 /**
  * A list card, highlighted while its article is open beside the list. It sinks while its link is
  * held, and its link's LinkPending outlines it until the article starts to show. After 読了 or
  * スキップ it slides out, closes up and stays hidden until the refreshed list drops it.
  */
-export function InboxItem({ id, children }: { id: number; children: React.ReactNode }) {
+export function InboxItem({ id, seen, children }: { id: number; seen: boolean; children: React.ReactNode }) {
   const selected = useOpenId() === id;
+  const faded = useFaded(id, seen) && !selected;
   const ref = useRef<HTMLLIElement>(null);
   const motion = useLeaveMotion(useLeaving(id));
   useEffect(() => {
@@ -368,10 +468,11 @@ export function InboxItem({ id, children }: { id: number; children: React.ReactN
         ref={ref}
         data-article={id}
         aria-current={selected ? "true" : undefined}
+        data-seen={faded ? "" : undefined}
         {...motion}
         className={`pressable-card flex flex-col rounded-xl border bg-surface ${
           selected ? "border-accent ring-1 ring-accent" : "border-line"
-        } has-[[data-pending=true]]:border-accent has-[[data-pending=true]]:ring-2 has-[[data-pending=true]]:ring-accent [&:has([data-pending=true])_h2]:text-accent`}
+        } ${faded ? "opacity-60" : ""} has-[[data-pending=true]]:border-accent has-[[data-pending=true]]:ring-2 has-[[data-pending=true]]:ring-accent [&:has([data-pending=true])_h2]:text-accent`}
       >
         {children}
       </li>
@@ -449,10 +550,93 @@ function LeavingGhost({ card, onGone }: { card: LeavingCard; onGone: () => void 
 }
 
 /**
- * The スキップ button on a list card, pulled up onto the card's last row (reading time etc.) to save height.
+ * The buttons on a list card, pulled up onto the card's last row (reading time etc.) to save
+ * height. With 「未読に戻す」 as well there is no room beside that row, so they get their own.
+ */
+export function CardActions({ id, seen }: { id: number; seen: boolean }) {
+  const faded = useFaded(id, seen);
+  return (
+    <div className={`flex items-center justify-end self-end px-2 pb-1 ${faded ? "" : "-mt-6"}`}>
+      {faded && <CardUnseeButton id={id} />}
+      <CardSkipButton id={id} />
+    </div>
+  );
+}
+
+/**
+ * 「未読に戻す」 on a seen card. Beside its open article it also closes the article, whose page
+ * would mark it as seen again on the next refresh.
+ */
+function CardUnseeButton({ id }: { id: number }) {
+  const router = useRouter();
+  const openId = useOpenId();
+  const search = useSearchParams().toString();
+  const [pending, startTransition] = useTransition();
+  useNavPending(pending);
+  const forget = useForgetOpened();
+  const toast = useToast();
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      aria-busy={pending || undefined}
+      onClick={() =>
+        startTransition(async () => {
+          try {
+            await unmarkSeen([id]);
+          } catch (e) {
+            console.error(e);
+            toast.fail(FAILED, { owner: id });
+            return;
+          }
+          forget(id);
+          if (openId === id) router.push(`/${search ? `?${search}` : ""}`);
+          else router.refresh();
+        })
+      }
+      className="pressable px-2 py-1 text-xs text-accent disabled:opacity-50"
+    >
+      未読に戻す
+    </button>
+  );
+}
+
+/** 「すべて既読」 for the site or folder the list shows. Unconfirmed: 「既読を含む」 still has the articles. */
+export function MarkAllSeenButton({ target }: { target: { feedId: number } | { folderId: number | null } }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  useNavPending(pending);
+  const { clear } = useContext(OpenedContext);
+  const toast = useToast();
+  return (
+    <BusyButton
+      type="button"
+      busy={pending}
+      onClick={() =>
+        startTransition(async () => {
+          try {
+            await ("feedId" in target ? markFeedSeen(target.feedId) : markFolderSeen(target.folderId));
+          } catch (e) {
+            console.error(e);
+            toast.fail(FAILED);
+            return;
+          }
+          clear();
+          router.refresh();
+        })
+      }
+      className="py-1 text-accent disabled:opacity-60"
+    >
+      すべて既読
+    </BusyButton>
+  );
+}
+
+/**
+ * The スキップ button on a list card.
  * Refreshes the router itself; see the note in lib/actions.ts.
  */
-export function CardSkipButton({ id }: { id: number }) {
+function CardSkipButton({ id }: { id: number }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   useNavPending(pending);
@@ -481,7 +665,6 @@ export function CardSkipButton({ id }: { id: number }) {
           refreshAfterLeave(router, since);
         });
       }}
-      className="-mt-6 flex justify-end self-end px-2 pb-1"
     >
       <button
         disabled={pending}

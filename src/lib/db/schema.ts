@@ -53,10 +53,16 @@ export const articles = pgTable(
     charCount: integer("char_count").notNull().default(0),
     status: text("status").$type<ArticleStatus>().notNull().default("inbox"),
     readAt: timestamp("read_at", { withTimezone: true }),
+    // When the owner first looked at the article; null means unread (未読).
+    seenAt: timestamp("seen_at", { withTimezone: true }),
     learning: text("learning"),
     memo: text("memo"),
   },
-  (t) => [index("articles_status_idx").on(t.status, t.fetchedAt), index("articles_feed_idx").on(t.feedId)],
+  (t) => [
+    index("articles_status_idx").on(t.status, t.fetchedAt),
+    index("articles_unread_idx").on(t.status, t.seenAt, t.fetchedAt),
+    index("articles_feed_idx").on(t.feedId),
+  ],
 );
 
 export const messages = pgTable(

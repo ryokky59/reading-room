@@ -30,7 +30,7 @@ test("フォルダを選ぶとそのフォルダの記事だけになり、サ�
   await expect(chip(siteNav(page), "E2E ビジネス速報", 2)).toBeVisible();
   await expect(chip(siteNav(page), "E2E ビジネス週報", 1)).toBeVisible();
   // A site whose articles are all read gets no chip.
-  await expect(siteNav(page).getByRole("link", { name: /E2E 既読だけのサイト/ })).toHaveCount(0);
+  await expect(siteNav(page).getByRole("link", { name: /E2E 読了だけのサイト/ })).toHaveCount(0);
 });
 
 test("サイトを選ぶとそのサイトの記事だけになる", async ({ page }) => {
@@ -50,17 +50,17 @@ test("サイトを選ぶとそのサイトの記事だけになる", async ({ pa
 });
 
 test("記事を開いて戻っても、選んだフォルダ / サイトのまま", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Opening marks the card seen, and it is opened twice here.
   await chip(folderNav(page), "Business").click();
   await chip(siteNav(page), "E2E ビジネス速報").click();
-  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+&a=1$/);
   const filtered = page.url();
 
   // The back link in the article header.
   await card(page, "速報の2本目").getByRole("link").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("速報の2本目");
   await expect(page.getByRole("main")).toContainText("Business");
-  await page.getByRole("link", { name: "戻る" }).click();
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
   await expect(page).toHaveURL(filtered);
   await expect(chip(siteNav(page), "E2E ビジネス速報")).toHaveAttribute("aria-current", "page");
   await expect(cards(page)).toHaveCount(2);
@@ -121,15 +121,15 @@ test("サイトの最後の未読を読み終えると、そのフォルダの�
 });
 
 test("「もっと見る」でも選んだフォルダが保たれる", async ({ page }) => {
-  await page.goto("/");
-  await chip(folderNav(page), "E2E たくさん", 35).click();
+  await page.goto("/?a=1"); // Keeps 35 cards once other tests have opened some of them.
+  await chip(folderNav(page), "E2E たくさん").click();
   // Waits for the folder: すべて also shows 30 cards and its own 「もっと見る」.
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
   await expect(cards(page)).toHaveCount(30);
   await page.getByRole("link", { name: /もっと見る/ }).click();
-  await expect(page).toHaveURL(/\/\?f=\d+&n=60$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&n=60&a=1$/);
   await expect(cards(page)).toHaveCount(35);
-  await expect(chip(folderNav(page), "E2E たくさん", 35)).toHaveAttribute("aria-current", "page");
+  await expect(chip(folderNav(page), "E2E たくさん")).toHaveAttribute("aria-current", "page");
   await expect(card(page, "本番で動くエージェント")).toHaveCount(0);
   await expect(page.getByRole("link", { name: /もっと見る/ })).toHaveCount(0);
 
@@ -137,13 +137,13 @@ test("「もっと見る」でも選んだフォルダが保たれる", async ({
   const longer = page.url();
   await card(page, "量産記事 35").getByRole("link").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("量産記事 35");
-  await page.getByRole("link", { name: "戻る" }).click();
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
   await expect(page).toHaveURL(longer);
   await expect(cards(page)).toHaveCount(35);
 });
 
 test("Tech / Business の固定表示がなく、フォルダ名か「未分類」が出る", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Keeps the article listed once another test has opened it.
   // Feedless articles are unfiled.
   const unfiled = card(page, "本番で動くエージェント");
   await expect(unfiled).toContainText("未分類");
@@ -153,7 +153,7 @@ test("Tech / Business の固定表示がなく、フォルダ名か「未分類�
   await expect(page.getByText("「未分類」に入ります")).toBeVisible();
 
   await page.goto("/read");
-  const row = page.getByRole("listitem").filter({ hasText: "既読だけのサイトの記事" });
+  const row = page.getByRole("listitem").filter({ hasText: "読了だけのサイトの記事" });
   await expect(row).toContainText("Business");
   await row.getByRole("link").click();
   await expect(page.getByRole("main")).toContainText("Business");

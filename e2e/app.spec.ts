@@ -14,7 +14,7 @@ test("新着一覧に日本語タイトル・原題・AI 要約・ソースが�
 });
 
 test("一覧の長い要約は 2 行で切れ、スキップボタンと重ならない @mobile", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Keeps the card listed once another test has opened it.
   const card = page.getByRole("listitem").filter({ hasText: "ビジネスの記事" });
   const summary = card.locator("p", { hasText: "AI 要約" });
   const box = (await summary.boundingBox())!;
@@ -50,7 +50,7 @@ test("読了にすると読了一覧に移り、未読に戻せる @mobile", asy
 });
 
 test("保存された対話が記事に表示される", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Keeps the article listed once another test has opened it.
   await page.getByRole("link", { name: /対話のある記事/ }).click();
   await expect(page.getByText("この記事の要点は？")).toBeVisible();
   await expect(page.getByText("要点は E2E テストが通ることです。")).toBeVisible();
@@ -68,7 +68,7 @@ test("フィードを止めて再開できる", async ({ page }) => {
 });
 
 test("スマホでは対話がシートで開閉する @mobile", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Keeps the article listed once another test has opened it.
   await page.getByRole("link", { name: /対話のある記事/ }).click();
   const answer = page.getByText("要点は E2E テストが通ることです。");
   await expect(answer).toBeHidden();

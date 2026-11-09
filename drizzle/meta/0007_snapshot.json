@@ -1,5 +1,5 @@
 {
-  "id": "a1437e8e-a6da-490e-bc61-2a1cbbe391b4",
+  "id": "e5acf7af-3686-4c6f-bf55-8e44734d7b27",
   "prevId": "1e5c38e2-7c78-4255-9e68-d109b5222a93",
   "version": "7",
   "dialect": "postgresql",
@@ -40,19 +40,6 @@
         },
         "lang": {
           "name": "lang",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "digest_attempts": {
-          "name": "digest_attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "digest_error": {
-          "name": "digest_error",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -126,6 +113,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "seen_at": {
+          "name": "seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "learning": {
           "name": "learning",
           "type": "text",
@@ -145,6 +138,33 @@
           "columns": [
             {
               "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "fetched_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "articles_unread_idx": {
+          "name": "articles_unread_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seen_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
