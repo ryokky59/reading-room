@@ -16,9 +16,10 @@ const sliding = (el: Locator) => el.evaluate((e) => e.getAnimations().length);
 const ACCENT = "rgb(181, 83, 44)";
 const MUTED = "rgb(107, 102, 94)";
 
-/** How far apart two boxes are, in their worst edge. */
+/** How far apart two boxes are, in their worst edge. Infinity while either has no box yet, so a poll keeps waiting. */
 async function gap(a: Locator, b: Locator) {
-  const [x, y] = [(await a.boundingBox())!, (await b.boundingBox())!];
+  const [x, y] = [await a.boundingBox(), await b.boundingBox()];
+  if (!x || !y) return Infinity;
   return Math.max(Math.abs(x.x - y.x), Math.abs(x.y - y.y), Math.abs(x.width - y.width), Math.abs(x.height - y.height));
 }
 /** Waits until the pill sits on `target` (±1px). */
@@ -52,7 +53,7 @@ test("押したチップへ、一覧が届く前から背景がすべって移�
   await business.click();
   // Moving towards the pressed chip right away, before the list changes.
   await expect.poll(() => sliding(pill(nav))).toBeGreaterThan(0);
-  await expect.poll(async () => (await pill(nav).boundingBox())!.x).toBeGreaterThan(start);
+  await expect.poll(async () => (await pill(nav).boundingBox())?.x ?? -Infinity).toBeGreaterThan(start);
   await expect(business).toHaveCSS("color", ACCENT);
   await expect(all).toHaveCSS("color", MUTED);
   await expectPillOn(nav, business);
@@ -133,6 +134,16 @@ test("スマホで記事から戻ったとき、背景は左端から伸びず�
   await page.waitForTimeout(400);
   expect(await page.evaluate(() => (window as unknown as { pillSlid: boolean }).pillSlid)).toBe(false);
   expect(await gap(pill(nav), business)).toBeLessThanOrEqual(1);
+});
+
+test("背景にまだ箱がないあいだ、gap() は投げずに Infinity を返す", async ({ page }) => {
+  await page.goto("/");
+  const nav = folderNav(page);
+  await expectPillOn(nav, chip(nav, "すべて"));
+  await pill(nav).evaluate((e) => ((e as HTMLElement).style.display = "none"));
+  expect(await pill(nav).boundingBox()).toBeNull();
+  expect(await gap(pill(nav), chip(nav, "すべて"))).toBe(Infinity);
+  expect(await gap(chip(nav, "すべて"), pill(nav))).toBe(Infinity);
 });
 
 test("動きを減らす設定では背景はすべらずに移る", async ({ page }) => {
