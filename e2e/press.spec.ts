@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { openFeed } from "./nav";
 
 // Press feedback: what is held sinks, the pressed card stays outlined while its article loads,
 // a bar runs at the top of the screen, and 読了 / スキップ show a spinner and take one press.
@@ -60,12 +61,6 @@ async function failActions(page: Page, failing: number[] | "all", ms = 0) {
 }
 const failure = (page: Page) => page.getByRole("alert").filter({ hasText: "保存できませんでした" });
 
-async function openFolder(page: Page, name: string) {
-  await page.goto("/");
-  await folderNav(page).getByRole("link", { name: new RegExp(`^${name}\\s*\\d+$`) }).click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
-}
-
 test("押している間だけカード・チップ・ボタンが縮み、カードのスキップではカードは縮まない", async ({ page }) => {
   await page.goto("/?a=1"); // Keeps the card listed once another test has opened it.
   const item = card(page, "本番で動くエージェント");
@@ -105,7 +100,7 @@ test("押している間だけカード・チップ・ボタンが縮み、カ�
 
 test("記事が出るまで押したカードだけに枠が付き、画面上部にバーが出る", async ({ page }) => {
   await slowPages(page);
-  await openFolder(page, "E2E たくさん");
+  await openFeed(page, "E2E たくさん");
   await expect(bar(page)).toBeAttached();
   await expect(activeBar(page)).toHaveCount(0);
 
@@ -142,7 +137,7 @@ test("チップと「もっと見る」でも、一覧が変わるまでバー�
 });
 
 test("読了にすると画面が変わるまでくるくるが出て、二度押しても 1 回だけ読了になる @mobile", async ({ page }) => {
-  await openFolder(page, "E2E 押した感");
+  await openFeed(page, "E2E 押した感");
   const folderUrl = page.url();
   await card(page, "押した感 1").getByRole("link").click();
   await expect(heading(page)).toHaveText("押した感 1");
@@ -166,12 +161,13 @@ test("読了にすると画面が変わるまでくるくるが出て、二度�
 test("動きを減らす設定では、カードは縮まずバーとくるくるは止まって表示される", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await slowPages(page);
-  await openFolder(page, "E2E 押した感");
+  await page.goto("/");
+  const chip = folderNav(page).getByRole("link", { name: /^すべて/ });
+  expect(await style(chip, "transition-duration")).toBe("0s");
+  await openFeed(page, "E2E 押した感");
 
   const item = card(page, "押した感 2");
   expect(await style(item, "transition-duration")).toBe("0s");
-  const chip = folderNav(page).getByRole("link", { name: /^すべて/ });
-  expect(await style(chip, "transition-duration")).toBe("0s");
 
   await item.getByRole("link").click();
   await expect(activeBar(page)).toBeVisible();
@@ -188,7 +184,7 @@ test("動きを減らす設定では、カードは縮まずバーとくるく�
 });
 
 test("読了・スキップ・未読に戻すが保存できないと、記事に残ってメッセージが出て、もう一度押せる", async ({ page }) => {
-  await openFolder(page, "E2E 押した感");
+  await openFeed(page, "E2E 押した感");
   await card(page, "押した感 4").getByRole("link").click();
   await expect(heading(page)).toHaveText("押した感 4");
 
@@ -215,7 +211,7 @@ test("読了・スキップ・未読に戻すが保存できないと、記事�
   await expect(failure(page)).toBeVisible();
   await stop();
   await read.click();
-  // It was the folder's last unread beside the list, so the list's empty state follows.
+  // It was the feed's last unread beside the list, so the Board follows.
   await expect(page.getByRole("heading", { level: 1, name: "押した感 4" })).toHaveCount(0);
   await expect(failure(page)).toHaveCount(0);
   await expect(card(page, "押した感 4")).toHaveCount(0);
@@ -233,13 +229,13 @@ test("読了・スキップ・未読に戻すが保存できないと、記事�
   await stop();
   await restore.click();
   await expect(page).toHaveURL("/");
-  await openFolder(page, "E2E 押した感");
+  await openFeed(page, "E2E 押した感");
   await expect(card(page, "押した感 5")).toBeVisible();
 });
 
 test("読了は保存できて次の記事を探せなかったときは、一覧に戻って画面と保存した状態がそろう", async ({ page }) => {
-  await openFolder(page, "E2E 次が取れない");
-  const folderUrl = page.url();
+  await openFeed(page, "E2E 次が取れない");
+  const folderUrl = page.url().replace(/&s=\d+$/, ""); // The feed has nothing left, so its folder shows.
   await card(page, "次が取れない記事").getByRole("link").click();
   await expect(heading(page)).toHaveText("次が取れない記事");
 

@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 
 // The seeded data is in e2e/seed.mts. Each test that changes state uses its own article.
 
-test("新着一覧に日本語タイトル・原題・AI 要約・ソースが出る", async ({ page }) => {
-  await page.goto("/");
+test("一覧に日本語タイトル・原題・AI 要約・ソースが出る", async ({ page }) => {
+  await page.goto("/?a=1"); // The plain list; the Board has its own tests (e2e/board.spec.ts).
   const card = page.getByRole("listitem").filter({ hasText: "本番で動くエージェント" });
   await expect(card).toContainText("Agents in production");
   await expect(card).toContainText("記事 1 の AI 要約です。");
@@ -25,7 +25,7 @@ test("一覧の長い要約は 2 行で切れ、スキップボタンと重な�
 });
 
 test("一覧からスキップすると消える", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1");
   const card = page.getByRole("listitem").filter({ hasText: "スキップされる記事" });
   await card.getByRole("button", { name: "スキップ" }).click();
   await expect(page.getByText("スキップされる記事")).toHaveCount(0);
@@ -33,19 +33,20 @@ test("一覧からスキップすると消える", async ({ page }) => {
 
 // Phones go back to the list; PCs open the next article instead (e2e/panes.spec.ts).
 test("読了にすると読了一覧に移り、未読に戻せる @mobile", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1");
   await page.getByRole("link", { name: /読了にする記事/ }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("読了にする記事");
   await expect(page.getByText("記事 3 の本文です。")).toBeVisible();
 
   await page.getByRole("button", { name: "読了にする" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/?a=1");
   await expect(page.getByText("読了にする記事")).toHaveCount(0);
 
   await page.goto("/read");
   await page.getByRole("link", { name: /読了にする記事/ }).click();
   await page.getByRole("button", { name: "未読に戻す" }).click();
   await expect(page).toHaveURL("/");
+  await page.goto("/?a=1");
   await expect(page.getByText("読了にする記事")).toBeVisible();
 });
 

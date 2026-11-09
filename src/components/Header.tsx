@@ -5,10 +5,12 @@ export function Header({
   active,
   className,
   panes,
+  controls,
 }: {
   active?: "inbox" | "read" | "feeds";
   className?: string;
   panes?: boolean; // spans the list / article / chat panes from `split` up
+  controls?: React.ReactNode; // the inbox's 今すぐ取得 and URL を追加
 }) {
   const tab = (href: string, label: string, on: boolean) => (
     <Link
@@ -23,11 +25,15 @@ export function Header({
     <header
       className={`sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)] ${className ?? ""}`}
     >
-      <div className={`mx-auto flex max-w-5xl items-center justify-between px-4 py-3 ${panes ? "split:max-w-none" : ""}`}>
+      {/* The insets (0 outside a landscape iPhone) keep the title and the tabs clear of its notch. */}
+      <div
+        className={`mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 py-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] ${panes ? "split:max-w-none" : ""}`}
+      >
         <Link href="/" className="font-bold tracking-tight">
           Reading Room
         </Link>
-        <nav className="flex gap-1">
+        {controls && <div className="order-last w-full split:order-none split:w-auto split:min-w-0 split:flex-1">{controls}</div>}
+        <nav className="ml-auto flex gap-1 split:ml-0">
           {tab("/", "新着", active === "inbox")}
           {tab("/read", "読了", active === "read")}
           {tab("/feeds", "フィード", active === "feeds")}

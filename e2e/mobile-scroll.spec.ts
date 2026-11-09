@@ -1,21 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openFeed } from "./nav";
 
 // Phones show the list and the article one at a time on the same window scroll: coming back
 // from an article puts the list where it was, and an article always starts at its top.
 // Each test uses its own folder from the end of e2e/seed.mts, with 20 long articles.
 
-const folderNav = (page: Page) => page.getByRole("navigation", { name: "フォルダ" });
 const list = (page: Page) => page.getByRole("list", { name: "記事" });
 const card = (page: Page, title: string) =>
   list(page).getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
 const scrollY = (page: Page) => page.evaluate(() => window.scrollY);
 
-/** Opens the folder, scrolls the list well down and opens its 12th article after scrolling it. */
+/** Opens the folder's feed, scrolls the list well down and opens its 12th article after scrolling it. */
 async function openFromScrolledList(page: Page, folder: string) {
-  await page.goto("/");
-  await folderNav(page).getByRole("link", { name: new RegExp(`^${folder}\\s*\\d+$`) }).click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await openFeed(page, folder);
   await expect(list(page).getByRole("listitem")).toHaveCount(20);
 
   await card(page, `${folder} 12`).scrollIntoViewIfNeeded();

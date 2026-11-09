@@ -1,7 +1,7 @@
 // The inbox filter lives in the URL: `f` is a folder id or "none" (未分類), `s` a feed id,
 // `n` how many cards are shown (grown by 「もっと見る」), `a=1` also shows seen (既読) articles.
 
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { articles, feeds } from "./db/schema";
 
 export type InboxFilter = { f?: string; s?: string; n?: string; a?: string };
@@ -18,6 +18,14 @@ export function parseInboxFilter(params: Record<string, string | string[] | unde
     n: id(one(params.n)),
     a: one(params.a) === "1" ? "1" : undefined,
   };
+}
+
+/**
+ * Whether `/` shows the Board. A site (`s`) shows its feed list, and 既読を含む (`a`) the plain list:
+ * the Board has only unread. InboxShell reads the same two params from the URL; keep them in step.
+ */
+export function showsBoard(filter: InboxFilter) {
+  return !filter.s && !filter.a;
 }
 
 /** Query string (with "?", or "" when empty) for the filter, its params always in this order. */
@@ -49,6 +57,16 @@ export function inboxWhere(filter: InboxFilter) {
           ? eq(feeds.folderId, folderId)
           : undefined,
   );
+}
+
+/**
+ * What a list or the Board shows of the filter: unread, plus the seen articles that stay in place
+ * until the next full load (`kept`, see lib/opened.ts). The query must left join `feeds`.
+ */
+export function listedWhere(filter: InboxFilter, kept: number[]) {
+  return kept.length && !filter.a
+    ? and(inboxWhere({ ...filter, a: "1" }), or(isNull(articles.seenAt), inArray(articles.id, kept)))
+    : inboxWhere(filter);
 }
 
 /** The order the list shows unread articles in, newest first; the id breaks ties so paging is stable. */

@@ -1,12 +1,14 @@
-import { and, asc, count, eq, inArray, isNull, max, or, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChipRow } from "@/components/ChipRow";
+import { Chip, ChipRow } from "@/components/ChipRow";
+import { FeedBadge } from "@/components/FeedBadge";
+import { FolderTabs } from "@/components/FolderTabs";
 import { FolderBadge } from "@/components/Header";
-import { InboxControls } from "@/components/InboxControls";
 import { LinkPending } from "@/components/NavPending";
 import {
+  BoardLink,
   CardActions,
   InboxItem,
   InboxNavSync,
@@ -14,20 +16,20 @@ import {
   ListLink,
   MarkAllSeenButton,
 } from "@/components/InboxShell";
+import { feedColor, folderList, unreadBuckets, type Bucket } from "@/lib/board";
 import { articles, feeds, folders, getDb } from "@/lib/db";
-import { DIGEST_ATTEMPT_LIMIT, formatDate, formatDateTime, hostname, isForeign, readingMinutes } from "@/lib/format";
-import { inboxOrder, inboxQuery, inboxWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
+import { faviconUrl } from "@/lib/favicon";
+import { DIGEST_ATTEMPT_LIMIT, formatAgo, formatDate, hostname, isForeign, readingMinutes } from "@/lib/format";
+import { inboxOrder, inboxQuery, listedWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
 import { OPENED_COOKIE, parseOpened } from "@/lib/opened";
 
 // Cards shown per page; a long list is slow to load and render on phones.
 const PAGE_SIZE = 30;
 
-// Unread counts per folder (null = 未分類) and site; articles without a feed count as 未分類.
-type Bucket = { folderId: number | null; feedId: number | null; name: string | null; n: number };
-
 /**
- * The unread list with its folder / site chips. It is the whole inbox on phones and the
- * left pane on PCs, where it stays mounted while articles open next to it.
+ * The list of a feed, under its hero, or of a folder, under its chips (at `/` that takes 既読を含む:
+ * without it the folder shows as the Board). It is the whole screen on phones and the left pane
+ * on PCs, where it stays mounted while articles open next to it.
  * `onEmptySite` decides what happens when the selected site has nothing unread left:
  * the inbox redirects to the folder; next to an open article the folder is shown in place.
  */
@@ -55,11 +57,7 @@ async function List({
   const folderId = filter.f && filter.f !== "none" ? Number(filter.f) : null;
   const feedId = filter.s ? Number(filter.s) : null;
   const db = await getDb();
-  const listed =
-    opened.length && !filter.a
-      ? and(inboxWhere({ ...filter, a: "1" }), or(isNull(articles.seenAt), inArray(articles.id, opened)))
-      : inboxWhere(filter);
-  const [rows, buckets, folderRows, [{ lastFetched }]] = await Promise.all([
+  const [rows, buckets, folderRows, [feed]] = await Promise.all([
     db
       .select({
         id: articles.id,
@@ -84,18 +82,24 @@ async function List({
       .from(articles)
       .leftJoin(feeds, eq(feeds.id, articles.feedId))
       .leftJoin(folders, eq(folders.id, feeds.folderId))
-      .where(listed)
+      .where(listedWhere(filter, opened))
       .orderBy(...inboxOrder)
       .limit(limit),
-    // One aggregate query for every chip's unread count (and the list's total).
-    db
-      .select({ folderId: feeds.folderId, feedId: articles.feedId, name: feeds.name, n: count() })
-      .from(articles)
-      .leftJoin(feeds, eq(feeds.id, articles.feedId))
-      .where(inboxWhere({}))
-      .groupBy(feeds.folderId, articles.feedId, feeds.name),
-    db.select({ id: folders.id, name: folders.name }).from(folders).orderBy(asc(folders.position), asc(folders.id)),
-    db.select({ lastFetched: max(feeds.lastFetchedAt) }).from(feeds),
+    unreadBuckets(),
+    folderList(),
+    // The feed behind the hero.
+    feedId === null
+      ? []
+      : db
+          .select({
+            folderId: feeds.folderId,
+            name: feeds.name,
+            folder: folders.name,
+            lastFetchedAt: feeds.lastFetchedAt,
+          })
+          .from(feeds)
+          .leftJoin(folders, eq(folders.id, feeds.folderId))
+          .where(eq(feeds.id, feedId)),
   ]);
 
   const sum = (list: Bucket[]) => list.reduce((t, b) => t + b.n, 0);
@@ -103,10 +107,6 @@ async function List({
   // A site link may come without its folder; the site's own folder is then highlighted.
   let site = feedId === null ? undefined : buckets.find((b) => b.feedId === feedId);
   if (feedId !== null && !site) {
-    const [feed] = await db
-      .select({ folderId: feeds.folderId, name: feeds.name })
-      .from(feeds)
-      .where(eq(feeds.id, feedId));
     if (rows.length === 0) {
       // The site has nothing left to show (e.g. its last unread was just read): show its folder instead.
       const f = filter.f ?? (feed ? (feed.folderId === null ? "none" : String(feed.folderId)) : undefined);
@@ -127,7 +127,6 @@ async function List({
       : selectedFolder === "all"
         ? sum(buckets)
         : sum(inFolder(selectedFolder));
-  const unfiledCount = sum(inFolder(null));
   // Sites with no unread articles never show up in the aggregate, so they get no chip.
   const sites = selectedFolder === "all" ? [] : inFolder(selectedFolder).filter((b) => b.feedId !== null);
   if (site?.n === 0) sites.push(site);
@@ -150,45 +149,35 @@ async function List({
   return (
     <div className="mx-auto max-w-5xl overflow-x-clip px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
       <InboxNavSync ids={rows.map((a) => a.id)} />
-      <InboxControls />
-      <nav aria-label="フォルダ" className="mt-4">
-        <ChipRow>
-          <Chip query={inboxQuery({ a: filter.a })} label="すべて" count={sum(buckets)} on={selectedFolder === "all"} />
-          {folderRows.map((f) => (
-            <Chip
-              key={f.id}
-              query={inboxQuery(folderFilter(f.id))}
-              label={f.name}
-              count={sum(inFolder(f.id))}
-              on={selectedFolder === f.id}
-            />
-          ))}
-          {(unfiledCount > 0 || selectedFolder === null) && (
-            <Chip
-              query={inboxQuery(folderFilter(null))}
-              label="未分類"
-              count={unfiledCount}
-              on={selectedFolder === null}
-            />
-          )}
-        </ChipRow>
-      </nav>
-      {selectedFolder !== "all" && sites.length > 0 && (
+      {feedId !== null ? (
+        <div>
+          <BoardLink className="pressable inline-block py-1 text-sm text-muted">
+            ‹ ボード
+            <LinkPending />
+          </BoardLink>
+          <div className="mt-1 flex items-center gap-2">
+            <FeedBadge name={site?.name ?? ""} color={feedColor(feedId)} favicon={faviconUrl(rows[0]?.url)} />
+            <h2 className="min-w-0 truncate font-bold">{site?.name}</h2>
+          </div>
+          <p className="mt-0.5 text-xs text-muted">
+            {feed?.folder ?? "未分類"}
+            {feed?.lastFetchedAt && ` · ${formatAgo(feed.lastFetchedAt)}に取得`}
+          </p>
+        </div>
+      ) : (
+        <FolderTabs folders={folderRows} buckets={buckets} selected={selectedFolder} a={filter.a} />
+      )}
+      {feedId === null && selectedFolder !== "all" && sites.length > 0 && (
         <nav aria-label="サイト" className="mt-2">
           <ChipRow small>
-            <Chip
-              query={inboxQuery(folderFilter(selectedFolder))}
-              label="このフォルダすべて"
-              on={feedId === null}
-              small
-            />
+            <Chip query={inboxQuery(folderFilter(selectedFolder))} label="このフォルダすべて" on small />
             {sites.map((b) => (
               <Chip
                 key={b.feedId}
                 query={inboxQuery({ ...folderFilter(selectedFolder), s: String(b.feedId) })}
                 label={b.name ?? ""}
                 count={b.n}
-                on={feedId === b.feedId}
+                on={false}
                 small
               />
             ))}
@@ -209,9 +198,7 @@ async function List({
         {selectedFolder !== "all" && total > 0 && (
           <MarkAllSeenButton target={feedId !== null ? { feedId } : { folderId: selectedFolder }} />
         )}
-        <p className="ml-auto">
-          {total} 本{lastFetched && ` · 更新 ${formatDateTime(lastFetched)}`}
-        </p>
+        <p className="ml-auto">{total} 本</p>
       </div>
 
       {rows.length === 0 ? (
@@ -273,36 +260,5 @@ async function List({
         </ListLink>
       )}
     </div>
-  );
-}
-
-function Chip({
-  query,
-  label,
-  count,
-  on,
-  small,
-}: {
-  query: string;
-  label: string;
-  count?: number;
-  on: boolean;
-  small?: boolean;
-}) {
-  return (
-    <li className="shrink-0">
-      <ListLink
-        query={query}
-        aria-current={on ? "page" : undefined}
-        // The chosen chip's look is in `.chip-row` (globals.css): ChipRow's pill is its background.
-        className={`pressable relative z-[1] flex items-center gap-1 whitespace-nowrap rounded-full border border-line bg-surface text-muted ${
-          small ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
-        }`}
-      >
-        {label}
-        {count !== undefined && <span className="tabular-nums opacity-70">{count}</span>}
-        <LinkPending />
-      </ListLink>
-    </li>
   );
 }

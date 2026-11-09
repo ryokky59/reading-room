@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 // 「今すぐ取得」 and 「URL を追加」 with pages that linkedom / Readability cannot parse. The pages
 // come from a local server started here, so nothing reaches the outside network. Every other
-// enabled feed in the seed points at a closed local port (e2e/seed.mts).
+// feed in the seed points at the local stub (e2e/stub.mts).
 
 const cards = (page: Page) => page.getByRole("list", { name: "記事" }).getByRole("listitem");
 const card = (page: Page, title: string) => cards(page).filter({ hasText: title });
@@ -114,7 +114,7 @@ ${listCutItems ? `<item><title>通信切れテスト 保存された記事</titl
     listItems = true;
     await page.goto("/");
     await fetchButton(page).click();
-    // The other enabled feeds in the seed fail, and are listed after the count.
+    // A feed that fails (the Board's seeded error feed) is listed after the count.
     await expect(page.getByText(/^3 本の新着を追加しました/)).toBeVisible({ timeout: 90_000 });
     await expect(fetchFailure(page)).toHaveCount(0);
 

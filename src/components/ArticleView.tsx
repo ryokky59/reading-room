@@ -15,7 +15,15 @@ import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { BusyButton } from "./BusyButton";
 import { FolderBadge } from "./Header";
-import { isTyping, isWide, refreshAfterLeave, useForgetOpened, useInboxIds, useLeftInbox } from "./InboxShell";
+import {
+  isTyping,
+  isWide,
+  refreshAfterLeave,
+  useForgetOpened,
+  useInboxIds,
+  useLeaveHref,
+  useLeftInbox,
+} from "./InboxShell";
 import { Markdown } from "./Markdown";
 import { useNavPending } from "./NavPending";
 
@@ -128,6 +136,8 @@ export function ArticleView({
   // With the list beside the article (`split` and up), reading or skipping opens the next one in it.
   const listIds = useInboxIds();
   const search = inboxHref.slice(1);
+  // ←, and 読了 / スキップ with nothing next: the Board, if the article was opened from it.
+  const leaveHref = useLeaveHref(inboxHref);
   // Which button is leaving the article; both are held back until the next screen shows.
   const [leavingBy, setLeavingBy] = useState<LeaveKind | null>(null);
   const [leaving, startLeaving] = useTransition();
@@ -165,7 +175,7 @@ export function ArticleView({
         // Phones fetch the list again on the way back, without the card: a copy of it leaves there.
         if (kind !== "restore") leftInbox(article.id, kind, { refetched: !wide });
         // Saved: from here on the screen must move on, so it matches the database.
-        const href = await whereTo().catch(() => inboxHref);
+        const href = await whereTo().catch(() => leaveHref);
         router.push(href);
         // Drops the card from the list beside the article (see the note in lib/actions.ts), once
         // it has left there.
@@ -190,7 +200,7 @@ export function ArticleView({
         // Past the last loaded card, the next unread may still be behind 「もっと見る」.
         // If that lookup fails, the list (with its empty state beside it) is shown instead.
         if (wide && next === undefined) next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
-        return next === undefined ? inboxHref : `/articles/${next}${search}`;
+        return next === undefined ? leaveHref : `/articles/${next}${search}`;
       },
     );
   }
@@ -203,7 +213,7 @@ export function ArticleView({
         await restoreArticle(article.id);
         forgetOpened(article.id);
       },
-      async () => inboxHref,
+      async () => leaveHref,
     );
   }
 
@@ -304,7 +314,7 @@ export function ArticleView({
       <div className="split:min-w-0 split:flex-1 split:overflow-y-auto">
         <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
           <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4 lg:max-w-3xl lg:px-8">
-            <Link href={done ? "/read" : inboxHref} className="pressable py-1 pr-2 text-muted" aria-label="戻る">
+            <Link href={done ? "/read" : leaveHref} className="pressable py-1 pr-2 text-muted" aria-label="戻る">
               ←
             </Link>
           </div>

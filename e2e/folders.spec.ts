@@ -7,8 +7,11 @@ import { expect, test, type Page } from "@playwright/test";
 const folder = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
 const feedRow = (page: Page, folderName: string, feedName: string) =>
   folder(page, folderName).getByRole("listitem").filter({ hasText: feedName });
+// 未分類 is not a folder: it has no place in the order, and always comes last.
 const folderOrder = (page: Page) =>
-  page.locator("main section").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+  page
+    .locator("main section:not([aria-label='未分類'])")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
 
 test("移行後、既存の Tech / Business のフィードが同名のフォルダに入っている", async ({ page }) => {
   await page.goto("/feeds");

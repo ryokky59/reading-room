@@ -90,8 +90,9 @@ export async function unmarkSeen(ids: number[]) {
     .where(and(eq(articles.status, "inbox"), inArray(articles.id, list)));
 }
 
-export async function markFeedSeen(feedId: number) {
-  await setSeen(eq(articles.feedId, feedId));
+/** Everything unread from a feed; null is the articles with no feed (URL から追加). */
+export async function markFeedSeen(feedId: number | null) {
+  await setSeen(feedId === null ? isNull(articles.feedId) : eq(articles.feedId, feedId));
 }
 
 /** Everything unread in a folder; null is 未分類, which also holds the articles without a feed. */

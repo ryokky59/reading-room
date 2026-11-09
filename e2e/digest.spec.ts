@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
+import { openFeed } from "./nav";
 
 // AI digests and translations that fail. The Anthropic API is played by a stub on the port
 // playwright.config.ts points the app at, and the feed by a second local server, so nothing
@@ -54,12 +55,17 @@ test.describe("要約と翻訳の失敗", () => {
   // Each test has its own feed, empty while it is added, so its articles come in through 「今すぐ取得」.
   const listed: Record<string, string[]> = { "/limit.xml": [], "/refused.xml": [], "/translate.xml": [] };
 
-  /** Presses 「今すぐ取得」, waits for the run to end, and returns on a freshly loaded list. */
-  async function fetchOnce(page: Page) {
+  /**
+   * Presses 「今すぐ取得」, waits for the run to end, and opens `feed`'s list freshly loaded: the
+   * Board shows titles only, and the failure is on the list's cards.
+   */
+  async function fetchOnce(page: Page, feed: string) {
     await page.goto("/");
     await page.getByRole("button", { name: "今すぐ取得" }).click();
     await expect(page.getByText(/本の新着を追加しました/)).toBeVisible({ timeout: 60_000 });
     await page.goto("/");
+    await page.getByRole("region", { name: feed, exact: true }).getByRole("heading", { level: 3 }).getByRole("link").click();
+    await expect(page).toHaveURL(/\/\?(f=\d+&)?s=\d+(&a=1)?$/);
   }
 
   async function addFeed(page: Page, path: string, name: string) {
@@ -137,8 +143,7 @@ test.describe("要約と翻訳の失敗", () => {
     ["スマホ", " @mobile", SEEDED_MOBILE, 11],
   ] as const) {
     test(`要約を断られた記事のカードに失敗と概要が出て、バッジは出ず、記事は読める(${screen})${tag}`, async ({ page }) => {
-      await page.goto("/");
-      await page.getByRole("navigation", { name: "フォルダ" }).getByRole("link", { name: /E2E 要約できない/ }).click();
+      await openFeed(page, "E2E 要約できない");
       const seeded = card(page, title);
       await expect(seeded).toContainText(FAILED);
       await expect(seeded).toContainText(`${title}の RSS の概要です。`);
@@ -160,7 +165,7 @@ test.describe("要約と翻訳の失敗", () => {
     listed["/limit.xml"].push("上限テストの記事", "成功テストの記事");
 
     for (let run = 1; run <= LIMIT; run++) {
-      await fetchOnce(page);
+      await fetchOnce(page, "上限テスト");
       expect(calls.digest["上限テストの記事"]).toBe(run);
       const failing = card(page, "上限テストの記事");
       await expect(failing).toContainText(BODY);
@@ -172,7 +177,7 @@ test.describe("要約と翻訳の失敗", () => {
       await expect(card(page, "成功テストの記事").getByText("AI 要約", { exact: true })).toBeVisible();
     }
 
-    await fetchOnce(page);
+    await fetchOnce(page, "上限テスト");
     expect(calls.digest["上限テストの記事"]).toBe(LIMIT);
     await expect(card(page, "上限テストの記事")).toContainText(FAILED);
     expect(calls.digest[SEEDED]).toBeUndefined();
@@ -183,12 +188,12 @@ test.describe("要約と翻訳の失敗", () => {
     test.setTimeout(90_000);
     await addFeed(page, "/refused.xml", "拒否テスト");
     listed["/refused.xml"].push("拒否テストの記事");
-    await fetchOnce(page);
+    await fetchOnce(page, "拒否テスト");
     expect(calls.digest["拒否テストの記事"]).toBe(1);
     await expect(card(page, "拒否テストの記事")).toContainText(FAILED);
     await expect(card(page, "拒否テストの記事")).toContainText(BODY);
 
-    await fetchOnce(page);
+    await fetchOnce(page, "拒否テスト");
     expect(calls.digest["拒否テストの記事"]).toBe(1);
   });
 
@@ -196,7 +201,7 @@ test.describe("要約と翻訳の失敗", () => {
     test.setTimeout(90_000);
     await addFeed(page, "/translate.xml", "翻訳テスト");
     listed["/translate.xml"].push("Translation refusal test");
-    await fetchOnce(page);
+    await fetchOnce(page, "翻訳テスト");
     await card(page, "翻訳を断られる記事").getByRole("link").first().click();
 
     await expect(page.getByRole("main")).toContainText(TRANSLATION_FAILED);

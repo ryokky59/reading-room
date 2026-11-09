@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { ListLink } from "./InboxShell";
+import { LinkPending } from "./NavPending";
 
 /**
  * A single line of chips that scrolls sideways on its own instead of widening the page.
@@ -95,5 +97,37 @@ export function ChipRow({ children, small }: { children: React.ReactNode; small?
       <li ref={pill} aria-hidden="true" hidden className="chip-pill" />
       {children}
     </ul>
+  );
+}
+
+/** One chip of a ChipRow, with its unread count. */
+export function Chip({
+  query,
+  label,
+  count,
+  on,
+  small,
+}: {
+  query: string;
+  label: string;
+  count?: number;
+  on: boolean;
+  small?: boolean;
+}) {
+  return (
+    <li className="shrink-0">
+      <ListLink
+        query={query}
+        aria-current={on ? "page" : undefined}
+        // The chosen chip's look is in `.chip-row` (globals.css): ChipRow's pill is its background.
+        className={`pressable relative z-[1] flex items-center gap-1 whitespace-nowrap rounded-full border border-line bg-surface text-muted ${
+          small ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
+        }`}
+      >
+        {label}
+        {count !== undefined && <span className="tabular-nums opacity-70">{count}</span>}
+        <LinkPending />
+      </ListLink>
+    </li>
   );
 }

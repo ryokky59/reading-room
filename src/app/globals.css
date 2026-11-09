@@ -32,6 +32,13 @@
   --breakpoint-split: 37.5rem;
 }
 
+/*
+ * `board:` lays the Board out in columns. Width alone is not enough: a phone on its side is as wide
+ * as `split` but too short for a column under the header and the tabs, so it stacks like a
+ * phone. A tall `split` width (an unfolded phone) and a PC have room.
+ */
+@custom-variant board (@media (min-width: 37.5rem) and (min-height: 30rem));
+
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);

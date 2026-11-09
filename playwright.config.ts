@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 // Override with E2E_PORT when several worktrees run tests at once.
 const PORT = Number(process.env.E2E_PORT ?? 3210);
+// e2e/stub.mts, which stands in for the feeds and the favicon service.
+const STUB_PORT = PORT + 1;
 // The AI digest runs when a test imports a feed; a local base URL keeps it from ever reaching the
 // Anthropic API. e2e/digest.spec.ts listens there to play the API; elsewhere nothing does, and
 // every call fails. The key is a dummy: without one the SDK fails before it sends anything.
@@ -11,6 +13,8 @@ const env = {
   ANTHROPIC_API_KEY: "e2e-dummy",
   ANTHROPIC_AUTH_TOKEN: "",
   ANTHROPIC_BASE_URL: `http://127.0.0.1:${PORT + 1000}`,
+  E2E_STUB_PORT: String(STUB_PORT),
+  FAVICON_SERVICE: `http://localhost:${STUB_PORT}/favicons`,
 };
 
 // Tests share one seeded database, so they run one at a time.
@@ -31,11 +35,19 @@ export default defineConfig({
     { name: "desktop", use: { ...devices["Desktop Chrome"] }, grepInvert: /@mobile/ },
     { name: "mobile", use: { ...devices["iPhone 15"], defaultBrowserType: "chromium" }, grep: /@mobile/ },
   ],
-  webServer: {
-    command: `npx tsx e2e/seed.mts && npx next start -p ${PORT}`,
-    url: `http://localhost:${PORT}`,
-    env,
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: "npx tsx e2e/stub.mts",
+      port: STUB_PORT,
+      env,
+      reuseExistingServer: false,
+    },
+    {
+      command: `npx tsx e2e/seed.mts && npx next start -p ${PORT}`,
+      url: `http://localhost:${PORT}`,
+      env,
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+  ],
 });
