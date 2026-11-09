@@ -38,4 +38,6 @@ Write each Issue in Japanese with this shape:
 (files likely touched, risks, schema migrations, AI cost or latency impact)
 ```
 
-Create Issues only when asked, with `gh issue create --repo ryokky59/reading-room --label idea --title ... --body-file ...`. Otherwise return the draft. Report the Issue URLs you created.
+Create Issues only when asked, with `gh issue create --repo ryokky59/reading-room --label idea --title ... --body-file ...`. Otherwise return the draft. Report the Issue URLs you created, with their labels.
+
+Label an Issue `auto` and `ready` instead of `idea` when the owner has nothing to decide: a bug you reproduced, a broken or flaky test, a review follow-up with one obvious fix. An automation then builds and merges it without asking. Keep `idea` when there is a product or design choice, a question for the owner, a schema migration, a new dependency, production data or settings, a change to AI cost, or a 完了条件 only a real phone can check. When unsure, use `idea`.
