@@ -104,6 +104,26 @@ test("横スクロールする行で画面外のチップが選ばれていて�
   expect(await pageOverflow()).toBeLessThanOrEqual(0);
 });
 
+test("読み込み中に横へスクロールした行は、表示の準備が終わっても先頭へ戻らない", async ({ page }) => {
+  // The scripts are held until the row is scrolled, so hydration (and the row's first placing)
+  // comes after it, as on a slow phone or network. A CPU throttle alone is not late enough here.
+  let release!: () => void;
+  const scrolled = new Promise<void>((r) => (release = r));
+  await page.route("**/_next/static/chunks/**/*.js", async (route) => {
+    await scrolled;
+    await route.fallback();
+  });
+  await page.goto("/", { waitUntil: "commit" });
+  const ul = folderNav(page).locator("ul");
+  await ul.waitFor({ state: "attached" });
+  expect(await ul.evaluate((e) => "pill" in (e as HTMLElement).dataset)).toBe(false);
+  await ul.evaluate((e) => (e.scrollLeft = 3000));
+  expect(await ul.evaluate((e) => e.scrollLeft)).toBe(3000);
+  release();
+  await expect(ul).toHaveAttribute("data-pill", "");
+  expect(await ul.evaluate((e) => e.scrollLeft)).toBe(3000);
+});
+
 test("スマホで記事から戻ったとき、背景は左端から伸びずに選択中チップの上にある @mobile", async ({ page }) => {
   await page.goto("/?a=1"); // Keeps the article listed once another test has opened it.
   const nav = folderNav(page);
