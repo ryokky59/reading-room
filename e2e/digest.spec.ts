@@ -9,6 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
 const FAILED = "AI 要約できませんでした";
 const LIMIT = 5;
 const SEEDED = "要約を断られた記事";
+const SEEDED_MOBILE = "スマホで開く断られた記事";
 const BODY = "要約テストの本文です。"; // Also what the card shows as the excerpt.
 const TRANSLATION_FAILED = "(日本語にまとめられませんでした。やり直してください)";
 
@@ -49,7 +50,7 @@ test.describe("要約と翻訳の失敗", () => {
   let origin: string;
   // Calls the stub received, by the fixture title found in the request.
   const calls = { digest: {} as Record<string, number>, translate: {} as Record<string, number> };
-  const titles = ["上限テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", SEEDED];
+  const titles = ["上限テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", SEEDED, SEEDED_MOBILE];
   // Each test has its own feed, empty while it is added, so its articles come in through 「今すぐ取得」.
   const listed: Record<string, string[]> = { "/limit.xml": [], "/refused.xml": [], "/translate.xml": [] };
 
@@ -130,24 +131,25 @@ test.describe("要約と翻訳の失敗", () => {
     await new Promise((resolve) => site.close(resolve));
   });
 
-  for (const [screen, tag] of [
-    ["PC", ""],
-    ["スマホ", " @mobile"],
-  ]) {
+  // Opening an article marks it seen, so each screen opens its own seeded article.
+  for (const [screen, tag, title, n] of [
+    ["PC", "", SEEDED, 10],
+    ["スマホ", " @mobile", SEEDED_MOBILE, 11],
+  ] as const) {
     test(`要約を断られた記事のカードに失敗と概要が出て、バッジは出ず、記事は読める(${screen})${tag}`, async ({ page }) => {
       await page.goto("/");
       await page.getByRole("navigation", { name: "フォルダ" }).getByRole("link", { name: /E2E 要約できない/ }).click();
-      const seeded = card(page, SEEDED);
+      const seeded = card(page, title);
       await expect(seeded).toContainText(FAILED);
-      await expect(seeded).toContainText("要約を断られた記事の RSS の概要です。");
+      await expect(seeded).toContainText(`${title}の RSS の概要です。`);
       await expect(seeded.getByText("AI 要約", { exact: true })).toHaveCount(0);
 
       await seeded.getByRole("link").first().click();
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(SEEDED);
-      await expect(page.getByRole("main")).toContainText("記事 10 の本文です。");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
+      await expect(page.getByRole("main")).toContainText(`記事 ${n} の本文です。`);
       await expect(page.getByRole("link", { name: /元記事を開く/ }).first()).toHaveAttribute(
         "href",
-        "https://example.com/e2e/10",
+        `https://example.com/e2e/${n}`,
       );
     });
   }
@@ -174,6 +176,7 @@ test.describe("要約と翻訳の失敗", () => {
     expect(calls.digest["上限テストの記事"]).toBe(LIMIT);
     await expect(card(page, "上限テストの記事")).toContainText(FAILED);
     expect(calls.digest[SEEDED]).toBeUndefined();
+    expect(calls.digest[SEEDED_MOBILE]).toBeUndefined();
   });
 
   test("要約を拒否された記事は 1 回で諦めてカードに出て、それ以降は要約を呼ばない", async ({ page }) => {

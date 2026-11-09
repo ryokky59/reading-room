@@ -115,7 +115,7 @@ const [flash, weekly, readOnly, bulk, backFeed, lastFeed, stayFeed, readBackFeed
     ...[1, 2, 3, 4, 5, 6].map((i) => feed(`crowded-${i}`, `E2E 横に並ぶサイト ${i}`, crowded.id)),
   ])
   .returning();
-// An article the AI refused to summarize (e2e/digest.spec.ts).
+// Articles the AI refused to summarize (e2e/digest.spec.ts).
 const [refusedFolder] = await db.insert(schema.folders).values({ name: "E2E 要約できない", position: 65 }).returning();
 const [refusedFeed] = await db.insert(schema.feeds).values(feed("refused", "E2E 要約できないサイト", refusedFolder.id)).returning();
 const biz = inserted.find((a) => a.title === "ビジネスの記事")!;
@@ -133,6 +133,18 @@ const filterArticles = [
     source: refusedFeed.name,
     feedId: refusedFeed.id,
     fetchedAt: old(90),
+  }),
+  // The same for the phone test: opening an article marks it seen, so each screen has its own.
+  article(11, {
+    title: "スマホで開く断られた記事",
+    lang: null,
+    summary: null,
+    excerpt: "スマホで開く断られた記事の RSS の概要です。",
+    digestAttempts: DIGEST_ATTEMPT_LIMIT,
+    digestError: "refused",
+    source: refusedFeed.name,
+    feedId: refusedFeed.id,
+    fetchedAt: old(91),
   }),
   article(7, { title: "速報の2本目", titleJa: "速報の2本目", source: flash.name, feedId: flash.id }),
   article(8, { title: "週報の記事", titleJa: "週報の記事", source: weekly.name, feedId: weekly.id }),
