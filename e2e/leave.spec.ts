@@ -293,3 +293,162 @@ test("スマホで記事の URL を直接開いて読了すると、一覧がす
   await undo(page).click();
   await expect(card(page, `${folder} 1`)).toBeVisible();
 });
+
+/**
+ * Opens article `n` of `folder` by its URL with the list held back, as on a reload. The returned
+ * function lets the list through. Other server requests pass unless `blockAll`.
+ */
+async function openBeforeList(page: Page, folder: string, n: number, { blockAll = false } = {}) {
+  await page.goto("/");
+  await folderNav(page).getByRole("link", { name: new RegExp(`^${folder}\\s*\\d+$`) }).click();
+  await expect(card(page, `${folder} ${n}`)).toBeVisible();
+  const href = await card(page, `${folder} ${n}`).getByRole("link").getAttribute("href");
+
+  let release = () => {};
+  const released = new Promise<void>((r) => (release = r));
+  let failing = blockAll;
+  const saves: string[] = [];
+  page.on("request", (r) => {
+    if ("next-action" in r.headers()) saves.push(r.url());
+  });
+  await page.route("**/*", async (route) => {
+    const headers = route.request().headers();
+    if (!("rsc" in headers) || "next-router-prefetch" in headers) return route.fallback();
+    if (failing) return route.abort();
+    if (!/\/articles\/\d+\/list/.test(route.request().url())) return route.fallback();
+    await released;
+    await route.fallback().catch(() => {});
+  });
+  await page.goto(href!);
+  await expect(heading(page)).toHaveText(`${folder} ${n}`);
+  return {
+    saves,
+    release: () => {
+      failing = false;
+      release();
+    },
+  };
+}
+
+const readButton = (page: Page) => page.getByRole("button", { name: "読了にする" });
+// In the article, not on a list card.
+const skipButton = (page: Page) => page.getByRole("main").getByRole("button", { name: "スキップ" });
+
+/** Both buttons can be seen not to work yet. */
+async function expectHeldBack(page: Page) {
+  for (const button of [readButton(page), skipButton(page)]) {
+    await expect(button).toBeDisabled();
+    expect(await style(button, "opacity")).toBe("0.5");
+  }
+}
+
+test.describe("記事を直接開いて一覧が届く前", () => {
+  test("PC では読了・スキップが押せず、届いたら読了ですぐ下の記事が開く", async ({ page }) => {
+    const folder = "E2E 一覧待ちで読了";
+    const { saves, release } = await openBeforeList(page, folder, 2);
+    await expectHeldBack(page);
+    await readButton(page).click({ force: true });
+    await page.waitForTimeout(300);
+    expect(saves).toEqual([]);
+    await expect(heading(page)).toHaveText(`${folder} 2`);
+
+    release();
+    // Pressed as soon as it can be: the article URL may still be on its way back.
+    await expect(readButton(page)).toBeEnabled();
+    await readButton(page).click();
+    await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 2000 });
+    await expect(card(page, `${folder} 2`)).toHaveCount(0);
+    await expect(toast(page).getByText("読了にしました")).toBeVisible();
+  });
+
+  test("PC のスキップも、届いたらすぐ下の記事が開く", async ({ page }) => {
+    const folder = "E2E 一覧待ちでスキップ";
+    const { release } = await openBeforeList(page, folder, 2);
+    await expectHeldBack(page);
+
+    release();
+    await expect(skipButton(page)).toBeEnabled();
+    await skipButton(page).click();
+    await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 2000 });
+    await expect(toast(page).getByText("スキップしました")).toBeVisible();
+  });
+
+  test("e / s は効かず、届いたら効く", async ({ page }) => {
+    const folder = "E2E 一覧待ちのキー";
+    const { saves, release } = await openBeforeList(page, folder, 2);
+    await expectHeldBack(page);
+    await page.keyboard.press("e");
+    await page.keyboard.press("s");
+    await page.waitForTimeout(300);
+    expect(saves).toEqual([]);
+    await expect(heading(page)).toHaveText(`${folder} 2`);
+
+    release();
+    await expect(skipButton(page)).toBeEnabled();
+    await page.keyboard.press("s");
+    await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 2000 });
+  });
+
+  test("届いたあとの保存に失敗しても、メッセージが出てもう一度押せる", async ({ page }) => {
+    const folder = "E2E 一覧待ちで失敗";
+    const { release } = await openBeforeList(page, folder, 2);
+    release();
+    await expect(readButton(page)).toBeEnabled();
+    await expect(list(page).getByRole("listitem")).toHaveCount(3);
+
+    await page.unrouteAll();
+    await page.route("**/*", (route) =>
+      "next-action" in route.request().headers() ? route.abort() : route.fallback(),
+    );
+    await readButton(page).click();
+    await expect(page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" })).toBeVisible();
+    await expect(heading(page)).toHaveText(`${folder} 2`);
+    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+
+    await page.unrouteAll();
+    await readButton(page).click();
+    await expect(heading(page)).toHaveText(`${folder} 3`);
+  });
+
+  test("一覧の取得が失敗しても、通信が戻れば押せるようになる", async ({ page }) => {
+    const folder = "E2E 一覧が届かない";
+    const { release } = await openBeforeList(page, folder, 2, { blockAll: true });
+    await expect(readButton(page)).toBeDisabled();
+    // The router falls back to loading the page again, and again the list does not come.
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(`${folder} 2`);
+    await expect(readButton(page)).toBeDisabled();
+    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+
+    release();
+    await expect(list(page).getByRole("listitem")).toHaveCount(3);
+    await expect(readButton(page)).toBeEnabled();
+    await readButton(page).click();
+    await expect(heading(page)).toHaveText(`${folder} 3`);
+  });
+
+  test("スマホの縦向きは一覧を待たずに押せる @mobile", async ({ page }) => {
+    const folder = "E2E 一覧待ちの横向き";
+    const { saves } = await openBeforeList(page, folder, 1);
+    await expect(readButton(page)).toBeEnabled();
+    await readButton(page).click();
+    await expect(heading(page)).toHaveCount(0);
+    await expect(card(page, `${folder} 1`)).toHaveCount(0);
+    expect(saves.length).toBeGreaterThan(0);
+  });
+
+  test.describe("スマホの横向き", () => {
+    test.use({ viewport: { width: 844, height: 390 } });
+
+    test("PC と同じく押せず、届いたらすぐ下の記事が開く @mobile", async ({ page }) => {
+      const folder = "E2E 一覧待ちの横向き";
+      const { release } = await openBeforeList(page, folder, 2);
+      await expectHeldBack(page);
+
+      release();
+      await expect(readButton(page)).toBeEnabled();
+      await readButton(page).click();
+      await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 2000 });
+    });
+  });
+});

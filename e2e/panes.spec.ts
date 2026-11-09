@@ -52,10 +52,11 @@ const listsIn = (responses: boolean[]) => responses.filter(Boolean).length;
 /** The HTML the server sends for a full load of `url`. */
 const fullLoad = async (page: Page, url: string) => (await page.request.get(url)).text();
 
-async function openFolder(page: Page, name: string) {
-  await page.goto("/");
+/** With `includeSeen` (a=1), rows that other tests have opened, and so marked seen, stay listed. */
+async function openFolder(page: Page, name: string, { includeSeen = false } = {}) {
+  await page.goto(includeSeen ? "/?a=1" : "/");
   await folderNav(page).getByRole("link", { name: new RegExp(`^${name}\\s*\\d+$`) }).click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(page).toHaveURL(includeSeen ? /\/\?f=\d+&a=1$/ : /\/\?f=\d+$/);
 }
 
 test.describe("PC 幅(3 ペイン)", () => {
@@ -94,7 +95,7 @@ test.describe("PC 幅(3 ペイン)", () => {
   });
 
   test("記事を切り替えると対話も切り替わる", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?a=1");
     await card(page, "対話のある記事").getByRole("link").click();
     await expect(chat(page)).toContainText("要点は E2E テストが通ることです。");
     await card(page, "ビジネスの記事").getByRole("link").click();
@@ -155,7 +156,7 @@ test.describe("PC 幅(3 ペイン)", () => {
   });
 
   test("記事を開いたままチップや「もっと見る」を押すと一覧だけが切り替わり、記事と書きかけの対話が残る", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?a=1");
     await card(page, "対話のある記事").getByRole("link").click();
     await expect(heading(page)).toHaveText("対話のある記事");
     const path = new URL(page.url()).pathname;
@@ -168,32 +169,32 @@ test.describe("PC 幅(3 ペイン)", () => {
     };
 
     await folderNav(page).getByRole("link", { name: /^E2E たくさん\s*\d+$/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+$`));
+    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&a=1$`));
     await expect(folderNav(page).getByRole("link", { name: /^E2E たくさん/ })).toHaveAttribute("aria-current", "page");
     await expect(list(page).getByRole("heading", { name: "量産記事 1", exact: true })).toBeVisible();
     await expect(list(page).getByRole("listitem")).toHaveCount(30);
     await kept();
 
     await page.getByRole("link", { name: /もっと見る/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&n=60$`));
+    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&n=60&a=1$`));
     await expect(list(page).getByRole("listitem")).toHaveCount(35);
     await kept();
 
     await page.getByRole("navigation", { name: "サイト" }).getByRole("link", { name: /^E2E 量産サイト/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&s=\\d+$`));
+    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&s=\\d+&a=1$`));
     await expect(
       page.getByRole("navigation", { name: "サイト" }).getByRole("link", { name: /^E2E 量産サイト/ }),
     ).toHaveAttribute("aria-current", "page");
     await kept();
 
     await folderNav(page).getByRole("link", { name: /^すべて/ }).click();
-    await expect(page).toHaveURL(path);
+    await expect(page).toHaveURL(`${path}?a=1`);
     await expect(card(page, "対話のある記事")).toHaveAttribute("aria-current", "true");
     await kept();
 
     // The article URL now carries the list's filter: a reload shows both again.
     await folderNav(page).getByRole("link", { name: /^E2E たくさん\s*\d+$/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+$`));
+    await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&a=1$`));
     const filtered = new URL(page.url()).search;
     await page.reload();
     await expect(heading(page)).toHaveText("対話のある記事");
@@ -205,7 +206,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(heading(page)).toHaveText("対話のある記事");
 
     // ← goes back to the inbox with the list's filter.
-    await page.getByRole("link", { name: "戻る" }).click();
+    await page.getByRole("link", { name: "戻る", exact: true }).click();
     await expect(page).toHaveURL(`/${filtered}`);
     await expect(heading(page)).toHaveCount(0);
   });
@@ -310,7 +311,7 @@ test.describe("PC 幅(3 ペイン)", () => {
   });
 
   test("記事を開いてもサーバーは一覧を作らず、チップや「もっと見る」では一覧を 1 回だけ作る", async ({ page }) => {
-    await openFolder(page, "E2E たくさん");
+    await openFolder(page, "E2E たくさん", { includeSeen: true });
     let responses = await serverLists(page, async () => {
       await card(page, "量産記事 5").getByRole("link").click();
       await expect(heading(page)).toHaveText("量産記事 5");
@@ -327,14 +328,14 @@ test.describe("PC 幅(3 ペイン)", () => {
     const sites = page.getByRole("navigation", { name: "サイト" });
     responses = await serverLists(page, async () => {
       await sites.getByRole("link", { name: /^E2E 量産サイト/ }).click();
-      await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
+      await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+&a=1$/);
       await expect(sites.getByRole("link", { name: /^E2E 量産サイト/ })).toHaveAttribute("aria-current", "page");
     });
     expect(listsIn(responses)).toBe(1);
 
     responses = await serverLists(page, async () => {
       await page.getByRole("link", { name: /もっと見る/ }).click();
-      await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+&n=60$/);
+      await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+&n=60&a=1$/);
       await expect(list(page).getByRole("listitem")).toHaveCount(35);
     });
     expect(listsIn(responses)).toBe(1);
@@ -437,7 +438,7 @@ for (const viewport of [
     test.use({ viewport });
 
     test("一覧と記事が横に並び、横にはみ出さない。対話は右からの引き出しで、入力欄が見える", async ({ page }) => {
-      await openFolder(page, "E2E たくさん");
+      await openFolder(page, "E2E たくさん", { includeSeen: true });
       await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeVisible();
       expect(await overflowsX(page)).toBe(false);
 
@@ -484,7 +485,7 @@ for (const width of [382, 466]) {
     test.use({ viewport: { width, height: 800 } });
 
     test("一覧と記事が別の画面になる", async ({ page }) => {
-      await openFolder(page, "E2E たくさん");
+      await openFolder(page, "E2E たくさん", { includeSeen: true });
       await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
       expect(await overflowsX(page)).toBe(false);
 
@@ -495,7 +496,7 @@ for (const width of [382, 466]) {
       await expect(page.getByRole("button", { name: "AI に質問する" })).toBeVisible();
       expect(await overflowsX(page)).toBe(false);
 
-      await page.getByRole("link", { name: "戻る" }).click();
+      await page.getByRole("link", { name: "戻る", exact: true }).click();
       await expect(heading(page)).toHaveCount(0);
       await expect(card(page, "量産記事 9")).toBeVisible();
     });
@@ -503,13 +504,13 @@ for (const width of [382, 466]) {
 }
 
 test("スマホ幅の記事画面には一覧もヘッダーも出ず、キー操作も効かない @mobile", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1");
   await card(page, "対話のある記事").getByRole("link").click();
   await expect(heading(page)).toHaveText("対話のある記事");
   const url = page.url();
   await expect(list(page)).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Reading Room" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "戻る" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "戻る", exact: true })).toBeVisible();
   await page.keyboard.press("j");
   await page.keyboard.press("e");
   await page.waitForTimeout(500); // gives a wrongly handled key time to navigate
@@ -518,7 +519,7 @@ test("スマホ幅の記事画面には一覧もヘッダーも出ず、キー�
 });
 
 test("スマホ幅で記事の URL を直接開くと、一覧を作らずに記事だけを返す @mobile", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1");
   const href = (await card(page, "ビジネスの記事").getByRole("link").getAttribute("href"))!;
   const html = await fullLoad(page, href);
   expect(html).toContain("ビジネスの記事");
@@ -532,7 +533,7 @@ test("スマホ幅で記事の URL を直接開くと、一覧を作らずに記
   await expect(page).toHaveURL(href);
 
   // The list is built when going back to it.
-  await page.getByRole("link", { name: "戻る" }).click();
-  await expect(page).toHaveURL("/");
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(page).toHaveURL("/?a=1");
   await expect(card(page, "ビジネスの記事")).toBeVisible();
 });

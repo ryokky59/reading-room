@@ -24,9 +24,9 @@ async function expectNoSideScroll(page: Page) {
 
 /** Opens the folder's first article and returns its URL. */
 async function openArticle(page: Page, folder: string) {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Opening marks the article seen; it stays listed for the tests below.
   await folderNav(page).getByRole("link", { name: chip(folder, 2) }).click();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
   await card(page, `${folder}記事 1`).getByRole("link").first().click();
   await expect(heading(page)).toHaveText(`${folder}記事 1`);
   return page.url();
@@ -77,11 +77,12 @@ test.describe("PC 幅(3 ペイン)", () => {
     await page.reload();
     await expect(stoppedNote(page)).toBeVisible();
 
-    // The site's unread articles stay in the list beside the article, and so does its chip.
+    // The site's articles stay in the list beside the article, and so does its chip; the open
+    // article is seen, so one is left unread.
     await expect(card(page, `${folder}記事 1`)).toBeVisible();
     await expect(card(page, `${folder}記事 2`)).toBeVisible();
-    await expect(siteNav(page).getByRole("link", { name: chip(site, 2) })).toBeVisible();
-    // The open article is still unread.
+    await expect(siteNav(page).getByRole("link", { name: chip(site, 1) })).toBeVisible();
+    // The open article is seen, not read.
     await expect(main(page).getByRole("button", { name: "読了にする" })).toBeVisible();
 
     // /feeds shows the site as stopped; resuming there brings back the article's button.
@@ -105,7 +106,7 @@ test.describe("PC 幅(3 ペイン)", () => {
   });
 
   test("「URL を追加」で入れた記事にはボタンが出ない", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?a=1");
     await card(page, "対話のある記事").getByRole("link").first().click();
     await expect(heading(page)).toHaveText("対話のある記事");
     await expect(main(page).getByRole("link", { name: "元記事を開く ↗" })).toBeVisible();
@@ -131,11 +132,11 @@ test.describe("スマホ幅 @mobile", () => {
     await expectNoSideScroll(page);
     await expect(page.getByRole("button", { name: "読了にする" })).toBeVisible();
 
-    // Back in the list, the site's unread articles and its chip are still there.
+    // Back in the list, the site's articles and its chip are still there; the opened one is seen.
     await page.getByRole("link", { name: "戻る", exact: true }).click();
     await expect(card(page, `${folder}記事 1`)).toBeVisible();
     await expect(card(page, `${folder}記事 2`)).toBeVisible();
-    await expect(siteNav(page).getByRole("link", { name: chip(site, 2) })).toBeVisible();
+    await expect(siteNav(page).getByRole("link", { name: chip(site, 1) })).toBeVisible();
 
     await card(page, `${folder}記事 1`).getByRole("link").first().click();
     await expect(stoppedNote(page)).toBeVisible();
