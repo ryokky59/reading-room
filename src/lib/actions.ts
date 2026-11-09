@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, max, notInArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, max, notInArray, or, type SQL } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { articles, feeds, folders, getDb } from "./db";
@@ -63,7 +63,49 @@ export async function skipArticle(id: number) {
 
 export async function restoreArticle(id: number) {
   const db = await getDb();
-  await db.update(articles).set({ status: "inbox", readAt: null }).where(eq(articles.id, id));
+  await db.update(articles).set({ status: "inbox", readAt: null, seenAt: null }).where(eq(articles.id, id));
+}
+
+/** Marks the unread articles `scope` picks as seen. */
+async function setSeen(scope: SQL | undefined) {
+  const db = await getDb();
+  await db
+    .update(articles)
+    .set({ seenAt: new Date() })
+    .where(and(eq(articles.status, "inbox"), isNull(articles.seenAt), scope));
+}
+
+export async function markSeen(ids: number[]) {
+  const list = ids.filter(Number.isInteger).slice(0, 1000);
+  if (list.length) await setSeen(inArray(articles.id, list));
+}
+
+export async function unmarkSeen(ids: number[]) {
+  const list = ids.filter(Number.isInteger).slice(0, 1000);
+  if (list.length === 0) return;
+  const db = await getDb();
+  await db
+    .update(articles)
+    .set({ seenAt: null })
+    .where(and(eq(articles.status, "inbox"), inArray(articles.id, list)));
+}
+
+export async function markFeedSeen(feedId: number) {
+  await setSeen(eq(articles.feedId, feedId));
+}
+
+/** Everything unread in a folder; null is 未分類, which also holds the articles without a feed. */
+export async function markFolderSeen(folderId: number | null) {
+  const db = await getDb();
+  const inFolder = db
+    .select({ id: feeds.id })
+    .from(feeds)
+    .where(folderId === null ? isNull(feeds.folderId) : eq(feeds.folderId, folderId));
+  await setSeen(
+    folderId === null
+      ? or(isNull(articles.feedId), inArray(articles.feedId, inFolder))
+      : inArray(articles.feedId, inFolder),
+  );
 }
 
 export async function markRead(id: number) {

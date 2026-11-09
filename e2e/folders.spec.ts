@@ -131,13 +131,13 @@ ${[1, 2].map((n) => `<item><title>ローカル記事 ${n}</title><link>${origin}
     await expect(page).toHaveURL(/\/articles\/\d+/, { timeout: 60_000 });
     await expect(page.getByRole("main")).toContainText("未分類");
 
-    // The article added by URL is listed under 未分類.
-    await page.goto("/");
+    // The article added by URL is listed under 未分類; opening it made it seen.
+    await page.goto("/?a=1");
     await page
       .getByRole("navigation", { name: "フォルダ" })
       .getByRole("link", { name: /^未分類\s*\d+$/ })
       .click();
-    await expect(page).toHaveURL(/\/\?f=none$/);
+    await expect(page).toHaveURL(/\/\?f=none&a=1$/);
     await expect(page.getByRole("list", { name: "記事" }).getByText("ローカル記事 99")).toBeVisible();
     await expect(page.getByRole("list", { name: "記事" }).getByText("ローカル記事 1")).toHaveCount(0);
 
