@@ -22,6 +22,12 @@ const scrollY = (page: Page) => page.evaluate(() => window.scrollY);
 const overflowsX = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
+// A slow CPU (heavy PC, iPad, phone on its side): effects run late, after a quick back / forward.
+async function slowCpu(page: Page) {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+}
+
 async function openTab(page: Page, label: string) {
   await page.goto("/");
   await tab(page, label).click();
@@ -103,6 +109,7 @@ test.describe("PC 幅", () => {
   });
 
   test("見出しを押すと記事が開き、左はそのフィードだけで j / k はその中で動く。戻るとボードに戻り、薄く残る", async ({ page }) => {
+    await slowCpu(page);
     await page.goto("/");
     await row(page, "E2E 開く A", "E2E 開く A 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 開く A 1");
@@ -138,6 +145,11 @@ test.describe("PC 幅", () => {
     await page.goForward();
     await expect(page).toHaveURL("/");
     await expect(column(page, "E2E 開く A")).toBeVisible();
+    await expect(heading(page)).toHaveCount(0);
+    // A late replace from the article left behind would bring the article back.
+    await page.waitForTimeout(1000);
+    await expect(page).toHaveURL("/");
+    await expect(heading(page)).toHaveCount(0);
     await page.goto(articleUrl);
     await expect(heading(page)).toHaveText("E2E 開く A 1");
     await expect(card(page, "E2E 開く A 1")).toHaveAttribute("aria-current", "true");
@@ -431,6 +443,46 @@ test.describe("横向きのスマホ 844×390", () => {
     await column(page, "E2E 列 少ない").scrollIntoViewIfNeeded();
     await expect(column(page, "E2E 列 少ない")).toBeInViewport();
     expect(await overflowsX(page)).toBe(false);
+  });
+});
+
+test("狭い幅で記事を開いたまま広げると、左に一覧が届いて j が効く", async ({ page }) => {
+  await page.setViewportSize({ width: 500, height: 800 });
+  await page.goto("/");
+  await row(page, "E2E 広げて一覧", "E2E 広げて一覧 1").getByRole("link").click();
+  await expect(heading(page)).toHaveText("E2E 広げて一覧 1");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(card(page, "E2E 広げて一覧 1")).toHaveAttribute("aria-current", "true");
+  await expect(feedList(page).getByRole("listitem")).toHaveCount(2);
+  await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
+  await page.keyboard.press("j");
+  await expect(heading(page)).toHaveText("E2E 広げて一覧 2");
+});
+
+test.describe("横向きのスマホ 844×390 @mobile", () => {
+  test.use({ viewport: { width: 844, height: 390 } });
+
+  test("ボードから開いて「戻る」のあと、ブラウザの戻る→進むでボードが出る @mobile", async ({ page }) => {
+    await slowCpu(page);
+    await page.goto("/");
+    await row(page, "E2E 横向きで開く", "E2E 横向きで開く 1").getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 横向きで開く 1");
+    await expect(card(page, "E2E 横向きで開く 1")).toHaveAttribute("aria-current", "true");
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText("E2E 横向きで開く 2");
+    await page.getByRole("link", { name: "戻る", exact: true }).click();
+    await expect(page).toHaveURL("/");
+    await expect(heading(page)).toHaveCount(0);
+
+    await page.goBack();
+    await expect(heading(page)).toHaveText("E2E 横向きで開く 2");
+    await page.goForward();
+    await expect(page).toHaveURL("/");
+    await expect(column(page, "E2E 横向きで開く")).toBeVisible();
+    await expect(heading(page)).toHaveCount(0);
+    await page.waitForTimeout(1000);
+    await expect(page).toHaveURL("/");
+    await expect(heading(page)).toHaveCount(0);
   });
 });
 

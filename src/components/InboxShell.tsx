@@ -522,7 +522,9 @@ function useArticleUrlAfterListChange() {
   const search = useSearchParams().toString();
   useEffect(() => {
     const match = /^\/articles\/(\d+)\/list$/.exec(pathname);
-    if (match) router.replace(`/articles/${match[1]}${search ? `?${search}` : ""}`, { scroll: false });
+    // The browser may have moved on (back / forward) before this effect ran on a slow CPU. A
+    // replace now would win over that move and bring the article back, so it is left alone.
+    if (match && window.location.pathname === pathname) router.replace(`/articles/${match[1]}${search ? `?${search}` : ""}`, { scroll: false });
   }, [pathname, search, router]);
 }
 
@@ -540,7 +542,9 @@ export function ListAfterFullLoad() {
     if (openId === null) return;
     const media = window.matchMedia(WIDE);
     const load = () => {
-      if (media.matches) router.replace(`/articles/${openId}/list${search ? `?${search}` : ""}`, { scroll: false });
+      // As in useArticleUrlAfterListChange: skip once the browser has left this article's URL.
+      if (media.matches && window.location.pathname === `/articles/${openId}`)
+        router.replace(`/articles/${openId}/list${search ? `?${search}` : ""}`, { scroll: false });
     };
     load();
     media.addEventListener("change", load);
