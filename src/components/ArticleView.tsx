@@ -15,7 +15,7 @@ import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { BusyButton } from "./BusyButton";
 import { FolderBadge } from "./Header";
-import { isTyping, isWide, refreshAfterLeave, useInboxIds, useLeftInbox } from "./InboxShell";
+import { isTyping, isWide, refreshAfterLeave, useForgetOpened, useInboxIds, useLeftInbox } from "./InboxShell";
 import { Markdown } from "./Markdown";
 import { useNavPending } from "./NavPending";
 
@@ -195,8 +195,16 @@ export function ArticleView({
     );
   }
 
+  const forgetOpened = useForgetOpened();
   function restore(): Promise<boolean> {
-    return run("restore", () => restoreArticle(article.id), async () => inboxHref);
+    return run(
+      "restore",
+      async () => {
+        await restoreArticle(article.id);
+        forgetOpened(article.id);
+      },
+      async () => inboxHref,
+    );
   }
 
   // PC shortcuts: j / k next / previous article, e read, s skip. Typing is left alone.

@@ -67,7 +67,7 @@ async function openFolder(page: Page, name: string) {
 }
 
 test("押している間だけカード・チップ・ボタンが縮み、カードのスキップではカードは縮まない", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?a=1"); // Keeps the card listed once another test has opened it.
   const item = card(page, "本番で動くエージェント");
   const box = async (el: Locator) => {
     const b = (await el.boundingBox())!;
@@ -128,11 +128,11 @@ test("記事が出るまで押したカードだけに枠が付き、画面上�
 
 test("チップと「もっと見る」でも、一覧が変わるまでバーが出る", async ({ page }) => {
   await slowPages(page);
-  await page.goto("/");
+  await page.goto("/?a=1"); // Keeps 35 cards once other tests have opened some of them.
 
   await folderNav(page).getByRole("link", { name: /^E2E たくさん\s*\d+$/ }).click();
   await expect(activeBar(page)).toBeVisible();
-  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
   await expect(activeBar(page)).toHaveCount(0);
 
   await page.getByRole("link", { name: /もっと見る/ }).click();
