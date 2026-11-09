@@ -176,7 +176,10 @@ export function ArticleView({
         if (kind !== "restore") leftInbox(article.id, kind, { refetched: !wide });
         // Saved: from here on the screen must move on, so it matches the database.
         const href = await whereTo().catch(() => leaveHref);
-        router.push(href);
+        // Browser back (or forward) during the save has already moved to another page; pushing now
+        // would replace it. `/list` is the URL while the list arrives after a full load (#66).
+        const here = `/articles/${article.id}`;
+        if (window.location.pathname === here || window.location.pathname === `${here}/list`) router.push(href);
         // Drops the card from the list beside the article (see the note in lib/actions.ts), once
         // it has left there.
         if (wide && kind !== "restore") refreshAfterLeave(router);
