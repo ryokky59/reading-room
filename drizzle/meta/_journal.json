@@ -64,6 +64,13 @@
       "when": 1794227030863,
       "tag": "0008_digest_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794294342180,
+      "tag": "0009_events",
+      "breakpoints": true
     }
   ]
 }

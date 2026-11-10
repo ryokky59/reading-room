@@ -238,10 +238,15 @@ type BoardOrigin = {
 
 const BoardOriginContext = createContext<BoardOrigin>({ href: null, openedFrom: false });
 
-/** The URL if it shows the Board, else null. Reads the params of showsBoard in lib/inbox.ts. */
+/** Whether a URL shows the Board. Reads the params of showsBoard in lib/inbox.ts. */
+export function showsBoardUrl(pathname: string, params: URLSearchParams) {
+  return pathname === "/" && !/^[1-9]\d{0,9}$/.test(params.get("s") ?? "") && params.get("a") !== "1";
+}
+
+/** The URL if it shows the Board, else null. */
 function useBoardUrl() {
   const params = useSearchParams();
-  const atBoard = usePathname() === "/" && !/^[1-9]\d{0,9}$/.test(params.get("s") ?? "") && params.get("a") !== "1";
+  const atBoard = showsBoardUrl(usePathname(), params);
   return atBoard ? `/${params.size ? `?${params}` : ""}` : null;
 }
 

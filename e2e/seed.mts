@@ -485,6 +485,34 @@ const boardInserted = await db.insert(schema.articles).values(boardArticles).ret
 const boardTalked = boardInserted.find((a) => a.titleJa === "E2E 列 少ない 2")!;
 await db.insert(schema.messages).values({ articleId: boardTalked.id, role: "user", content: "列の対話です" });
 
+// The activity log (e2e/activity.spec.ts): one folder per test that reads or skips, each with 3
+// unread articles and a read one, for the 読了 screen.
+const activityFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E 記録 ボード", "E2E 記録 スマホ", "E2E 記録 横向き", "E2E 記録 次へ", "E2E 記録 遮断", "E2E 記録 500"].map(
+      (name, i) => ({ name, position: 130 + i }),
+    ),
+  )
+  .returning();
+const activityFeeds = await db
+  .insert(schema.feeds)
+  .values(activityFolders.map((f, i) => feed(`activity-${i}`, `${f.name}のサイト`, f.id)))
+  .returning();
+const activityArticles = activityFeeds.flatMap((f, i) =>
+  [1, 2, 3, 4].map((j) =>
+    article(3000 + i * 10 + j, {
+      title: `${activityFolders[i].name} ${j}`,
+      titleJa: `${activityFolders[i].name} ${j}`,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: old(3000 + i * 10 + j),
+      ...(j === 4 ? { status: "read" as const, readAt: new Date(now) } : {}),
+    }),
+  ),
+);
+await db.insert(schema.articles).values(activityArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length} articles into ${dir}`,
 );
