@@ -1,4 +1,4 @@
-import { boolean, index, integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 
 export type ArticleStatus = "inbox" | "read" | "skipped";
 
@@ -84,6 +84,33 @@ export const reviews = pgTable("reviews", {
   content: text("content").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// What the owner does in the app, one row per event sent by track() in lib/track.ts. Columns a
+// type does not use stay null. See 「行動ログ」 in README.md for the values.
+export const events = pgTable(
+  "events",
+  {
+    id: serial("id").primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    env: text("env").notNull(), // VERCEL_ENV, or "development"
+    sessionId: text("session_id").notNull(), // random per browser tab
+    type: text("type").notNull(),
+    device: text("device").notNull(), // "phone" | "pc"
+    layout: text("layout").notNull(), // "single" | "split"
+    vw: integer("vw").notNull(),
+    vh: integer("vh").notNull(),
+    standalone: boolean("standalone").notNull(), // started from the home screen
+    screen: text("screen").notNull(),
+    articleId: integer("article_id").references(() => articles.id, { onDelete: "set null" }),
+    source: text("source"), // how an article was opened
+    viewId: text("view_id"), // one opening of an article, shared by the events while it is open
+    dwellMs: integer("dwell_ms"),
+    activeMs: integer("active_ms"),
+    scrollPct: integer("scroll_pct"),
+    props: jsonb("props").$type<Record<string, unknown>>(),
+  },
+  (t) => [index("events_created_idx").on(t.createdAt), index("events_article_idx").on(t.articleId)],
+);
 
 export type Article = typeof articles.$inferSelect;
 export type Feed = typeof feeds.$inferSelect;

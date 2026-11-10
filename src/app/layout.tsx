@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
+import { ActivityLog } from "@/components/ActivityLog";
 import { NavPendingProvider, NavProgress } from "@/components/NavPending";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import "./globals.css";
@@ -33,6 +35,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <NavProgress />
         </NavPendingProvider>
         <ServiceWorker />
+        {/* It reads the search params; the boundary keeps that from holding back the page. */}
+        <Suspense fallback={null}>
+          <ActivityLog />
+        </Suspense>
       </body>
     </html>
   );

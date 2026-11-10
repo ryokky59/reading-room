@@ -13,6 +13,7 @@ import {
 } from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
+import { markOpenSource } from "@/lib/track";
 import { BusyButton } from "./BusyButton";
 import { FolderBadge } from "./Header";
 import {
@@ -179,7 +180,11 @@ export function ArticleView({
         // Browser back (or forward) during the save has already moved to another page; pushing now
         // would replace it. `/list` is the URL while the list arrives after a full load (#66).
         const here = `/articles/${article.id}`;
-        if (window.location.pathname === here || window.location.pathname === `${here}/list`) router.push(href);
+        if (window.location.pathname === here || window.location.pathname === `${here}/list`) {
+          // The next article beside the list was not chosen by the owner (see lib/track.ts).
+          if (href.startsWith("/articles/")) markOpenSource("next");
+          router.push(href);
+        }
         // Drops the card from the list beside the article (see the note in lib/actions.ts), once
         // it has left there.
         if (wide && kind !== "restore") refreshAfterLeave(router);
@@ -227,7 +232,10 @@ export function ArticleView({
       if (isTyping(e) || !isWide()) return;
       if (e.key === "j" || e.key === "k") {
         const id = neighbor(e.key === "j" ? 1 : -1);
-        if (id !== undefined) router.push(`/articles/${id}${search}`);
+        if (id !== undefined) {
+          markOpenSource("key");
+          router.push(`/articles/${id}${search}`);
+        }
       } else if (e.key === "e" && !done) {
         void leave("read");
       } else if (e.key === "s" && !done) {
