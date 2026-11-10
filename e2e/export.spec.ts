@@ -1,0 +1,256 @@
+import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+import { PGlite } from "@electric-sql/pglite";
+import { expect, test } from "@playwright/test";
+import { drizzle } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
+import * as schema from "../src/lib/db/schema";
+
+// scripts/export-activity.mts, run as a child process against a throwaway PGlite database of its
+// own: never the E2E server's (.data/e2e), which the server has open. The script writes into
+// .data/exports/ under its working directory, so each test runs it in its own directory.
+
+const root = resolve(__dirname, "..");
+const script = join(root, "scripts", "export-activity.mts");
+
+type Rows = { meta: Record<string, unknown>; rows: Record<string, unknown>[] };
+
+/** A fresh, migrated database in a directory of its own; `fill` adds the rows. */
+async function makeDb(name: string, fill: (db: ReturnType<typeof drizzle<typeof schema>>) => Promise<void>) {
+  const work = join(root, ".data", "e2e-export", name);
+  rmSync(work, { recursive: true, force: true });
+  mkdirSync(work, { recursive: true });
+  const dir = join(work, "db");
+  const pg = new PGlite(dir);
+  const db = drizzle(pg, { schema });
+  await migrate(db, { migrationsFolder: join(root, "drizzle") });
+  await fill(db);
+  // The script opens the directory itself; two processes must not have it open at once.
+  await pg.close();
+  return { work, dir };
+}
+
+async function run(work: string, dir: string, args: string[] = []) {
+  const env: NodeJS.ProcessEnv = { ...process.env, PGLITE_DIR: dir };
+  delete env.DATABASE_URL;
+  const { stdout } = await promisify(execFile)("npx", ["tsx", script, ...args], { cwd: work, env });
+  const read = (file: string): Rows => JSON.parse(readFileSync(join(work, ".data", "exports", file), "utf8"));
+  return { stdout, read };
+}
+
+test("記事・フィードと open / leave / skip / read から 3 つのファイルを書き出す", async () => {
+  test.setTimeout(90_000);
+  const now = Date.now();
+  const ago = (min: number) => new Date(now - min * 60_000);
+  const ids: Record<string, number> = {};
+  const feedIds: Record<string, number> = {};
+
+  const { work, dir } = await makeDb("full", async (db) => {
+    const [folder] = await db.insert(schema.folders).values({ name: "書き出しのフォルダ" }).returning();
+    const fs = await db
+      .insert(schema.feeds)
+      .values([
+        { name: "サイト A", url: "https://a.example/feed", folderId: folder.id },
+        { name: "サイト B", url: "https://b.example/feed", folderId: folder.id },
+      ])
+      .returning();
+    feedIds.A = fs[0].id;
+    feedIds.B = fs[1].id;
+    const article = (key: string, feed: "A" | "B", a: Partial<typeof schema.articles.$inferInsert> = {}) => ({
+      url: `https://${feed.toLowerCase()}.example/${key}`,
+      title: `Article ${key}`,
+      titleJa: `記事 ${key}`,
+      source: `サイト ${feed}`,
+      feedId: feedIds[feed],
+      charCount: 3000,
+      fetchedAt: ago(600),
+      ...a,
+    });
+    const rows = await db
+      .insert(schema.articles)
+      .values([
+        // Opened, left twice, skipped from inside the article.
+        article("opened-skipped", "A", { status: "skipped", seenAt: ago(100) }),
+        // Skipped from the list without ever being opened.
+        article("list-skipped", "A", { status: "skipped" }),
+        // Opened, then skipped from the list beside it in the same tab.
+        article("opened-list-skipped", "A", { status: "skipped", seenAt: ago(80) }),
+        article("read", "A", { status: "read", seenAt: ago(70) }),
+        // Opened only on a preview deployment.
+        article("preview", "B", { seenAt: ago(60) }),
+        // Marked by 「すべて既読」 without being opened.
+        article("seen-all", "B", { seenAt: new Date(now - 30 * 60_000 - 2_000) }),
+        // Opened long before 「すべて既読」.
+        article("opened-b", "B", { seenAt: ago(50) }),
+      ])
+      .returning({ id: schema.articles.id, url: schema.articles.url });
+    for (const r of rows) ids[r.url.split("/").pop()!] = r.id;
+
+    const base = {
+      env: "production",
+      sessionId: "s1",
+      device: "phone",
+      layout: "single",
+      vw: 390,
+      vh: 844,
+      standalone: true,
+      screen: "article",
+    };
+    await db.insert(schema.events).values([
+      { ...base, createdAt: ago(100), type: "open", articleId: ids["opened-skipped"], source: "list", viewId: "v1" },
+      // The later leave is inserted first: the last one by time counts, not by id.
+      {
+        ...base,
+        createdAt: ago(98),
+        type: "leave",
+        articleId: ids["opened-skipped"],
+        viewId: "v1",
+        dwellMs: 9000,
+        activeMs: 8000,
+        scrollPct: 80,
+        props: { body_lang: "ja" },
+      },
+      {
+        ...base,
+        createdAt: ago(99),
+        type: "leave",
+        articleId: ids["opened-skipped"],
+        viewId: "v1",
+        dwellMs: 3000,
+        activeMs: 3000,
+        scrollPct: 40,
+        props: { body_lang: "original" },
+      },
+      {
+        ...base,
+        createdAt: ago(98),
+        type: "skip",
+        articleId: ids["opened-skipped"],
+        viewId: "v1",
+        props: { via: "button" },
+      },
+      { ...base, createdAt: ago(90), type: "skip", screen: "list", articleId: ids["list-skipped"], props: { via: "button" } },
+      {
+        ...base,
+        sessionId: "s2",
+        device: "pc",
+        layout: "split",
+        vw: 1440,
+        vh: 900,
+        standalone: false,
+        createdAt: ago(80),
+        type: "open",
+        articleId: ids["opened-list-skipped"],
+        source: "board",
+        viewId: "v2",
+      },
+      {
+        ...base,
+        sessionId: "s2",
+        device: "pc",
+        layout: "split",
+        vw: 1440,
+        vh: 900,
+        standalone: false,
+        createdAt: ago(79),
+        type: "skip",
+        screen: "list",
+        articleId: ids["opened-list-skipped"],
+        props: { via: "button" },
+      },
+      { ...base, createdAt: ago(70), type: "open", articleId: ids.read, source: "board", viewId: "v3" },
+      { ...base, createdAt: ago(69), type: "leave", articleId: ids.read, viewId: "v3", dwellMs: 60_000, activeMs: 50_000, scrollPct: 100, props: { body_lang: "ja" } },
+      { ...base, createdAt: ago(69), type: "read", articleId: ids.read, viewId: "v3", props: { via: "button" } },
+      { ...base, env: "preview", createdAt: ago(60), type: "open", articleId: ids.preview, source: "list", viewId: "vp" },
+      { ...base, env: "preview", createdAt: ago(59), type: "leave", articleId: ids.preview, viewId: "vp", dwellMs: 5000, activeMs: 5000, scrollPct: 50, props: { body_lang: "ja" } },
+      { ...base, createdAt: ago(50), type: "open", articleId: ids["opened-b"], source: "list", viewId: "v4" },
+      { ...base, createdAt: ago(30), type: "seen_all", screen: "board", props: { feedId: feedIds.B } },
+      // An undo whose skip never saved.
+      { ...base, createdAt: ago(20), type: "undo", screen: "list", articleId: ids["opened-b"], props: { of: "skip" } },
+    ]);
+  });
+
+  const { stdout, read } = await run(work, dir);
+  for (const file of ["views.json", "actions.json", "feeds.json"]) {
+    expect(existsSync(join(work, ".data", "exports", file)), file).toBe(true);
+  }
+
+  const views = read("views.json").rows;
+  const v1 = views.find((v) => v.viewId === "v1")!;
+  expect(v1).toMatchObject({
+    articleId: ids["opened-skipped"],
+    title: "記事 opened-skipped",
+    site: "サイト A",
+    folder: "書き出しのフォルダ",
+    charCount: 3000,
+    device: "phone",
+    source: "list",
+    dwellMs: 9000,
+    activeMs: 8000,
+    scrollPct: 80,
+    bodyLang: "ja",
+    leaveRows: 2,
+    outcome: "skip",
+  });
+  // v4 was opened and never left.
+  expect(views.find((v) => v.viewId === "v4")).toMatchObject({ dwellMs: null, leaveRows: 0 });
+  // Preview rows are left out by default.
+  expect(views.map((v) => v.viewId)).not.toContain("vp");
+
+  const actions = read("actions.json").rows;
+  expect(actions.map((a) => a.articleId)).not.toContain(ids.preview);
+  expect(actions.find((a) => a.type === "skip" && a.articleId === ids["list-skipped"])).toMatchObject({
+    unopenedSkip: true,
+    viewId: null,
+  });
+  expect(actions.find((a) => a.type === "skip" && a.articleId === ids["opened-list-skipped"])).toMatchObject({
+    unopenedSkip: false,
+    openedBefore: true,
+    layout: "split",
+  });
+  expect(actions.find((a) => a.type === "seen_all")).toMatchObject({
+    target: { kind: "feed", id: feedIds.B, name: "サイト B" },
+    seenArticleIds: [ids["seen-all"]],
+  });
+  expect(actions.find((a) => a.type === "undo")).toMatchObject({ of: "skip", undoes: null });
+
+  const feeds = read("feeds.json").rows;
+  expect(feeds.find((f) => f.feedId === feedIds.A)).toMatchObject({
+    site: "サイト A",
+    fetched: 4,
+    opened: 3,
+    read: 1,
+    skipped: 3,
+    // Only the one skipped from the list before being opened.
+    skippedUnopened: 1,
+    seenUnopened: 0,
+    byDevice: {
+      phone: { opens: 2, reads: 1, skips: 2, views: 2, medianDwellMs: 34_500 },
+      pc: { opens: 1, reads: 0, skips: 1, views: 0, medianDwellMs: null },
+    },
+  });
+  expect(feeds.find((f) => f.feedId === feedIds.B)).toMatchObject({ opened: 1, seenUnopened: 1, skippedUnopened: 0 });
+
+  expect(stdout).toContain("最後のイベント:");
+  expect(stdout).toContain("直近 14 日の件数");
+  // v1 and v3 have a leave, v2 and v4 do not.
+  expect(stdout).toContain("leave が無い閲覧: 2 / 4(50%)");
+
+  // --env all brings the preview rows back.
+  const all = await run(work, dir, ["--env", "all"]);
+  expect(all.read("views.json").rows.map((v) => v.viewId)).toContain("vp");
+});
+
+test("イベントが 0 件でもエラーにならず「記録がありません」と出る", async () => {
+  test.setTimeout(60_000);
+  const { work, dir } = await makeDb("empty", async (db) => {
+    await db.insert(schema.feeds).values({ name: "空のサイト", url: "https://empty.example/feed" });
+  });
+  const { stdout, read } = await run(work, dir);
+  expect(stdout).toContain("記録がありません");
+  expect(read("views.json").rows).toEqual([]);
+  expect(read("actions.json").rows).toEqual([]);
+  expect(read("feeds.json").rows.find((f) => f.site === "空のサイト")).toMatchObject({ fetched: 0, opened: 0 });
+});
