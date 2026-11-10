@@ -167,6 +167,65 @@ test("PC で記事を開くと一覧に薄く残り、ボードに戻ると未�
   await expect(unread(page)).toHaveText(/^1 本/);
 });
 
+test("PC でボードから開いた記事の一覧が届く瞬間に j を押すと、次の記事が開いたまま。戻る・進むで行き来できる", async ({ page }) => {
+  const name = "E2E 届く瞬間の j";
+  await page.addInitScript(() => {
+    const w = window as unknown as { keydownListeners: number; pressed: boolean };
+    w.keydownListeners = 0;
+    w.pressed = false;
+    const add = window.addEventListener;
+    window.addEventListener = function (this: Window, type: string, ...rest: unknown[]) {
+      if (type === "keydown") w.keydownListeners++;
+      return (add as (...a: unknown[]) => void).call(this, type, ...rest);
+    } as typeof window.addEventListener;
+    // Presses j in the commit that shows `/articles/<id>/list`, before that commit's effects run.
+    // On body, not window: the handler reads `e.target.closest`.
+    const replace = history.replaceState;
+    history.replaceState = function (this: History, data: unknown, unused: string, url?: string | URL | null) {
+      const result = replace.call(this, data, unused, url);
+      if (!w.pressed && /^\/articles\/\d+\/list/.test(String(url))) {
+        w.pressed = true;
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
+      }
+      return result;
+    };
+  });
+  await openFolder(page, name);
+  const id = async (title: string) =>
+    /\/articles\/(\d+)/.exec((await columnRow(page, `${name} A`, title).getByRole("link").getAttribute("href")) ?? "")?.[1];
+  const [a1, a2] = [await id(`${name} A1`), await id(`${name} A2`)];
+  expect(a1).toBeTruthy();
+  expect(a2).toBeTruthy();
+
+  // Holds the list until the article listens for keys, so j comes while the list arrives.
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await page.route(/\/articles\/\d+\/list\?/, async (route) => {
+    await held;
+    await route.fallback();
+  });
+  const before = await page.evaluate(() => (window as unknown as { keydownListeners: number }).keydownListeners);
+  await columnRow(page, `${name} A`, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  // The article's key listener is added a moment after its heading shows.
+  await page.waitForFunction((n) => (window as unknown as { keydownListeners: number }).keydownListeners > n, before);
+  release();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { pressed: boolean }).pressed)).toBe(true);
+
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await expect(page).toHaveURL(new RegExp(`/articles/${a2}\\?f=\\d+&s=\\d+$`));
+  await page.waitForTimeout(500);
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await expect(page).toHaveURL(new RegExp(`/articles/${a2}\\?f=\\d+&s=\\d+$`));
+
+  await page.goBack();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await expect(page).toHaveURL(new RegExp(`/articles/${a1}\\?f=\\d+&s=\\d+$`));
+  await page.goForward();
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await expect(page).toHaveURL(new RegExp(`/articles/${a2}\\?f=\\d+&s=\\d+$`));
+});
+
 test("スマホでボードから開いて戻ると未読数に入らず、行は薄く残る。ブラウザの戻るでも同じ。リロードで消える @mobile", async ({ page }) => {
   const name = "E2E スマホで開いて戻る";
   await openFolder(page, name);
