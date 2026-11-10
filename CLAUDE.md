@@ -15,9 +15,12 @@ Work is tracked as GitHub Issues in `ryokky59/reading-room` and moves through la
 - `in-progress`: a developer has a branch for it.
 - `auto`: needs no decision from the owner (a bug or test fix, a review follow-up with one obvious fix). The planner gives it instead of `idea`, with `ready`. An Orca automation picks these up one at a time, develops, reviews and merges them by `.claude/automation/pick-issue.md`.
 - `auto:blocked`: the automation stopped and asked the owner on the Issue. Removing the label lets it pick the Issue up again.
+- `curator`: the idea came from a morning report (below), not from the owner. It is `idea` like any other until the owner decides.
+- `report`: the one Issue where the morning reports arrive as comments. It is not work to pick up.
 
 Rules:
 
+- What to read from and what to build next is proposed by the `curator` agent, from the owner's reading data (read-only, through `.claude/scripts/reading-data.mjs`). It proposes; the owner picks. A second Orca automation runs it at 6:00 every morning by `.claude/automation/morning-report.md`: a report on the `report` Issue, and at most one new `idea` Issue.
 - Issues are drafted by the `planner` agent, including small follow-ups from a review.
 - One Issue, one branch, one PR. Branch names are `issue-<number>-<short-slug>`.
 - Never push to `main` directly. Merging is the owner's call; agents do not merge. The one exception is the automation, for `auto` Issues and only under the conditions in `.claude/automation/pick-issue.md`.
