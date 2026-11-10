@@ -18,10 +18,14 @@ const JST = 9 * 3_600_000;
 // clocks of the app server and the database differing.
 const SEEN_ALL_BEFORE = 120_000;
 const SEEN_ALL_AFTER = 5_000;
+// Opening an article sets its seen_at when the page renders, and its `open` follows once the page
+// is up; an open this close to an article's seen_at means the open set it, not 「すべて既読」.
+const OPEN_AFTER_SEEN = 30_000;
 // How far a toast's 元に戻す can be from the read or skip it undoes. A card skip shows its toast
-// before saving, so the skip's row can come after the undo's.
+// before saving, so the skip's row can come after the undo's, but only by the time the save
+// takes; a skip later than that is a new one (after the first one failed to save).
 const UNDO_BEFORE = 10 * 60_000;
-const UNDO_AFTER = 30_000;
+const UNDO_AFTER = 5_000;
 const HEALTH_DAYS = 14;
 
 // ---- options
@@ -114,11 +118,12 @@ const [eventRows, openRows, articleRows, feedRows, folderRows, lastRows, recentR
       ORDER BY e.created_at, e.id`,
     params: [from.toISOString(), to.toISOString(), envParam],
   },
-  // Every earlier open, to tell whether a skip or 「すべて既読」 came before the article was ever opened.
+  // Every open, to tell whether a skip or 「すべて既読」 came before the article was ever opened.
+  // Not filtered by env: an article opened on a preview has been opened all the same.
   {
-    text: `SELECT e.article_id, e.session_id, e.created_at FROM events e
-      WHERE e.type = 'open' AND e.article_id IS NOT NULL AND e.created_at < $1 AND ${envFilter(2)}`,
-    params: [to.toISOString(), envParam],
+    text: `SELECT e.article_id, e.created_at FROM events e
+      WHERE e.type = 'open' AND e.article_id IS NOT NULL AND e.created_at < $1`,
+    params: [to.toISOString()],
   },
   {
     text: `SELECT id, title, title_ja, source, feed_id, lang, char_count, status, fetched_at, seen_at, read_at
@@ -329,7 +334,14 @@ function seenAllArticles(e: Event, target: Target | null) {
           : target.id === null
             ? a.feedId === null || a.folderId === null
             : a.folderId === target.id;
-      return inTarget && a.seenAt !== null && a.seenAt >= e.at - SEEN_ALL_BEFORE && a.seenAt <= e.at + SEEN_ALL_AFTER;
+      return (
+        inTarget &&
+        a.seenAt !== null &&
+        a.seenAt >= e.at - SEEN_ALL_BEFORE &&
+        a.seenAt <= e.at + SEEN_ALL_AFTER &&
+        // Seen by being opened just before, not by this.
+        !(opensOf.get(a.id) ?? []).some((t) => t >= a.seenAt! - SEEN_ALL_AFTER && t <= a.seenAt! + OPEN_AFTER_SEEN)
+      );
     })
     .map((a) => a.id);
 }

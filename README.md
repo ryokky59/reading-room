@@ -109,7 +109,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 npx tsx scripts/export-activity.mts
 
 # 本番 Neon。接続文字列は手元に置かず、実行の時だけ渡す
-DATABASE_URL="$(npx neonctl connection-string)" npx tsx scripts/export-activity.mts
+DATABASE_URL="$(npx neonctl connection-string main --project-id round-feather-65545481)" npx tsx scripts/export-activity.mts
 ```
 
 | 引数 | 意味 |
@@ -133,7 +133,7 @@ DATABASE_URL="$(npx neonctl connection-string)" npx tsx scripts/export-activity.
   - `via` / `kind` / `of`: `props` を列にしたもの
   - `target`: `seen_all` の対象(`kind` が `feed` か `folder`、`id`、`name`)と `feed_pause` / `feed_resume` のサイト。`seen_all` は `props` に `feedId` と `folderId` のどちらのキーがあるかで決め、値が null なら「フィードなし」「未分類」
   - `seenArticleIds`: `seen_all` で既読になったと推定した記事(下の注意)
-  - `openedBefore`: その記事にそれより前の `open` があったか(どのタブでも)
+  - `openedBefore`: その記事にそれより前の `open` があったか(どのタブでも。`--env` に関係なく、プレビューで開いたものも含む)
   - `unopenedSkip`: `skip` のうち、一覧のカードからで、それまで一度も開いていない記事なら true
   - `undone`(`read` / `skip`)と `undoes`(`undo`): 「元に戻す」との対応。`undoes` が null の `undo` は、対になる行が見つからなかったもの
 - `feeds.json`: サイトごとの集計(フィードは `feeds` の 1 行ごと、URL から追加した記事は `site` ごと)。
@@ -152,6 +152,6 @@ DATABASE_URL="$(npx neonctl connection-string)" npx tsx scripts/export-activity.
 - **記録を始める前の操作には行がない。** それより前のスキップや既読には時刻が残っていないので、期間の始まりを記録の開始より後にする。
 - **`device = phone` にはタブレットと開いた折りたたみも入る。** `vw` で分けられる。
 - `screen = list` の操作には、PC で記事の横に出ている一覧で押したものも入る。`layout = 'split'` で分け、開いていた記事自身のカードかは `openedBefore` で見る。
-- `undo` の `screen` は URL で決まるので当てにならない。元の操作とは `article_id` と時刻で結び付けてあり(前後 10 分以内で直前のもの)、元の行が無いこともある(カードのスキップは、「元に戻す」の後に保存が失敗することがある)。
-- 「すべて既読」で既読になった記事の一覧は残らない。対象のサイト・フォルダの記事のうち、`articles.seen_at` がイベントの 2 分前から 5 秒後までのものと推定する。その後に「未読に戻す」された記事は `seen_at` が消えるので数えられない。フォルダはいまの所属で決める。
+- `undo` の `screen` は URL で決まるので当てにならない。元の操作とは `article_id` と時刻で結び付けてあり(10 分前までの直前のもの。無ければ 5 秒後までのもの)、元の行が無いこともある(カードのスキップは、「元に戻す」の後に保存が失敗することがある)。
+- 「すべて既読」で既読になった記事の一覧は残らない。対象のサイト・フォルダの記事のうち、`articles.seen_at` がイベントの 2 分前から 5 秒後までのものと推定する。記事を開いても `seen_at` が付くので、`seen_at` の直後(30 秒以内)に `open` がある記事は、開いて既読になったものとして除く。その後に「未読に戻す」された記事は `seen_at` が消えるので数えられない。フォルダはいまの所属で決める。
 - `chat` は送った回数で、AI を使えた回数ではない。

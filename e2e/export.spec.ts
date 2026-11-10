@@ -78,8 +78,12 @@ test("記事・フィードと open / leave / skip / read から 3 つのファ�
         // Opened, then skipped from the list beside it in the same tab.
         article("opened-list-skipped", "A", { status: "skipped", seenAt: ago(80) }),
         article("read", "A", { status: "read", seenAt: ago(70) }),
-        // Opened only on a preview deployment.
-        article("preview", "B", { seenAt: ago(60) }),
+        // Opened only on a preview deployment, then skipped from the list in production.
+        article("preview", "B", { status: "skipped", seenAt: ago(60) }),
+        // Opened a minute before 「すべて既読」 on its site: opening it set its seen_at.
+        article("opened-then-seen-all", "B", { seenAt: new Date(now - 30 * 60_000 - 61_000) }),
+        // A card skip whose save failed after its toast's 元に戻す, then skipped again 10 s later.
+        article("reskipped", "B", { status: "skipped" }),
         // Marked by 「すべて既読」 without being opened.
         article("seen-all", "B", { seenAt: new Date(now - 30 * 60_000 - 2_000) }),
         // Opened long before 「すべて既読」.
@@ -165,7 +169,25 @@ test("記事・フィードと open / leave / skip / read から 3 つのファ�
       { ...base, createdAt: ago(69), type: "read", articleId: ids.read, viewId: "v3", props: { via: "button" } },
       { ...base, env: "preview", createdAt: ago(60), type: "open", articleId: ids.preview, source: "list", viewId: "vp" },
       { ...base, env: "preview", createdAt: ago(59), type: "leave", articleId: ids.preview, viewId: "vp", dwellMs: 5000, activeMs: 5000, scrollPct: 50, props: { body_lang: "ja" } },
+      { ...base, createdAt: ago(55), type: "skip", screen: "list", articleId: ids.preview, props: { via: "button" } },
       { ...base, createdAt: ago(50), type: "open", articleId: ids["opened-b"], source: "list", viewId: "v4" },
+      { ...base, createdAt: ago(40), type: "undo", screen: "list", articleId: ids.reskipped, props: { of: "skip" } },
+      {
+        ...base,
+        createdAt: new Date(now - 40 * 60_000 + 10_000),
+        type: "skip",
+        screen: "list",
+        articleId: ids.reskipped,
+        props: { via: "button" },
+      },
+      {
+        ...base,
+        createdAt: new Date(now - 30 * 60_000 - 60_000),
+        type: "open",
+        articleId: ids["opened-then-seen-all"],
+        source: "board",
+        viewId: "v5",
+      },
       { ...base, createdAt: ago(30), type: "seen_all", screen: "board", props: { feedId: feedIds.B } },
       // An undo whose skip never saved.
       { ...base, createdAt: ago(20), type: "undo", screen: "list", articleId: ids["opened-b"], props: { of: "skip" } },
@@ -200,7 +222,11 @@ test("記事・フィードと open / leave / skip / read から 3 つのファ�
   expect(views.map((v) => v.viewId)).not.toContain("vp");
 
   const actions = read("actions.json").rows;
-  expect(actions.map((a) => a.articleId)).not.toContain(ids.preview);
+  // An open on a preview still counts as having opened the article.
+  expect(actions.find((a) => a.type === "skip" && a.articleId === ids.preview)).toMatchObject({
+    openedBefore: true,
+    unopenedSkip: false,
+  });
   expect(actions.find((a) => a.type === "skip" && a.articleId === ids["list-skipped"])).toMatchObject({
     unopenedSkip: true,
     viewId: null,
@@ -214,7 +240,13 @@ test("記事・フィードと open / leave / skip / read から 3 つのファ�
     target: { kind: "feed", id: feedIds.B, name: "サイト B" },
     seenArticleIds: [ids["seen-all"]],
   });
-  expect(actions.find((a) => a.type === "undo")).toMatchObject({ of: "skip", undoes: null });
+  expect(actions.find((a) => a.type === "undo" && a.articleId === ids["opened-b"])).toMatchObject({ of: "skip", undoes: null });
+  // A skip 10 s after an unmatched undo is a new skip, not the one it undid.
+  expect(actions.find((a) => a.type === "undo" && a.articleId === ids.reskipped)).toMatchObject({ undoes: null });
+  expect(actions.find((a) => a.type === "skip" && a.articleId === ids.reskipped)).toMatchObject({
+    undone: false,
+    unopenedSkip: true,
+  });
 
   const feeds = read("feeds.json").rows;
   expect(feeds.find((f) => f.feedId === feedIds.A)).toMatchObject({
@@ -231,12 +263,19 @@ test("記事・フィードと open / leave / skip / read から 3 つのファ�
       pc: { opens: 1, reads: 0, skips: 1, views: 0, medianDwellMs: null },
     },
   });
-  expect(feeds.find((f) => f.feedId === feedIds.B)).toMatchObject({ opened: 1, seenUnopened: 1, skippedUnopened: 0 });
+  expect(feeds.find((f) => f.feedId === feedIds.B)).toMatchObject({
+    // opened-b and opened-then-seen-all; the preview open is not counted.
+    opened: 2,
+    skipped: 2,
+    // reskipped only: preview was opened on a preview deployment.
+    skippedUnopened: 1,
+    seenUnopened: 1,
+  });
 
   expect(stdout).toContain("最後のイベント:");
   expect(stdout).toContain("直近 14 日の件数");
-  // v1 and v3 have a leave, v2 and v4 do not.
-  expect(stdout).toContain("leave が無い閲覧: 2 / 4(50%)");
+  // v1 and v3 have a leave, v2, v4 and v5 do not.
+  expect(stdout).toContain("leave が無い閲覧: 3 / 5(60%)");
 
   // --env all brings the preview rows back.
   const all = await run(work, dir, ["--env", "all"]);
