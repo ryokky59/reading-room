@@ -14,6 +14,7 @@ import {
   useTransition,
 } from "react";
 import { markFeedSeen, markFolderSeen, restoreArticle, skipArticle, unmarkSeen } from "@/lib/actions";
+import { lastNavPath } from "@/lib/last-nav";
 import { OPENED_COOKIE, parseOpened, serializeOpened } from "@/lib/opened";
 import { track } from "@/lib/track";
 import { BusyButton } from "./BusyButton";
@@ -532,7 +533,12 @@ function useArticleUrlAfterListChange() {
     const match = /^\/articles\/(\d+)\/list$/.exec(pathname);
     // The browser may have moved on (back / forward) before this effect ran on a slow CPU. A
     // replace now would win over that move and bring the article back, so it is left alone.
-    if (match && window.location.pathname === pathname) router.replace(`/articles/${match[1]}${search ? `?${search}` : ""}`, { scroll: false });
+    // Likewise a navigation started in the commit that showed this URL (j, k, a card) has not
+    // changed the URL yet, but a replace now would discard it. Only the router's last navigation
+    // being to this URL (or none since a full load) means nothing else is on its way.
+    const last = lastNavPath();
+    if (match && window.location.pathname === pathname && (last === null || last === pathname))
+      router.replace(`/articles/${match[1]}${search ? `?${search}` : ""}`, { scroll: false });
   }, [pathname, search, router]);
 }
 
