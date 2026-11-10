@@ -2,8 +2,11 @@
 // /api/activity, which accepts only these values. A new kind of event is one more entry in
 // EVENT_TYPES; the columns are already there (see `events` in lib/db/schema.ts).
 
-/** The kinds of event. `open`: an article was opened. */
-export const EVENT_TYPES = ["open"] as const;
+/**
+ * The kinds of event. `open`: an article was opened. `leave`: the time spent on it and how far
+ * it was read, sent on leaving it and when its tab is hidden; the last one of a view counts.
+ */
+export const EVENT_TYPES = ["open", "leave"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
 /** Where an article was opened from; see 「行動ログ」 in README.md. */
