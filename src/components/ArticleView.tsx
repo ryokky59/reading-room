@@ -13,7 +13,7 @@ import {
 } from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
-import { markOpenSource } from "@/lib/track";
+import { currentViewId, markOpenSource, track } from "@/lib/track";
 import { BusyButton } from "./BusyButton";
 import { FolderBadge } from "./Header";
 import {
@@ -53,6 +53,8 @@ type Msg = { id: number; role: "user" | "assistant"; content: string };
 
 /** The buttons that save and leave the article. */
 type LeaveKind = "read" | "skip" | "restore";
+/** How 読了 / スキップ was pressed, for the activity log: the button, or e / s. */
+type Via = "button" | "key";
 
 let tempId = -1;
 
@@ -87,6 +89,8 @@ export function ArticleView({
 
   async function send(message?: string) {
     setStreaming(true);
+    // What was asked stays out of the log; the messages table has it.
+    track("chat", { screen: "article", articleId: article.id, props: { kind: message ? "message" : "summary" } });
     const replyId = tempId--;
     setMsgs((m) => [
       ...m,
@@ -160,13 +164,21 @@ export function ArticleView({
    * Saves with `save` and then opens `whereTo()`, as one transition: `leaving` stays true until
    * the next screen shows, so a second press (or e / s) does nothing meanwhile. Resolves to
    * whether it was saved (false also when another one is already running). A failed save keeps
-   * the article, shows a message above the buttons and lets them be pressed again.
+   * the article, shows a message above the buttons and lets them be pressed again. Once saved,
+   * the action goes to the activity log with `via` (read / skip only).
    */
-  function run(kind: LeaveKind, save: () => Promise<void>, whereTo: () => Promise<string>): Promise<boolean> {
+  function run(
+    kind: LeaveKind,
+    save: () => Promise<void>,
+    whereTo: () => Promise<string>,
+    via?: Via,
+  ): Promise<boolean> {
     if (leaving) return Promise.resolve(false);
     setLeavingBy(kind);
     setFailed(null);
     const wide = isWide();
+    // Taken at the press: browser back during the save ends the view before the event is sent.
+    const viewId = currentViewId(article.id);
     return new Promise((resolve) =>
       startLeaving(async () => {
         try {
@@ -177,6 +189,7 @@ export function ArticleView({
           resolve(false);
           return;
         }
+        track(kind, { screen: "article", articleId: article.id, viewId, props: via ? { via } : null });
         // Read cards leave the list to the right, skipped ones to the left, with a toast to undo.
         // Phones fetch the list again on the way back, without the card: a copy of it leaves there.
         if (kind !== "restore") leftInbox(article.id, kind, { refetched: !wide });
@@ -200,7 +213,7 @@ export function ArticleView({
   }
 
   /** 読了 / スキップ, then the next article beside the list (`split` and up) or the list. */
-  function leave(kind: "read" | "skip"): Promise<boolean> {
+  function leave(kind: "read" | "skip", via: Via): Promise<boolean> {
     const wide = isWide();
     // Until the list has arrived after a direct load, the next article is not known.
     if (wide && listIds === null) return Promise.resolve(false);
@@ -215,6 +228,7 @@ export function ArticleView({
         if (wide && next === undefined) next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
         return next === undefined ? leaveHref : `/articles/${next}${search}`;
       },
+      via,
     );
   }
 
@@ -242,9 +256,9 @@ export function ArticleView({
           router.push(`/articles/${id}${search}`);
         }
       } else if (e.key === "e" && !done) {
-        void leave("read");
+        void leave("read", "key");
       } else if (e.key === "s" && !done) {
-        void leave("skip");
+        void leave("skip", "key");
       }
     };
   });
@@ -304,7 +318,7 @@ export function ArticleView({
       ) : (
         <div className="flex gap-2">
           <BusyButton
-            onClick={() => void leave("skip")}
+            onClick={() => void leave("skip", "button")}
             busy={busy("skip")}
             disabled={leaving || waiting}
             className={`h-11 rounded-xl border border-line bg-surface px-4 text-sm text-muted ${waiting ? "opacity-50" : held("skip")}`}
@@ -312,7 +326,7 @@ export function ArticleView({
             スキップ
           </BusyButton>
           <BusyButton
-            onClick={() => void leave("read")}
+            onClick={() => void leave("read", "button")}
             busy={busy("read")}
             disabled={leaving || waiting}
             className={`h-11 flex-1 rounded-xl bg-accent text-sm font-medium text-white ${waiting ? "opacity-50" : held("read")}`}
@@ -354,12 +368,23 @@ export function ArticleView({
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                // A middle click opens it too.
+                onClick={() => track("original", { screen: "article", articleId: article.id })}
+                onAuxClick={(e) => {
+                  if (e.button === 1) track("original", { screen: "article", articleId: article.id });
+                }}
                 className="inline-block text-sm text-accent underline underline-offset-2"
               >
                 元記事を開く ↗
               </a>
               {article.feedId !== null && (
-                <FeedPause key={article.id} feedId={article.feedId} enabled={article.feedEnabled} source={article.source} />
+                <FeedPause
+                  key={article.id}
+                  articleId={article.id}
+                  feedId={article.feedId}
+                  enabled={article.feedEnabled}
+                  source={article.source}
+                />
               )}
             </div>
 
@@ -485,7 +510,17 @@ export function ArticleView({
 }
 
 /** Stops or resumes fetching the article's site, after an inline confirmation. Unread articles stay. */
-function FeedPause({ feedId, enabled, source }: { feedId: number; enabled: boolean; source: string }) {
+function FeedPause({
+  articleId,
+  feedId,
+  enabled,
+  source,
+}: {
+  articleId: number;
+  feedId: number;
+  enabled: boolean;
+  source: string;
+}) {
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
   useNavPending(pending);
@@ -493,6 +528,7 @@ function FeedPause({ feedId, enabled, source }: { feedId: number; enabled: boole
   const set = (next: boolean) =>
     startTransition(async () => {
       await setArticleFeedEnabled(feedId, next);
+      track(next ? "feed_resume" : "feed_pause", { screen: "article", articleId, props: { feedId } });
       router.refresh();
       setConfirming(false);
     });

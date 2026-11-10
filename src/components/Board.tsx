@@ -46,7 +46,7 @@ export async function Board({
             既読を含む
             <LinkPending />
           </ListLink>
-          {selected !== "all" && total > 0 && <MarkAllSeenButton target={{ folderId: selected }} />}
+          {selected !== "all" && total > 0 && <MarkAllSeenButton target={{ folderId: selected }} screen="board" />}
           <p className="ml-auto">{total} 本</p>
         </div>
       </div>
@@ -113,7 +113,7 @@ function Column({ column }: { column: BoardColumn }) {
           {lastFetchedAt && <span className="truncate">{formatAgo(lastFetchedAt)}に取得</span>}
           {unread > 0 && (
             <span className="ml-auto shrink-0">
-              <MarkAllSeenButton target={{ feedId }} rows={clearIds} />
+              <MarkAllSeenButton target={{ feedId }} rows={clearIds} screen="board" />
             </span>
           )}
         </div>

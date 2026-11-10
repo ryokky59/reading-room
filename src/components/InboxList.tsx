@@ -196,7 +196,7 @@ async function List({
           <LinkPending />
         </ListLink>
         {selectedFolder !== "all" && total > 0 && (
-          <MarkAllSeenButton target={feedId !== null ? { feedId } : { folderId: selectedFolder }} />
+          <MarkAllSeenButton target={feedId !== null ? { feedId } : { folderId: selectedFolder }} screen="list" />
         )}
         <p className="ml-auto">{total} 本</p>
       </div>

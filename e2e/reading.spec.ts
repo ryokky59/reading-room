@@ -138,10 +138,13 @@ test.describe("PC 幅", () => {
     const sent = recordActivity(page);
     await page.getByRole("button", { name: "読了にする" }).click();
     await expect(heading(page)).toHaveText(`${folder} 2`);
-    await expect.poll(() => sent.map((e) => e.type)).toEqual(["leave", "open"]);
-    expect(sent[0]).toMatchObject({ articleId: first.articleId, viewId: first.viewId, screen: "article" });
-    expect(sent[1]).toMatchObject({ articleId: openId(page), source: "next" });
-    expect(sent[1].viewId).not.toBe(first.viewId);
+    // 読了 itself is logged too (e2e/actions.spec.ts); only the views are looked at here.
+    const views = () => sent.filter((e) => e.type === "leave" || e.type === "open");
+    await expect.poll(() => views().map((e) => e.type)).toEqual(["leave", "open"]);
+    const [left, opened] = views();
+    expect(left).toMatchObject({ articleId: first.articleId, viewId: first.viewId, screen: "article" });
+    expect(opened).toMatchObject({ articleId: openId(page), source: "next" });
+    expect(opened.viewId).not.toBe(first.viewId);
   });
 
   test("/api/activity を遮断しても、スクロール・読了・戻るがふだんどおり動き、エラーが出ない", async ({ page }) => {

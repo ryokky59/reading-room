@@ -15,6 +15,7 @@ import {
 } from "react";
 import { markFeedSeen, markFolderSeen, restoreArticle, skipArticle, unmarkSeen } from "@/lib/actions";
 import { OPENED_COOKIE, parseOpened, serializeOpened } from "@/lib/opened";
+import { track } from "@/lib/track";
 import { BusyButton } from "./BusyButton";
 import { Header } from "./Header";
 import { InboxControls } from "./InboxControls";
@@ -215,6 +216,8 @@ export function useLeftInbox() {
           toast.fail(FAILED, { owner: id, undo });
           return;
         }
+        // The screen it was pressed on; not a step of the view the article may have open.
+        track("undo", { articleId: id, viewId: null, props: { of: kind } });
         router.refresh();
       };
       toast.show(kind === "read" ? "読了にしました" : "スキップしました", { owner: id, undo });
@@ -718,6 +721,8 @@ function CardUnseeButton({ id }: { id: number }) {
             toast.fail(FAILED, { owner: id });
             return;
           }
+          // A list card, also beside the article (whose URL says `article`).
+          track("unsee", { screen: "list", articleId: id, viewId: null });
           forget(id);
           // Browser back (or forward) during the save has already moved to another page; pushing
           // now would replace it (#76). Refreshing there still shows the card as unread.
@@ -742,9 +747,12 @@ function CardUnseeButton({ id }: { id: number }) {
 export function MarkAllSeenButton({
   target,
   rows,
+  screen,
 }: {
   target: { feedId: number | null } | { folderId: number | null };
   rows?: number[];
+  /** Where the button is, for the activity log: beside an article the URL says `article`. */
+  screen: "board" | "list";
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -764,6 +772,7 @@ export function MarkAllSeenButton({
             toast.fail(FAILED);
             return;
           }
+          track("seen_all", { screen, props: target });
           clear(rows);
           router.refresh();
         })
@@ -805,6 +814,8 @@ function CardSkipButton({ id }: { id: number }) {
             toast.fail(FAILED, { owner: id });
             return;
           }
+          // Skipped without being read here, even when it is the article open beside the list.
+          track("skip", { screen: "list", articleId: id, viewId: null, props: { via: "button" } });
           refreshAfterLeave(router, since);
         });
       }}
