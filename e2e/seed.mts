@@ -541,6 +541,43 @@ const readingArticles = readingFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(readingArticles);
 
+// The owner's actions in the activity log (e2e/actions.spec.ts): one folder per test, each with
+// sites A and B. A has 4 unread articles, a read one and a seen one; B has 2 unread.
+const actionFolders = await db
+  .insert(schema.folders)
+  .values(
+    [
+      "E2E 操作 記事",
+      "E2E 操作 カード",
+      "E2E 操作 スマホ",
+      "E2E 操作 ボード",
+      "E2E 操作 一覧",
+      "E2E 操作 AI",
+      "E2E 操作 失敗",
+      "E2E 操作 遮断",
+    ].map((name, i) => ({ name, position: 150 + i })),
+  )
+  .returning();
+const actionFeeds = await db
+  .insert(schema.feeds)
+  .values(actionFolders.flatMap((f, i) => ["A", "B"].map((s) => feed(`action-${i}-${s}`, `${f.name} ${s}`, f.id))))
+  .returning();
+const actionArticles = actionFeeds.flatMap((f, i) =>
+  (f.name.endsWith(" A") ? ["1", "2", "3", "4", " 読了", " 既読"] : ["1", "2"]).map((suffix, j) => {
+    const n = 3200 + i * 10 + j;
+    return article(n, {
+      title: `${f.name}${suffix}`,
+      titleJa: `${f.name}${suffix}`,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: old(n),
+      ...(suffix === " 読了" ? { status: "read" as const, readAt: new Date(now) } : {}),
+      ...(suffix === " 既読" ? { seenAt: new Date(now) } : {}),
+    });
+  }),
+);
+await db.insert(schema.articles).values(actionArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length} articles into ${dir}`,
 );

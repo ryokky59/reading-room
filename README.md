@@ -49,19 +49,19 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
   | `created_at` | サーバーが受け取った時刻 |
   | `env` | `VERCEL_ENV`(`production` / `preview`)、無ければ `development`。プレビューも本番 DB に書くので、分析ではここで除く |
   | `session_id` | ブラウザのタブごとの乱数(再読み込みでは変わらない) |
-  | `type` | イベントの種別。`open`(記事を開いた)、`leave`(記事での滞在とスクロール、下に説明) |
+  | `type` | イベントの種別。`open`(記事を開いた)、`leave`(記事での滞在とスクロール、下に説明)、操作のイベント(下の表) |
   | `device` | `phone`(ポインタが指 = `(pointer: coarse)`)/ `pc`。タブレットと開いた折りたたみも `phone` に入る |
   | `layout` | `single`(一覧と記事が別画面)/ `split`(幅 600px 以上で横に並ぶ) |
   | `vw` / `vh` | 送った時の画面の幅と高さ(CSS px)。端末を後から分け直すのに使う |
   | `standalone` | ホーム画面から起動したか |
-  | `screen` | 送った時の画面: `board` / `list` / `article` / `read` / `feeds`。`open` と `leave` は `article` |
+  | `screen` | 送った時の画面: `board` / `list` / `article` / `read` / `feeds`。`open` と `leave` は `article`。操作のイベントは押したボタンのある画面(PC で記事の横の一覧で押したものは `list`) |
   | `article_id` | 記事(`articles.id`)。記事が消えると null |
   | `source` | 記事をどこから開いたか(`open` のみ、下の表) |
-  | `view_id` | 記事を 1 回開くごとの乱数。同じ閲覧中のイベントは同じ値を持つ。一覧の切り替えや再取得では変わらない |
+  | `view_id` | 記事を 1 回開くごとの乱数。同じ閲覧中のイベントは同じ値を持つ。一覧の切り替えや再取得では変わらない。操作のイベントでは記事の画面で押したものだけに付く |
   | `dwell_ms` | `leave` のみ。記事を開いてからタブが見えていた時間の合計(ミリ秒)。隠れている間は進まない |
   | `active_ms` | `leave` のみ。最後にスクロール・キー・ポインタの入力があった時点の `dwell_ms`。`dwell_ms` との差が、操作せずに開いたままだった時間。何分で放置とみなすかは分析の側で決める |
   | `scroll_pct` | `leave` のみ。本文(`<main>`)のうち画面に入った最も下の位置の割合、0〜100。送った時点の本文の高さで割る(翻訳が伸びると下がることがある) |
-  | `props` | 種別ごとの補足。`leave` は `body_lang`(離れた時に見ていた本文、`ja` / `original`)。`open` では null |
+  | `props` | 種別ごとの補足。`leave` は `body_lang`(離れた時に見ていた本文、`ja` / `original`)。操作のイベントは下の表。`open` では null |
 
   | `source` | 開き方 |
   | --- | --- |
@@ -75,3 +75,19 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
   `next` と `key` 以外は直前の画面で決まる。ブラウザの戻る・進むで記事に入った場合も同じで、別の記事からなら `list` になる。「URL を追加」から開いた記事は `board` か `list` になる(`articles.feed_id IS NULL` で見分ける)。
 
   `leave` は記事を離れた時(別の記事へ、一覧へ、読了・スキップ、ブラウザの戻る)と、タブが隠れた時(`visibilitychange`)、ページが閉じられる時(`pagehide`)に、その閲覧の `open` と同じ `view_id` で送る。値は開いてからの累積なので、**同じ `view_id` の `leave` が何行かあれば最後の行を使う(`created_at` が最も新しい行。ほぼ同時に届いた行は `dwell_ms` が大きい方)**。iPhone でアプリを終了した時などは届かないことがあり、その閲覧は `open` だけが残る。画面に収まる短い記事は開いた時点で `scroll_pct` が 100 になるので、到達度は `articles.char_count` と合わせて見る。
+
+  操作のイベントは保存が成功した後に 1 回送る(失敗した時は送らない)。`article_id` は操作した記事。
+
+  | `type` | 操作 | `screen` | `props` |
+  | --- | --- | --- | --- |
+  | `read` | 「読了にする」 | `article` | `via`: `button`(ボタン)/ `key`(PC の e) |
+  | `skip` | 「スキップ」 | `article`(記事の中)/ `list`(一覧のカード、`view_id` なし) | `via`: `button` / `key`(PC の s) |
+  | `undo` | トーストの「元に戻す」 | 押した時の画面 | `of`: 元に戻した操作(`read` / `skip`) |
+  | `restore` | 読了済みの記事の「未読に戻す」 | `article` | なし |
+  | `unsee` | 既読のカードの「未読に戻す」 | `list` | なし |
+  | `seen_all` | 「すべて既読」 | `board`(ボードの列・フォルダ)/ `list` | `feedId` か `folderId` のどちらか 1 つ。null は「フィードなし」「未分類」。`article_id` なし |
+  | `chat` | AI への送信(応答を待たずに記録) | `article` | `kind`: `summary`(要約してもらう)/ `message`(質問)。本文は入れない |
+  | `original` | 「元記事を開く」 | `article` | なし |
+  | `feed_pause` / `feed_resume` | 記事ページからサイトの取得を止める / 再開する | `article` | `feedId` |
+
+  「すべて既読」で既読になった記事の一覧は残らない。対象の id と `created_at` から、`articles.seen_at` がほぼ同じ時刻の行で推定する。開かずに飛ばした記事は、`screen = 'list'` の `skip` と、`open` が 1 行もないまま `seen_at` が付いた記事で見る。この記録を始める前のスキップには時刻がない。
