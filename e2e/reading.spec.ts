@@ -56,9 +56,12 @@ test.describe("PC 幅", () => {
     await page.clock.fastForward(60_000);
 
     const leave = next(page, "leave");
+    const stored = page.waitForResponse((r) => isActivity(r.request()) && parse(r.request()).type === "leave");
     await back(page).click();
     await expect(heading(page)).toHaveCount(0);
     const left = await leave;
+    // What the page sends is what the server takes.
+    expect((await stored).status()).toBe(204);
     expect(left).toMatchObject({
       type: "leave",
       screen: "article",
