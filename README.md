@@ -42,23 +42,26 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 - フィードは画面の「フィード」タブで管理する。初期セットは `drizzle/0002_seed_feeds.sql`。1回に取る件数 (`item_limit`) と対象日数 (`days`) は DB の列で持つ。
 - スキーマを変えたら `npx drizzle-kit generate` でマイグレーションを作り、`drizzle-kit migrate` で Neon に適用する。
 - モデルは環境変数で変えられる。読書メモと月の振り返りは `ANTHROPIC_MODEL`(既定 `claude-opus-5-5`)、記事との対話は `ANTHROPIC_CHAT_MODEL`(既定 `claude-sonnet-5-5`)、一覧の要約と日本語まとめは `ANTHROPIC_FAST_MODEL`(既定 `claude-haiku-5-5`)。
-- 行動ログ: どの記事を、どの端末で、どこから開いたかを `events` テーブルに 1 イベント 1 行で貯める(画面はない)。ブラウザの `track()`(`src/lib/track.ts`)が `POST /api/activity` に送る。送れなかったイベントは捨て、再送しない。UA・IP・入力内容は残さない。種別などの値の一覧は `src/lib/events.ts`。
+- 行動ログ: どの記事を、どの端末で、どこから開き、どれだけ読んだかを `events` テーブルに 1 イベント 1 行で貯める(画面はない)。ブラウザの `track()`(`src/lib/track.ts`)が `POST /api/activity` に送る。送れなかったイベントは捨て、再送しない。UA・IP・入力内容は残さない。種別などの値の一覧は `src/lib/events.ts`。
 
   | 列 | 内容 |
   | --- | --- |
   | `created_at` | サーバーが受け取った時刻 |
   | `env` | `VERCEL_ENV`(`production` / `preview`)、無ければ `development`。プレビューも本番 DB に書くので、分析ではここで除く |
   | `session_id` | ブラウザのタブごとの乱数(再読み込みでは変わらない) |
-  | `type` | イベントの種別。今は `open`(記事を開いた)だけ |
+  | `type` | イベントの種別。`open`(記事を開いた)、`leave`(記事での滞在とスクロール、下に説明) |
   | `device` | `phone`(ポインタが指 = `(pointer: coarse)`)/ `pc`。タブレットと開いた折りたたみも `phone` に入る |
   | `layout` | `single`(一覧と記事が別画面)/ `split`(幅 600px 以上で横に並ぶ) |
   | `vw` / `vh` | 送った時の画面の幅と高さ(CSS px)。端末を後から分け直すのに使う |
   | `standalone` | ホーム画面から起動したか |
-  | `screen` | 送った時の画面: `board` / `list` / `article` / `read` / `feeds`。`open` は `article` |
+  | `screen` | 送った時の画面: `board` / `list` / `article` / `read` / `feeds`。`open` と `leave` は `article` |
   | `article_id` | 記事(`articles.id`)。記事が消えると null |
   | `source` | 記事をどこから開いたか(`open` のみ、下の表) |
   | `view_id` | 記事を 1 回開くごとの乱数。同じ閲覧中のイベントは同じ値を持つ。一覧の切り替えや再取得では変わらない |
-  | `dwell_ms` / `active_ms` / `scroll_pct` / `props` | 後続の種別用(滞在時間、操作した時間、スクロール到達度、種別ごとの補足)。`open` では null |
+  | `dwell_ms` | `leave` のみ。記事を開いてからタブが見えていた時間の合計(ミリ秒)。隠れている間は進まない |
+  | `active_ms` | `leave` のみ。最後にスクロール・キー・ポインタの入力があった時点の `dwell_ms`。`dwell_ms` との差が、操作せずに開いたままだった時間。何分で放置とみなすかは分析の側で決める |
+  | `scroll_pct` | `leave` のみ。本文(`<main>`)のうち画面に入った最も下の位置の割合、0〜100。送った時点の本文の高さで割る(翻訳が伸びると下がることがある) |
+  | `props` | 種別ごとの補足。`leave` は `body_lang`(離れた時に見ていた本文、`ja` / `original`)。`open` では null |
 
   | `source` | 開き方 |
   | --- | --- |
@@ -70,3 +73,5 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
   | `direct` | URL を直接開いた、再読み込み |
 
   `next` と `key` 以外は直前の画面で決まる。ブラウザの戻る・進むで記事に入った場合も同じで、別の記事からなら `list` になる。「URL を追加」から開いた記事は `board` か `list` になる(`articles.feed_id IS NULL` で見分ける)。
+
+  `leave` は記事を離れた時(別の記事へ、一覧へ、読了・スキップ、ブラウザの戻る)と、タブが隠れた時(`visibilitychange`)、ページが閉じられる時(`pagehide`)に、その閲覧の `open` と同じ `view_id` で送る。値は開いてからの累積なので、**同じ `view_id` の `leave` が何行かあれば最後の行を使う(`created_at` が最も新しい行。ほぼ同時に届いた行は `dwell_ms` が大きい方)**。iPhone でアプリを終了した時などは届かないことがあり、その閲覧は `open` だけが残る。画面に収まる短い記事は開いた時点で `scroll_pct` が 100 になるので、到達度は `articles.char_count` と合わせて見る。

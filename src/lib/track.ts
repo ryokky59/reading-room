@@ -48,7 +48,11 @@ export function screenOf(pathname: string, params: URLSearchParams): Screen | nu
   return null;
 }
 
-/** Sends one event. Never throws and never waits; nothing happens if it is lost. */
+/**
+ * Sends one event. Never throws and never waits; nothing happens if it is lost. `screen` is read
+ * from the URL when sent unless given: an effect cleanup runs after the URL has changed to the
+ * next screen, so say it there.
+ */
 export function track(type: EventType, fields: TrackFields = {}) {
   try {
     const screen = fields.screen ?? screenOf(location.pathname, new URLSearchParams(location.search));
@@ -82,7 +86,12 @@ export function track(type: EventType, fields: TrackFields = {}) {
 /** One opening of an article; the events sent while it stays open share its id. */
 let view: { articleId: number; viewId: string } | null = null;
 
-/** The view id of article `articleId` while it is open, else null. */
+/**
+ * The view id of article `articleId` while it is open, else null. Call it when the event is
+ * sent, not when the article mounts: ActivityLog comes after the page in the root layout, so
+ * its effect makes the new view after the article's mount effects have run. An effect cleanup
+ * on leaving still sees the old view, since cleanups run before mount effects.
+ */
 export function currentViewId(articleId: number) {
   return view?.articleId === articleId ? view.viewId : null;
 }

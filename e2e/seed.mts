@@ -513,6 +513,34 @@ const activityArticles = activityFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(activityArticles);
 
+// Time and scroll on an article (e2e/reading.spec.ts): one folder per test, each with 3 unread
+// articles whose body is long enough to scroll.
+const readingFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E 滞在 時間", "E2E 滞在 隠す", "E2E 滞在 PC", "E2E 滞在 スマホ", "E2E 滞在 次へ", "E2E 滞在 遮断"].map(
+      (name, i) => ({ name, position: 140 + i }),
+    ),
+  )
+  .returning();
+const readingFeeds = await db
+  .insert(schema.feeds)
+  .values(readingFolders.map((f, i) => feed(`reading-${i}`, `${f.name}のサイト`, f.id)))
+  .returning();
+const readingArticles = readingFeeds.flatMap((f, i) =>
+  [1, 2, 3].map((j) =>
+    article(3100 + i * 10 + j, {
+      title: `${readingFolders[i].name} ${j}`,
+      titleJa: `${readingFolders[i].name} ${j}`,
+      source: f.name,
+      feedId: f.id,
+      contentHtml: longBody,
+      fetchedAt: old(3100 + i * 10 + j),
+    }),
+  ),
+);
+await db.insert(schema.articles).values(readingArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length} articles into ${dir}`,
 );
