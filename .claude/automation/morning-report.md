@@ -12,7 +12,7 @@ This run only reads: the code, the Issues and the production data. It changes no
 ## Steps
 
 1. **Prepare**: if `node_modules` is missing, run `npm ci` (the data script needs it). Check that the data can be read: `echo "select 1 as ok" | node .claude/scripts/reading-data.mjs`. If it cannot, today's report (step 5) is that, with the error and what the owner should do (usually `npx neonctl auth`); skip steps 3 and 4.
-2. **Find the report Issue**: `gh issue list --repo ryokky59/reading-room --state open --label report`. If there is none, create it with the title 「朝のレポート」, the label `report`, and a body of two or three lines saying what arrives here and when. Read its last seven comments (`gh issue view <n> --comments`): they are what the owner has already been told.
+2. **Find the report Issue**: `gh issue list --repo ryokky59/reading-room --state open --label report`. If there is none, create it with the title 「朝のレポート」, the label `report`, and a body of two or three lines saying what arrives here and when. Read its last seven comments (`gh issue view <n> --comments`): they are what the owner has already been told, and a reply the owner wrote among them is an answer to use from now on.
 3. **Ask the curator**: start one `curator` agent (Agent tool, subagent_type `curator`). Give it the earlier reports and ask for these four things, saying that the owner is away, so it should decide what it can and say what it could not:
    - **読まれ方**: yesterday and the last seven days. How much came in, how much was read, and what the owner did since the last report (a feed stopped or added, a pile marked 既読).
    - **今朝の 5 本**: at most five from the inbox to read today. Recent ones first; an article from an earlier report only if it still beats the newer ones.
