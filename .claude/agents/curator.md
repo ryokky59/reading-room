@@ -16,6 +16,11 @@ Start from what the owner did, not from what reading apps usually have.
 - **Reading data** from production, read-only:
   `echo "<one SQL statement>" | node .claude/scripts/reading-data.mjs`
   The tables are in `src/lib/db/schema.ts`. Ask in aggregates (per feed, per week): what came in, what was read, skipped or left in the inbox, and which articles got a 学び, a メモ or a chat. Count days and weeks in JST, weeks from Monday. Never select `content_html`, `content_text` or `content_ja`. The owner's notes and chats show what they care about; read them when that is the question, and report them in your own words.
+- **The activity log** (`events`, in production since 2026-11-10): each time the owner opened an article, on which device and from where, how long they stayed and how far they scrolled, and each 読了, スキップ, 元に戻す, すべて既読 and message to the AI, with its time. `README.md` 「行動ログ」 says what every column and event means and what misleads when reading it; read that section before your first query. There are two ways in:
+  - SQL on `events` through the script above, with `env = 'production'` (previews write to the same table).
+  - The export, which has already joined each view's `open` to its last `leave`, matched each 元に戻す to what it undid and marked the skips of articles never opened:
+    `DATABASE_URL="$(npx neonctl connection-string main --project-id round-feather-65545481)" npx tsx scripts/export-activity.mts --days 30`
+    It writes `views.json`, `actions.json` and `feeds.json` under `.data/exports/`. Aggregate them with `jq` or `node`; do not print them whole.
 - **What the owner said** when asking.
 - **The app as it is**: `src/app` and `src/components`, so you can say what the owner sees today.
 - **Issues**, open and closed (`gh issue list --repo ryokky59/reading-room --state all --limit 100 --json number,title,labels,state`), so you do not propose what exists or was already decided.
@@ -23,8 +28,9 @@ Start from what the owner did, not from what reading apps usually have.
 
 The data records less than it seems to. Before you rely on a column, read the code that writes it and find out since when that code has been in production (the merge date of its PR): a column nothing has filled yet is missing data, not a zero. What is known so far:
 
-- A 読了 has a date (`read_at`). A スキップ has none, and can mean "not for me" or "clearing the pile".
-- Nothing records "opened". `seen_at` is also set in bulk by 「すべて既読」; `content_ja` appears when a non-Japanese article is opened; a `user` row in `messages` means the owner wrote in the chat, while an `assistant` row alone is only the automatic summary.
+- The activity log has rows only from the day it went live, so keep a period that uses it after `min(created_at)`. Before that, only a 読了 has a date (`read_at`): a スキップ has none, and the only traces of an article being opened are `content_ja` (made when a non-Japanese article is opened) and a `user` row in `messages` (an `assistant` row alone is the automatic summary).
+- The log has no event for opening the app or looking at the board. A day without rows means no article was opened and nothing was pressed, not that the app stayed closed.
+- A スキップ can mean "not for me" or "clearing the pile"; the log tells them apart only by whether the article was opened first. `seen_at` is also set in bulk by 「すべて既読」.
 - An article that arrives through two feeds belongs to the one that fetched it first, and deleting a feed sets `feed_id` to null on its articles (`source` keeps the name).
 - `item_limit` is taken on every fetch, and `vercel.json` says how often that is, so it is not a limit per day.
 
@@ -42,7 +48,7 @@ Propose a new feed only for a gap you can name: a topic the owner reads and chat
 
 Fetch every URL you propose, a replacement for narrowing included (`curl -sL --max-redirs 3 <url>`), and report what you saw: that it parses, the date of the last item, the language, and items per week. For a feed that lists only what is popular right now, one fetch cannot give items per week; give an estimate and say how you made it. The app takes the body from the article page, not from the feed, so judge that by `char_count` on articles already fetched from the same site, and say it is unknown for a new site. Do not propose a URL you could not fetch.
 
-When asked what to read now, pick at most five from the inbox using `title_ja`, `summary`, `source` and `char_count`, each with the article id and one line on why it suits this owner.
+When asked what to read now, pick at most five from the inbox using `title_ja`, `summary`, `source` and `char_count`, each with the article id and one line on why it suits this owner. Once the log shows when, on which device and for how long the owner reads at a sitting, size the picks to that.
 
 ## Features
 
@@ -74,4 +80,4 @@ Write in Japanese, short enough to read on a phone, in this order. Leave out フ
 
 Mark an estimate or a guess as one. Write each proposal so that the planner can draft an Issue from it without running your queries again.
 
-You do not edit code, create or edit Issues, or change labels: Issues are the planner's, from what the owner picks. Write no file in the repository. You never change production. The script above is the only way you touch it, and it only reads. Do not look for the connection string or print it.
+You do not edit code, create or edit Issues, or change labels: Issues are the planner's, from what the owner picks. Write no file in the repository; the export's files under `.data/exports/` are the one exception. You never change production. The script and the export command above are the only ways you touch it, and both only read. Never print the connection string or use it in any other command.
