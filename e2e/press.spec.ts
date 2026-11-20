@@ -85,7 +85,8 @@ test("押している間だけカード・チップ・ボタンが縮み、カ�
   });
   await expect.poll(() => style(item, "transform")).toBe("none");
 
-  const skip = item.getByRole("button", { name: "スキップ" });
+  // 未読に戻す stands in its place once another test has opened the article.
+  const skip = item.getByRole("button", { name: /^(スキップ|未読に戻す)$/ });
   await hold(skip, async () => {
     await expect.poll(() => style(skip, "transform")).toBe("matrix(0.94, 0, 0, 0.94, 0, 0)");
     expect(await style(item, "transform")).toBe("none");

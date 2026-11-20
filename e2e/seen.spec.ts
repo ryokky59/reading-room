@@ -305,3 +305,184 @@ test("ボードや一覧を表示しているだけでは、見えている記�
   await expect(unread(page)).toHaveText(/^2 本/);
   await expect(list(page).getByRole("listitem")).toHaveCount(2);
 });
+
+test("PC で読了を「未読に戻す」と一覧に未読で出て、未読数が 1 増える。リロードしても未読のまま", async ({ page }) => {
+  const name = "E2E PC で読了を戻す";
+  await openFolder(page, name);
+  await page.goto("/read");
+  await page.getByRole("link", { name: new RegExp(`${name} 読了`) }).click();
+  await expect(heading(page)).toHaveText(`${name} 読了`);
+  await page.getByRole("button", { name: "未読に戻す" }).click();
+  await expect(page).toHaveURL("/");
+  await expect(heading(page)).toHaveCount(0);
+
+  await chip(folderNav(page), name, 4).click();
+  await expect(unread(page)).toHaveText(/^4 本/);
+  await expect(columnRow(page, `${name} B`, `${name} 読了`)).not.toHaveAttribute("data-seen", "");
+  await openColumn(page, `${name} B`);
+  await expect(card(page, `${name} 読了`)).not.toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} 読了`)).toHaveCSS("opacity", "1");
+
+  // The article's page was refreshed right after it was left; that must not have marked it seen again.
+  await page.reload();
+  await expect(unread(page)).toHaveText(/^2 本/);
+  await expect(card(page, `${name} 読了`)).not.toHaveAttribute("data-seen", "");
+  await page.goto("/");
+  await expect(chip(folderNav(page), name, 4)).toBeVisible();
+  await page.goto("/read");
+  await expect(page.getByText(`${name} 読了`)).toHaveCount(0);
+});
+
+// Where a card is in the page and how tall it is.
+const place = async (page: Page, title: string) => {
+  const box = (await card(page, title).boundingBox())!;
+  return { y: box.y, height: box.height };
+};
+
+test("PC で記事を開いても j で進んでも、カードの高さと下のカードの位置が変わらない", async ({ page }) => {
+  const name = "E2E カードの高さ";
+  const titles = [`${name} A1`, `${name} A2`, `${name} B1`, `${name} 既読`];
+  const places = () => Promise.all(titles.map((t) => place(page, t)));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openFolder(page, name);
+  await includeSeen(page).click();
+  await expect(card(page, `${name} 既読`)).toBeVisible();
+  // A seen card is as tall as an unread one with the same lines (the seen one has one more: its original title).
+  const unseen = await places();
+  expect(unseen[0].height).toBe(unseen[1].height);
+
+  await card(page, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("aria-current", "true");
+  // Opening must not move the cards either; the list is as wide as before, beside the article.
+  await expect.poll(places).toEqual(unseen);
+
+  await page.keyboard.press("j");
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} A2`)).toHaveAttribute("aria-current", "true");
+  expect(await places()).toEqual(unseen);
+
+  // The open card and the seen one offer 未読に戻す where スキップ was; unread cards keep スキップ.
+  for (const title of titles.slice(0, 2)) {
+    await expect(card(page, title).getByRole("button", { name: "未読に戻す" })).toBeVisible();
+    await expect(card(page, title).getByRole("button", { name: "スキップ" })).toHaveCount(0);
+  }
+  await expect(card(page, `${name} B1`).getByRole("button", { name: "スキップ" })).toBeVisible();
+  await expect(card(page, `${name} B1`).getByRole("button", { name: "未読に戻す" })).toHaveCount(0);
+});
+
+test("既読カードの「未読に戻す」が、行の文字と重ならずカードからはみ出さない。スマホの縦・横と PC で押せる", async ({ page }) => {
+  const name = "E2E 未読に戻すの幅";
+  const seen = card(page, `${name} 既読`);
+  const button = seen.getByRole("button", { name: "未読に戻す" });
+  // The card's last row at its fullest: 「15分」「日本語で読める」「対話中」.
+  const fits = async (cardWidth?: number) => {
+    await expect(button).toBeVisible();
+    const [c, b] = [(await seen.boundingBox())!, (await button.boundingBox())!];
+    if (cardWidth) expect(c.width).toBe(cardWidth);
+    expect(b.x).toBeGreaterThanOrEqual(c.x);
+    expect(b.x + b.width).toBeLessThanOrEqual(c.x + c.width);
+    expect(b.y + b.height).toBeLessThanOrEqual(c.y + c.height);
+    for (const text of ["15分", "日本語で読める", "対話中"]) {
+      const t = (await seen.getByText(text, { exact: true }).boundingBox())!;
+      // On the button's row, and ending before it.
+      expect(t.y + t.height).toBeGreaterThan(b.y);
+      expect(t.x + t.width).toBeLessThanOrEqual(b.x);
+    }
+    await button.click({ trial: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  };
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openFolder(page, name);
+  await includeSeen(page).click();
+  await expect(seen).toBeVisible();
+  await fits();
+  // Beside an open article, where the list is a narrow pane.
+  await card(page, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await fits();
+  await page.setViewportSize({ width: 844, height: 390 });
+  await fits(247);
+  // Phones show the list alone.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(heading(page)).toHaveCount(0);
+  await fits();
+
+  await button.click();
+  await expect(seen).not.toHaveAttribute("data-seen", "");
+  await expect(button).toHaveCount(0);
+  await expect(seen.getByRole("button", { name: "スキップ" })).toBeVisible();
+});
+
+test("opened Cookie に範囲外の id や文字列が入っていても一覧とボードが開く", async ({ page, context, baseURL }) => {
+  for (const value of ["9999999999", "2147483648.-1.0.1.5", "abc", "1e400.NaN..%00"]) {
+    await page.goto("/");
+    await expect(unread(page)).toBeVisible();
+    // A full load drops the cookie, so it is set again for the router's requests.
+    await context.addCookies([{ name: "opened", value, url: baseURL! }]);
+    await includeSeen(page).click();
+    await expect(page).toHaveURL(/\/\?a=1$/);
+    await expect(list(page)).toBeVisible();
+    await context.addCookies([{ name: "opened", value, url: baseURL! }]);
+    await includeSeen(page).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(unread(page)).toBeVisible();
+    // And on the request of a full load.
+    await context.addCookies([{ name: "opened", value, url: baseURL! }]);
+    await page.reload();
+    await expect(unread(page)).toBeVisible();
+    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+  }
+});
+
+test("PC で記事を開いたあとのフルロードでは、最初の HTML から開いた記事が無い。次の更新でも戻らない", async ({ page, context }) => {
+  const name = "E2E 開いてフルロード";
+  await openFolder(page, name);
+  const folderUrl = page.url();
+  await openColumn(page, `${name} A`);
+  const listUrl = page.url();
+  await card(page, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  expect((await context.cookies()).find((c) => c.name === "opened")?.value).toMatch(/^\d+$/);
+
+  // The list, then the Board, as the browser's own request gets them.
+  for (const url of [listUrl, folderUrl]) {
+    const html = await (await page.goto(url))!.text();
+    expect(html).toContain(`${name} A2`);
+    expect(html).not.toContain(`${name} A1`);
+    await expect(page.getByText(`${name} A2`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
+    // The cookie is dropped without asking for the list again.
+    await expect.poll(async () => (await context.cookies()).some((c) => c.name === "opened")).toBe(false);
+  }
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/&a=1$/);
+  await includeSeen(page).click();
+  await expect(page).not.toHaveURL(/&a=1$/);
+  await expect(page.getByText(`${name} A2`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
+  await expect(unread(page)).toHaveText(/^2 本/);
+});
+
+test("PC で記事を開いたままリロードすると、前に開いた記事は一覧に薄く残る", async ({ page }) => {
+  const name = "E2E 開いたままリロード";
+  await openFolder(page, name);
+  await openColumn(page, `${name} A`);
+  await card(page, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await page.keyboard.press("j");
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+
+  // The document is the article's; the list beside it comes by the router, with the cookie.
+  await page.reload();
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await expect(card(page, `${name} A2`)).toHaveAttribute("aria-current", "true");
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(list(page).getByRole("listitem")).toHaveCount(2);
+});

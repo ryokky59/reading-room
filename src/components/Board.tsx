@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { FeedBadge } from "@/components/FeedBadge";
 import { FolderTabs } from "@/components/FolderTabs";
@@ -7,7 +6,7 @@ import { LinkPending } from "@/components/NavPending";
 import { COLUMN_ROWS, loadBoard, PHONE_ROWS, type BoardColumn, type StoppedFeed } from "@/lib/board";
 import { formatAgo, formatDate, isForeign, readingMinutes } from "@/lib/format";
 import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
-import { OPENED_COOKIE, parseOpened } from "@/lib/opened";
+import { requestOpened } from "@/lib/opened-request";
 
 /**
  * The inbox with no site chosen: a column per feed, grouped by folder. With the `board` variant
@@ -22,7 +21,7 @@ export async function Board({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const filter = parseInboxFilter(await searchParams);
-  const opened = parseOpened((await cookies()).get(OPENED_COOKIE)?.value);
+  const opened = await requestOpened();
   const { groups, stopped, folders, buckets } = await loadBoard(filter, opened);
   const selected = filter.f === "none" ? null : filter.f ? Number(filter.f) : "all";
   const total = buckets

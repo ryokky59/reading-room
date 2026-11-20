@@ -3,10 +3,10 @@ import { expect, test } from "@playwright/test";
 const cursor = (el: Element) => getComputedStyle(el).cursor;
 
 test("押せるところにカーソルを合わせると指になる", async ({ page }) => {
-  await page.goto("/?a=1"); // The plain list, whose cards have スキップ.
+  await page.goto("/?a=1"); // The plain list, whose cards have スキップ (未読に戻す once another test has opened one).
   const card = page.getByRole("listitem").filter({ hasText: "本番で動くエージェント" });
   expect(await card.getByRole("link").first().evaluate(cursor)).toBe("pointer");
-  expect(await card.getByRole("button", { name: "スキップ" }).evaluate(cursor)).toBe("pointer");
+  expect(await card.getByRole("button", { name: /^(スキップ|未読に戻す)$/ }).evaluate(cursor)).toBe("pointer");
   expect(await page.getByRole("link", { name: /^すべて/ }).first().evaluate(cursor)).toBe("pointer");
 
   // The send button is disabled until something is typed, and keeps the arrow until then.
