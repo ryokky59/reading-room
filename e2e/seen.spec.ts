@@ -306,6 +306,35 @@ test("ボードや一覧を表示しているだけでは、見えている記�
   await expect(list(page).getByRole("listitem")).toHaveCount(2);
 });
 
+test("PC で「既読を含む」の既読カードをスキップして「元に戻す」と、薄いまま戻って未読数は変わらない", async ({ page }) => {
+  const name = "E2E 既読をスキップして戻す";
+  const toast = page.getByRole("status");
+  await openFolder(page, name);
+  await openColumn(page, `${name} B`);
+  await includeSeen(page).click();
+  await expect(card(page, `${name} 既読`)).toHaveAttribute("data-seen", "");
+  await expect(unread(page)).toHaveText(/^1 本/);
+
+  // The last card of the list, so nothing opens next and no other article becomes seen.
+  await card(page, `${name} 既読`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} 既読`);
+  await page.keyboard.press("s");
+  await expect(toast.getByText("スキップしました")).toBeVisible();
+  await expect(heading(page)).toHaveCount(0);
+  await expect(card(page, `${name} 既読`)).toHaveCount(0);
+
+  await toast.getByRole("button", { name: "元に戻す" }).click();
+  await expect(card(page, `${name} 既読`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} 既読`).getByRole("button", { name: "未読に戻す" })).toBeVisible();
+  await expect(card(page, `${name} B1`)).not.toHaveAttribute("data-seen", "");
+  await expect(unread(page)).toHaveText(/^1 本/);
+
+  await page.goto("/");
+  await expect(chip(folderNav(page), name, 3)).toBeVisible();
+  await chip(folderNav(page), name, 3).click();
+  await expect(unread(page)).toHaveText(/^3 本/);
+});
+
 test("PC で読了を「未読に戻す」と一覧に未読で出て、未読数が 1 増える。リロードしても未読のまま", async ({ page }) => {
   const name = "E2E PC で読了を戻す";
   await openFolder(page, name);

@@ -13,7 +13,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { markFeedSeen, markFolderSeen, restoreArticle, skipArticle, unmarkSeen } from "@/lib/actions";
+import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen } from "@/lib/actions";
 import { lastNavPath } from "@/lib/last-nav";
 import { OPENED_COOKIE, parseOpened, serializeOpened } from "@/lib/opened";
 import { track } from "@/lib/track";
@@ -77,13 +77,18 @@ type Opened = {
   /** Stops fading a card, once its article is unread again. */
   forget: (id: number) => void;
   /**
+   * Keeps a seen article in the list, faded, though it was not opened beside it: one that
+   * 「元に戻す」 put back. On phones too, where opening an article does not keep it.
+   */
+  keep: (id: number) => void;
+  /**
    * After 「すべて既読」: `rows` (a Board column's) leave; without them, the list keeps only the
    * open article.
    */
   clear: (rows?: number[]) => void;
 };
 
-const OpenedContext = createContext<Opened>({ opened: new Set(), forget: () => {}, clear: () => {} });
+const OpenedContext = createContext<Opened>({ opened: new Set(), forget: () => {}, keep: () => {}, clear: () => {} });
 
 /** Forgets that an article was opened beside the list, for when it goes back to unread. */
 export function useForgetOpened() {
@@ -112,6 +117,10 @@ function useOpened(openId: number | null, fromBoard: boolean): Opened {
       return next;
     });
   }, []);
+  const keep = useCallback((id: number) => {
+    setOpened((s) => (s.has(id) ? s : new Set(s).add(id)));
+    writeOpened([...readOpened().filter((other) => other !== id), id]);
+  }, []);
   const clear = useCallback((rows?: number[]) => {
     const keep = (id: number) => (rows ? !rows.includes(id) : id === openIdRef.current);
     setOpened((s) => new Set([...s].filter(keep)));
@@ -125,7 +134,7 @@ function useOpened(openId: number | null, fromBoard: boolean): Opened {
   useLayoutEffect(() => {
     if (openIdRef.current === null) writeOpened([]);
   }, []);
-  return useMemo(() => ({ opened, forget, clear }), [opened, forget, clear]);
+  return useMemo(() => ({ opened, forget, keep, clear }), [opened, forget, keep, clear]);
 }
 
 /** Which way a list card leaves: スキップ to the left, 読了 to the right. */
@@ -188,14 +197,15 @@ function takeGhost(id: number): Ghost | undefined {
 /**
  * Shows that an article was read or skipped: its card leaves the list (`done` is the action,
  * which may still be running) and a toast offers 「元に戻す」, which puts the article back in
- * the inbox. Only the latest toast can be undone. With `refetched`, the list is about to be
+ * the inbox as it was: an article that was seen (既読) comes back seen, as a faded card that
+ * stays in the list until the next full load. Only the latest toast can be undone. With `refetched`, the list is about to be
  * fetched again without the card, so a copy of the card is kept to leave in its place.
  */
 export function useLeftInbox() {
   const { setLeaving } = useContext(LeavingContext);
   const toast = useToast();
   const router = useRouter();
-  const forget = useForgetOpened();
+  const { forget, keep } = useContext(OpenedContext);
   return useCallback(
     (id: number, kind: "read" | "skip", { done = Promise.resolve(), refetched = false } = {}) => {
       const dir = kind === "read" ? "right" : "left";
@@ -204,11 +214,11 @@ export function useLeftInbox() {
       // puts it where the list has it.
       const undo = async () => {
         setLeaving(id, null);
-        forget(id);
+        let seen: boolean;
         try {
           // The restore must not reach the server before the read / skip does.
           await done.catch(() => {});
-          await restoreArticle(id);
+          seen = await undoLeave(id);
         } catch (e) {
           console.error(e);
           setLeaving(id, { dir });
@@ -217,11 +227,14 @@ export function useLeftInbox() {
         }
         // The screen it was pressed on; not a step of the view the article may have open.
         track("undo", { articleId: id, viewId: null, props: { of: kind } });
+        // Before the refresh: the list query drops a seen row that the cookie does not name.
+        if (seen) keep(id);
+        else forget(id);
         router.refresh();
       };
       toast.show(kind === "read" ? "読了にしました" : "スキップしました", { owner: id, undo });
     },
-    [setLeaving, toast, router, forget],
+    [setLeaving, toast, router, forget, keep],
   );
 }
 

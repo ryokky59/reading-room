@@ -64,7 +64,7 @@ test("トーストは押さなければ約 4 秒で消え、新しいトース�
   await expect(undo(page)).toBeHidden();
 });
 
-test("スマホで読了にすると一覧に戻ってカードが右へ抜け、「元に戻す」で戻って読了一覧には出ない @mobile", async ({
+test("スマホで読了にすると一覧に戻ってカードが右へ抜け、「元に戻す」で既読のまま戻って読了一覧には出ない @mobile", async ({
   page,
 }) => {
   const folder = "E2E スマホで読了して戻す";
@@ -89,10 +89,21 @@ test("スマホで読了にすると一覧に戻ってカードが右へ抜け�
   const lastSkip = (await card(page, `${folder} 3`).getByRole("button", { name: "スキップ" }).boundingBox())!;
   expect(lastSkip.y + lastSkip.height).toBeLessThanOrEqual(toastBox.y);
 
+  // As it was before 読了: opening it had marked it seen (既読), so it is back faded and the
+  // unread count stays.
   await undo(page).click();
-  await expect(card(page, `${folder} 2`)).toBeVisible();
+  await expect(card(page, `${folder} 2`)).toHaveAttribute("data-seen", "");
   await expect(list(page).getByRole("listitem")).toHaveCount(3);
-  await expect(count(page)).toHaveText(/^3 本/);
+  await expect(count(page)).toHaveText(/^2 本/);
+  await expect(card(page, `${folder} 1`)).not.toHaveAttribute("data-seen", "");
+
+  // A seen card leaves on a full load, and 既読を含む has it.
+  await page.reload();
+  await expect(list(page).getByRole("listitem")).toHaveCount(2);
+  await expect(card(page, `${folder} 2`)).toHaveCount(0);
+  await expect(count(page)).toHaveText(/^2 本/);
+  await page.getByRole("switch", { name: "既読を含む" }).click();
+  await expect(card(page, `${folder} 2`)).toHaveAttribute("data-seen", "");
 
   await page.goto("/read");
   await expect(page.getByText(`${folder} 2`, { exact: true })).toHaveCount(0);
@@ -110,12 +121,14 @@ test("スマホでスキップすると一覧に戻ってカードが左へ抜�
   await expect(card(page, `${folder} 1`)).toHaveCount(0);
   await expect(toast(page).getByText("スキップしました")).toBeVisible();
 
+  // Opening it had marked it seen (既読), and it comes back so.
   await undo(page).click();
   await expect(list(page).getByRole("listitem").first()).toContainText(`${folder} 1`);
-  await expect(count(page)).toHaveText(/^3 本/);
+  await expect(card(page, `${folder} 1`)).toHaveAttribute("data-seen", "");
+  await expect(count(page)).toHaveText(/^2 本/);
 });
 
-test("PC で e を押すと次の記事が開いてカードが右へ抜け、「元に戻す」で一覧に戻っても記事は変わらない", async ({
+test("PC で e を押すと次の記事が開いてカードが右へ抜け、「元に戻す」で既読のまま一覧に戻っても記事は変わらない", async ({
   page,
 }) => {
   const folder = "E2E PC で読了して戻す";
@@ -136,12 +149,32 @@ test("PC で e を押すと次の記事が開いてカードが右へ抜け、�
   expect(toastBox.x + toastBox.width).toBeLessThanOrEqual(listBox.x + listBox.width + 1);
   await expect(toast(page).getByText("読了にしました")).toBeVisible();
 
+  // Articles 1 and 2 have been opened, so only the third is unread.
+  await expect(count(page)).toHaveText(/^1 本/);
+
   await undo(page).click();
   await expect(list(page).getByRole("listitem").first()).toContainText(`${folder} 1`);
   await expect(list(page).getByRole("listitem")).toHaveCount(3);
   await expect(heading(page)).toHaveText(`${folder} 2`);
   expect(page.url()).toBe(articleUrl);
   await expect(card(page, `${folder} 2`)).toHaveAttribute("aria-current", "true");
+  // Back as it was before 読了: seen (既読), so faded and out of the unread count.
+  await expect(card(page, `${folder} 1`)).toHaveAttribute("data-seen", "");
+  await expect(toast(page).getByText("読了にしました")).toBeHidden();
+  await expect(count(page)).toHaveText(/^1 本/);
+
+  // With the article closed, a full load drops the seen cards; 既読を含む has them.
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(heading(page)).toHaveCount(0);
+  await expect(card(page, `${folder} 1`)).toHaveAttribute("data-seen", "");
+  await page.reload();
+  await expect(list(page).getByRole("listitem")).toHaveCount(1);
+  await expect(card(page, `${folder} 1`)).toHaveCount(0);
+  await expect(count(page)).toHaveText(/^1 本/);
+  await page.getByRole("switch", { name: "既読を含む" }).click();
+  await expect(card(page, `${folder} 1`)).toHaveAttribute("data-seen", "");
+  await page.goto("/read");
+  await expect(page.getByText(`${folder} 1`, { exact: true })).toHaveCount(0);
 });
 
 test("動きを減らす設定では、カードは動かずすぐ消え、トーストは出る", async ({ page }) => {
