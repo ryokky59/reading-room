@@ -39,7 +39,9 @@ export async function InboxList({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
   onEmptySite: "redirect" | "folder";
 }) {
-  return <List filter={parseInboxFilter(await searchParams)} onEmptySite={onEmptySite} opened={await requestOpened()} />;
+  // `folder` is the list beside an article.
+  const opened = await requestOpened({ besideArticle: onEmptySite === "folder" });
+  return <List filter={parseInboxFilter(await searchParams)} onEmptySite={onEmptySite} opened={opened} />;
 }
 
 async function List({
