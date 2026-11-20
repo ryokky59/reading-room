@@ -20,7 +20,8 @@ test("一覧の長い要約は 2 行で切れ、スキップボタンと重な�
   const box = (await summary.boundingBox())!;
   const lineHeight = await summary.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
   expect(box.height).toBeLessThanOrEqual(lineHeight * 2 + 1);
-  const skip = (await card.getByRole("button", { name: "スキップ" }).boundingBox())!;
+  // 未読に戻す stands in its place once another test has opened the article.
+  const skip = (await card.getByRole("button", { name: /^(スキップ|未読に戻す)$/ }).boundingBox())!;
   expect(skip.y).toBeGreaterThanOrEqual(box.y + box.height);
 });
 

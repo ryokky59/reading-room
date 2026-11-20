@@ -353,7 +353,7 @@ await db.insert(schema.articles).values(leaveArticles);
 const seenFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E PC ですべて既読", "E2E スマホですべて既読", "E2E フォルダをすべて既読", "E2E すべて既読に失敗", "E2E 既読を見返す", "E2E スマホで見返す", "E2E 未読に戻すに失敗", "E2E 開いて戻る", "E2E スマホで開いて戻る", "E2E 読了を戻す", "E2E 開いた記事を戻す", "E2E 先読み", "E2E 届く瞬間の j"].map(
+    ["E2E PC ですべて既読", "E2E スマホですべて既読", "E2E フォルダをすべて既読", "E2E すべて既読に失敗", "E2E 既読を見返す", "E2E スマホで見返す", "E2E 未読に戻すに失敗", "E2E 開いて戻る", "E2E スマホで開いて戻る", "E2E 読了を戻す", "E2E 開いた記事を戻す", "E2E 先読み", "E2E 届く瞬間の j", "E2E PC で読了を戻す", "E2E カードの高さ", "E2E 未読に戻すの幅", "E2E 開いてフルロード", "E2E 開いたままリロード"].map(
       (name, i) => ({ name, position: 90 + i }),
     ),
   )
@@ -367,6 +367,10 @@ const seenFeeds = await db
     ]),
   )
   .returning();
+// The seen card of these folders has everything a card's last row can show: a two-digit reading
+// time, 日本語で読める and (with the messages below) 対話中.
+const crowdedFolders = ["E2E カードの高さ", "E2E 未読に戻すの幅"];
+const crowdedRow = { title: "A crowded seen card", lang: "other", charCount: 9000 };
 const seenArticles = seenFolders.flatMap((f, i) => {
   const [a, b] = [seenFeeds[i * 2], seenFeeds[i * 2 + 1]];
   const row = (n: number, title: string, site: typeof a, extra = {}) =>
@@ -382,12 +386,20 @@ const seenArticles = seenFolders.flatMap((f, i) => {
     row(1, `${f.name} A1`, a),
     row(2, `${f.name} A2`, a),
     row(3, `${f.name} B1`, b),
-    row(4, `${f.name} 既読`, b, { seenAt: new Date(now) }),
+    row(4, `${f.name} 既読`, b, { seenAt: new Date(now), ...(crowdedFolders.includes(f.name) ? crowdedRow : {}) }),
     row(5, `${f.name} スキップ`, b, { status: "skipped" as const }),
     row(6, `${f.name} 読了`, b, { status: "read" as const, readAt: new Date(now) }),
   ];
 });
-await db.insert(schema.articles).values(seenArticles);
+const seenInserted = await db
+  .insert(schema.articles)
+  .values(seenArticles)
+  .returning({ id: schema.articles.id, titleJa: schema.articles.titleJa });
+await db.insert(schema.messages).values(
+  seenInserted
+    .filter((r) => crowdedFolders.some((f) => r.titleJa === `${f} 既読`))
+    .map((r) => ({ articleId: r.id, role: "user" as const, content: "カードの対話です" })),
+);
 
 // The Board (e2e/board.spec.ts): one folder per test that changes state.
 const boardFolders = await db

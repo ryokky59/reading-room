@@ -92,11 +92,11 @@ export function useForgetOpened() {
 
 /**
  * Keeps the articles opened beside the list (see lib/opened.ts). A full load of the list starts
- * without them; beside an article, a reload keeps them. Phones have no list beside the article
+ * without them: the server ignores the cookie for it (lib/opened-request.ts) and this drops the
+ * cookie before the router's next request. Beside an article, a reload keeps them. Phones have no list beside the article
  * and drop a seen card, but a row opened from the Board stays: it may be its section's last.
  */
 function useOpened(openId: number | null, fromBoard: boolean): Opened {
-  const router = useRouter();
   const [opened, setOpened] = useState<ReadonlySet<number>>(() => new Set(openId === null ? [] : [openId]));
   const [lastOpenId, setLastOpenId] = useState(openId);
   if (openId !== lastOpenId) {
@@ -123,10 +123,8 @@ function useOpened(openId: number | null, fromBoard: boolean): Opened {
     if (openId !== null && (isWide() || fromBoard)) writeOpened([...readOpened().filter((id) => id !== openId), openId]);
   }, [openId, fromBoard]);
   useLayoutEffect(() => {
-    if (openIdRef.current !== null || readOpened().length === 0) return;
-    writeOpened([]);
-    router.refresh();
-  }, [router]);
+    if (openIdRef.current === null) writeOpened([]);
+  }, []);
   return useMemo(() => ({ opened, forget, clear }), [opened, forget, clear]);
 }
 
@@ -591,7 +589,8 @@ function useFaded(id: number, seen: boolean) {
  */
 export function InboxItem({ id, seen, children }: { id: number; seen: boolean; children: React.ReactNode }) {
   const selected = useOpenId() === id;
-  const faded = useFaded(id, seen) && !selected;
+  const unsee = useFaded(id, seen);
+  const faded = unsee && !selected;
   const ref = useRef<HTMLLIElement>(null);
   const motion = useLeaveMotion(useLeaving(id));
   useEffect(() => {
@@ -606,8 +605,10 @@ export function InboxItem({ id, seen, children }: { id: number; seen: boolean; c
         data-article={id}
         aria-current={selected ? "true" : undefined}
         data-seen={faded ? "" : undefined}
+        // The card offers 「未読に戻す」, wider than スキップ: its last row leaves more room (InboxList).
+        data-unsee={unsee ? "" : undefined}
         {...motion}
-        className={`pressable-card flex flex-col rounded-xl border bg-surface ${
+        className={`group/card pressable-card flex flex-col rounded-xl border bg-surface ${
           selected ? "border-accent ring-1 ring-accent" : "border-line"
         } ${faded ? "opacity-60" : ""} has-[[data-pending=true]]:border-accent has-[[data-pending=true]]:ring-2 has-[[data-pending=true]]:ring-accent [&:has([data-pending=true])_h2]:text-accent`}
       >
@@ -687,15 +688,17 @@ function LeavingGhost({ card, onGone }: { card: LeavingCard; onGone: () => void 
 }
 
 /**
- * The buttons on a list card, pulled up onto the card's last row (reading time etc.) to save
- * height. With 「未読に戻す」 as well there is no room beside that row, so they get their own.
+ * The button on a list card, pulled up onto the card's last row (reading time etc.) to save
+ * height. That row has room for one button, and a card must not grow when its article opens, so
+ * a seen card offers 「未読に戻す」 in place of スキップ: it is out of the unread count already,
+ * and its article can still be skipped once open. The row keeps its right end clear for the
+ * button (InboxList), and both buttons are flex items of the same height.
  */
 export function CardActions({ id, seen }: { id: number; seen: boolean }) {
   const faded = useFaded(id, seen);
   return (
-    <div className={`flex items-center justify-end self-end px-2 pb-1 ${faded ? "" : "-mt-6"}`}>
-      {faded && <CardUnseeButton id={id} />}
-      <CardSkipButton id={id} />
+    <div className="-mt-6 flex items-center justify-end self-end px-2 pb-1">
+      {faded ? <CardUnseeButton id={id} /> : <CardSkipButton id={id} />}
     </div>
   );
 }
@@ -803,6 +806,8 @@ function CardSkipButton({ id }: { id: number }) {
   const toast = useToast();
   return (
     <form
+      // A flex item, like 「未読に戻す」: as inline content the button would sit in a taller line.
+      className="flex"
       // Not a form action: React would hold the card's leaving until the transition below is done.
       onSubmit={(e) => {
         e.preventDefault();
@@ -820,7 +825,7 @@ function CardSkipButton({ id }: { id: number }) {
             toast.fail(FAILED, { owner: id });
             return;
           }
-          // Skipped without being read here, even when it is the article open beside the list.
+          // Skipped without being read here, even beside an open article (whose URL says `article`).
           track("skip", { screen: "list", articleId: id, viewId: null, props: { via: "button" } });
           refreshAfterLeave(router, since);
         });

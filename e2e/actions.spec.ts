@@ -115,7 +115,7 @@ test.describe("PC 幅", () => {
     expect(await skipUndone).toMatchObject({ articleId: third.articleId, props: { of: "skip" } });
   });
 
-  test("一覧のカードのスキップは screen=list で view_id なし。開いている記事のカードでも同じ。未読に戻すは unsee", async ({ page }) => {
+  test("一覧のカードのスキップは screen=list で view_id なし。記事を開いた横のカードでも同じ。未読に戻すは unsee", async ({ page }) => {
     const folder = "E2E 操作 カード";
     await openFeed(page, folder, `${folder} A`);
     const a1 = await cardId(page, `${folder} A1`);
@@ -145,12 +145,14 @@ test.describe("PC 幅", () => {
     expect(await unsee).toMatchObject({ type: "unsee", screen: "list", articleId: seen, viewId: null });
     await expect(card(page, `${folder} A 既読`).getByRole("button", { name: "未読に戻す" })).toHaveCount(0);
 
-    // Beside the open article the URL says `article`, but the card is in the list, and skipping
-    // it there is not a step of the article's view.
-    const opened = await openArticle(page, `${folder} A2`);
+    // Beside an open article the URL says `article`, but the card is in the list, and skipping
+    // it there is not a step of the article's view. The open article's own card has 未読に戻す
+    // in place of スキップ.
+    await openArticle(page, `${folder} A2`);
+    await expect(card(page, `${folder} A2`).getByRole("button", { name: "スキップ" })).toHaveCount(0);
     skip = next(page, "skip");
-    await card(page, `${folder} A2`).getByRole("button", { name: "スキップ" }).click();
-    expect(await skip).toMatchObject({ screen: "list", articleId: opened.articleId, viewId: null });
+    await card(page, `${folder} A1`).getByRole("button", { name: "スキップ" }).click();
+    expect(await skip).toMatchObject({ screen: "list", articleId: a1, viewId: null });
   });
 
   test("ボードの列・フォルダの「すべて既読」は screen=board で feedId / folderId 付き", async ({ page }) => {

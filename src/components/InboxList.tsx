@@ -1,5 +1,4 @@
 import { eq, sql } from "drizzle-orm";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Chip, ChipRow } from "@/components/ChipRow";
@@ -21,7 +20,7 @@ import { articles, feeds, folders, getDb } from "@/lib/db";
 import { faviconUrl } from "@/lib/favicon";
 import { DIGEST_ATTEMPT_LIMIT, formatAgo, formatDate, hostname, isForeign, readingMinutes } from "@/lib/format";
 import { inboxOrder, inboxQuery, listedWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
-import { OPENED_COOKIE, parseOpened } from "@/lib/opened";
+import { requestOpened } from "@/lib/opened-request";
 
 // Cards shown per page; a long list is slow to load and render on phones.
 const PAGE_SIZE = 30;
@@ -40,8 +39,7 @@ export async function InboxList({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
   onEmptySite: "redirect" | "folder";
 }) {
-  const opened = parseOpened((await cookies()).get(OPENED_COOKIE)?.value);
-  return <List filter={parseInboxFilter(await searchParams)} onEmptySite={onEmptySite} opened={opened} />;
+  return <List filter={parseInboxFilter(await searchParams)} onEmptySite={onEmptySite} opened={await requestOpened()} />;
 }
 
 async function List({
@@ -237,10 +235,12 @@ async function List({
                     {a.excerpt && <p className="mt-1 line-clamp-2 text-sm leading-snug text-muted">{a.excerpt}</p>}
                   </>
                 )}
-                <div className="mt-1 flex min-h-4 gap-2 text-xs text-muted">
-                  {a.charCount > 0 && <span>{readingMinutes(a.charCount)}分</span>}
-                  {isForeign(a.lang, a.title) && <span>日本語で読める</span>}
-                  {a.started && <span className="text-accent">対話中</span>}
+                {/* The right end is CardActions' button's: スキップ, or the wider 「未読に戻す」. In a
+                    narrow pane all three do not fit beside it, and 日本語で読める is cut short. */}
+                <div className="mt-1 flex min-h-4 gap-2 pr-14 text-xs text-muted group-data-unsee/card:pr-18">
+                  {a.charCount > 0 && <span className="shrink-0">{readingMinutes(a.charCount)}分</span>}
+                  {isForeign(a.lang, a.title) && <span className="min-w-0 truncate">日本語で読める</span>}
+                  {a.started && <span className="shrink-0 text-accent">対話中</span>}
                 </div>
               </Link>
               <CardActions id={a.id} seen={a.seenAt !== null} />
