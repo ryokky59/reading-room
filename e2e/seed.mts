@@ -353,7 +353,7 @@ await db.insert(schema.articles).values(leaveArticles);
 const seenFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E PC ですべて既読", "E2E スマホですべて既読", "E2E フォルダをすべて既読", "E2E すべて既読に失敗", "E2E 既読を見返す", "E2E スマホで見返す", "E2E 未読に戻すに失敗", "E2E 開いて戻る", "E2E スマホで開いて戻る", "E2E 読了を戻す", "E2E 開いた記事を戻す", "E2E 先読み", "E2E 届く瞬間の j", "E2E PC で読了を戻す", "E2E カードの高さ", "E2E 未読に戻すの幅", "E2E 開いてフルロード", "E2E 開いたままリロード"].map(
+    ["E2E PC ですべて既読", "E2E スマホですべて既読", "E2E フォルダをすべて既読", "E2E すべて既読に失敗", "E2E 既読を見返す", "E2E スマホで見返す", "E2E 未読に戻すに失敗", "E2E 開いて戻る", "E2E スマホで開いて戻る", "E2E 読了を戻す", "E2E 開いた記事を戻す", "E2E 先読み", "E2E 届く瞬間の j", "E2E PC で読了を戻す", "E2E カードの高さ", "E2E 未読に戻すの幅", "E2E 開いてフルロード", "E2E 開いたままリロード", "E2E 既読をスキップして戻す"].map(
       (name, i) => ({ name, position: 90 + i }),
     ),
   )

@@ -61,9 +61,24 @@ export async function skipArticle(id: number) {
   await db.update(articles).set({ status: "skipped" }).where(eq(articles.id, id));
 }
 
+/** 「未読に戻す」 on a read or skipped article's page: back in the inbox, and unread. */
 export async function restoreArticle(id: number) {
   const db = await getDb();
   await db.update(articles).set({ status: "inbox", readAt: null, seenAt: null }).where(eq(articles.id, id));
+}
+
+/**
+ * The toast's 「元に戻す」 after 読了 / スキップ: back in the inbox as it was before, so an
+ * article that was seen (既読) stays seen. Answers whether it is.
+ */
+export async function undoLeave(id: number): Promise<boolean> {
+  const db = await getDb();
+  const [row] = await db
+    .update(articles)
+    .set({ status: "inbox", readAt: null })
+    .where(eq(articles.id, id))
+    .returning({ seenAt: articles.seenAt });
+  return !!row?.seenAt;
 }
 
 /** Marks the unread articles `scope` picks as seen. */

@@ -588,9 +588,10 @@ test.describe("スマホ @mobile", () => {
     await expect(unreadIn(page, "E2E 読了の列")).toHaveText("1");
     await expect(row(page, "E2E 読了の列", "E2E 読了の列 1")).toHaveCount(0);
 
+    // Back as it was before 読了: seen (既読), so the row is faded and the unread count stays.
     await page.getByRole("button", { name: "元に戻す" }).click();
-    await expect(unreadIn(page, "E2E 読了の列")).toHaveText("2");
-    await expect(row(page, "E2E 読了の列", "E2E 読了の列 1")).toBeVisible();
+    await expect(row(page, "E2E 読了の列", "E2E 読了の列 1")).toHaveAttribute("data-seen", "");
+    await expect(unreadIn(page, "E2E 読了の列")).toHaveText("1");
 
     // A later refresh still reaches the Board: nothing is left waiting for a card to leave.
     await column(page, "E2E 読了の列").getByRole("link", { name: "E2E 読了の列", exact: true }).click();
