@@ -185,9 +185,10 @@ test("ダークモードでも背景は選択中チップの色(accent-soft と 
   await expect(chip(nav, "すべて")).toHaveCSS("color", "rgb(224, 138, 98)");
 });
 
+// The widest screen with the list beside an article: from `lg` up the article is a sheet over it.
 for (const viewport of [
   { width: 700, height: 900 },
-  { width: 1440, height: 900 },
+  { width: 1000, height: 900 },
 ]) {
   test(`記事を開いたまま(${viewport.width}px)チップを切り替えても背景が選んだチップに移る`, async ({ page }) => {
     await page.setViewportSize(viewport);

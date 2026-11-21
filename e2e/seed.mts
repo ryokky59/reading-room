@@ -630,6 +630,42 @@ const skimArticles = skimFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(skimArticles);
 
+// The article sheet over the Board on PCs (e2e/panes.spec.ts): one folder per test. The last
+// folders, so that the Board at `/` scrolls sideways to reach them. シート A has enough rows to
+// scroll its column; 五十二本 runs past a column's 50.
+const sheetFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E シート", "E2E シートで j", "E2E シートで読了", "E2E シートを直接", "E2E シートで入力", "E2E シートへ広げる"].map((name, i) => ({
+      name,
+      position: 190 + i,
+    })),
+  )
+  .returning();
+const sheetSites = [
+  { folder: 0, name: "E2E シート A", count: 20 },
+  { folder: 0, name: "E2E シート B", count: 2 },
+  { folder: 1, name: "E2E シート 三本", count: 3 },
+  { folder: 1, name: "E2E シート 隣", count: 2 },
+  { folder: 1, name: "E2E シート 五十二本", count: 52 },
+  { folder: 2, name: "E2E シート 読了", count: 2 },
+  { folder: 3, name: "E2E シート 直接", count: 2 },
+  { folder: 4, name: "E2E シート 入力", count: 1 },
+  // e2e/board.spec.ts: opened on a phone, then widened to a PC.
+  { folder: 5, name: "E2E 広げてシート", count: 2 },
+];
+const sheetFeeds = await db
+  .insert(schema.feeds)
+  .values(sheetSites.map((s, i) => feed(`sheet-${i}`, s.name, sheetFolders[s.folder].id)))
+  .returning();
+const sheetArticles = sheetFeeds.flatMap((f, i) =>
+  Array.from({ length: sheetSites[i].count }, (_, j) => {
+    const n = 6000 + i * 100 + j;
+    return article(n, { title: `${f.name} ${j + 1}`, titleJa: `${f.name} ${j + 1}`, source: f.name, feedId: f.id, fetchedAt: old(n) });
+  }),
+);
+await db.insert(schema.articles).values(sheetArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length} articles into ${dir}`,
 );

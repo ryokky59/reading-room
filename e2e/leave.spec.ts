@@ -18,6 +18,9 @@ const undo = (page: Page) => toast(page).getByRole("button", { name: "元に戻�
 const style = (el: Locator, prop: string) =>
   el.evaluate((e, p) => getComputedStyle(e).getPropertyValue(p), prop);
 
+// The widest screen with the list beside an open article: from `lg` up the article is a sheet.
+const BESIDE = { width: 1000, height: 800 };
+
 async function openFolder(page: Page, name: string) {
   await openFeed(page, name);
   await expect(list(page).getByRole("listitem")).toHaveCount(3);
@@ -142,11 +145,11 @@ test("PC で e を押すと次の記事が開いてカードが右へ抜け、�
   await expect(card(page, `${folder} 1`)).toHaveCount(0);
   const articleUrl = page.url();
 
-  // In the list pane, clear of the article's buttons.
+  // Left of the article sheet, clear of the article's buttons.
   const toastBox = (await toast(page).locator("[data-open]").boundingBox())!;
-  const listBox = (await list(page).boundingBox())!;
-  expect(toastBox.x).toBeGreaterThanOrEqual(listBox.x - 1);
-  expect(toastBox.x + toastBox.width).toBeLessThanOrEqual(listBox.x + listBox.width + 1);
+  const sheetBox = (await page.getByRole("dialog", { name: "記事" }).boundingBox())!;
+  expect(toastBox.x).toBeGreaterThanOrEqual(0);
+  expect(toastBox.x + toastBox.width).toBeLessThanOrEqual(sheetBox.x);
   await expect(toast(page).getByText("読了にしました")).toBeVisible();
 
   // Articles 1 and 2 have been opened, so only the third is unread.
@@ -164,7 +167,7 @@ test("PC で e を押すと次の記事が開いてカードが右へ抜け、�
   await expect(count(page)).toHaveText(/^1 本/);
 
   // With the article closed, a full load drops the seen cards; 既読を含む has them.
-  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await page.getByRole("button", { name: "記事を閉じる" }).click();
   await expect(heading(page)).toHaveCount(0);
   await expect(card(page, `${folder} 1`)).toHaveAttribute("data-seen", "");
   await page.reload();
@@ -552,6 +555,8 @@ test.describe("保存中にブラウザの戻る", () => {
    * the second card's 「未読に戻す」 is then pressed with the first article one step back (#76).
    */
   async function openSecondSlowly(page: Page, folder: string, fail = false) {
+    // The open article's card is beside it below `lg` only.
+    await page.setViewportSize(BESIDE);
     const { answered } = await openFirstSlowly(page, folder, fail);
     const firstUrl = page.url();
     await page.keyboard.press("j");

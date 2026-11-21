@@ -41,6 +41,9 @@ const markAll = (page: Page) => page.getByRole("button", { name: "すべて既�
 const failed = (page: Page) => page.getByText("保存できませんでした。もう一度押してください");
 const errorPage = (page: Page) => page.getByText("This page couldn't load");
 
+// The widest screen with the list beside an open article.
+const BESIDE = { width: 1000, height: 800 };
+
 /** Opens the article from its feed's list and returns its `open`. */
 async function openArticle(page: Page, title: string) {
   const open = next(page, "open");
@@ -116,6 +119,8 @@ test.describe("PC 幅", () => {
   });
 
   test("一覧のカードのスキップは screen=list で view_id なし。記事を開いた横のカードでも同じ。未読に戻すは unsee", async ({ page }) => {
+    // The list beside an open article: from `lg` up the article is a sheet over it (panes.spec.ts).
+    await page.setViewportSize(BESIDE);
     const folder = "E2E 操作 カード";
     await openFeed(page, folder, `${folder} A`);
     const a1 = await cardId(page, `${folder} A1`);
@@ -176,6 +181,8 @@ test.describe("PC 幅", () => {
   });
 
   test("一覧の「すべて既読」は screen=list で feedId 付き。記事の横の一覧でも screen=list", async ({ page }) => {
+    // The list beside an open article: from `lg` up the article is a sheet over it (panes.spec.ts).
+    await page.setViewportSize(BESIDE);
     const folder = "E2E 操作 一覧";
     await openTab(page, folder);
     const feedA = await columnFeedId(page, `${folder} A`);
@@ -257,6 +264,8 @@ test.describe("PC 幅", () => {
   });
 
   test("保存に失敗するとイベントは送られず、メッセージが出て、もう一度押せば送られる", async ({ page }) => {
+    // The list beside an open article: from `lg` up the article is a sheet over it (panes.spec.ts).
+    await page.setViewportSize(BESIDE);
     const folder = "E2E 操作 失敗";
     await openFeed(page, folder, `${folder} A`);
     const opened = await openArticle(page, `${folder} A1`);

@@ -29,7 +29,12 @@ const list = (page: Page) => page.getByRole("list", { name: "記事", exact: tru
 const card = (page: Page, title: string) =>
   list(page).getByRole("listitem").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
 const article = (page: Page) => page.getByRole("main");
-const back = (page: Page) => page.getByRole("link", { name: "戻る", exact: true });
+/** ← on phones, ✕ of the article sheet on PCs. */
+const back = (page: Page) =>
+  page
+    .getByRole("link", { name: "戻る", exact: true })
+    .or(page.getByRole("button", { name: "記事を閉じる" }))
+    .filter({ visible: true });
 
 /** Opens the article from its feed's list and returns its `open`. */
 async function openArticle(page: Page, title: string) {
@@ -115,9 +120,13 @@ test.describe("PC 幅", () => {
     await page.mouse.wheel(0, 1500);
     await expect.poll(() => article(page).evaluate((m) => m.getBoundingClientRect().top)).toBeLessThan(-1000);
 
-    // Another article from the list beside it: the first one's leave, then the second's open.
+    // The next article of the list (j, as the list is under the sheet): the first one's leave,
+    // then the second's open.
     let leave = next(page, "leave");
-    const second = await openArticle(page, `${folder} 2`);
+    const opened = next(page, "open");
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText(`${folder} 2`);
+    const second = await opened;
     const half = await leave;
     expect(half).toMatchObject({ articleId: first.articleId, viewId: first.viewId });
     expect(half.scrollPct).toBeGreaterThan(0);

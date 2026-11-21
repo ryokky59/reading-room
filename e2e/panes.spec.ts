@@ -1,7 +1,8 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { openFeed } from "./nav";
 
-// PC panes: the list on the left, the article in the middle, the chat on the right.
+// PCs (`lg` and up): the article is a sheet over the list or the Board, with the chat as its
+// column from `xl`. From `split` up to `lg` the list stays beside the article.
 // Folders used here are seeded at the end of e2e/seed.mts; tests that read or skip use their own.
 
 const folderNav = (page: Page) => page.getByRole("navigation", { name: "フォルダ" });
@@ -61,10 +62,10 @@ async function openWithSeen(page: Page, name: string) {
   await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
 }
 
-test.describe("PC 幅(3 ペイン)", () => {
+test.describe("PC 幅(一覧の上のシート)", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("一覧を残したまま本文が切り替わり、一覧のスクロール位置と絞り込みが保たれる", async ({ page }) => {
+  test("一覧から開いても一覧は全幅のまま後ろに残り、閉じるとスクロール位置と絞り込みが保たれる", async ({ page }) => {
     await openFeed(page, "E2E たくさん");
     const filtered = new URL(page.url()).search;
     // Marks the list's DOM: if switching articles re-rendered the pane, the mark would be gone.
@@ -79,28 +80,42 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(page).toHaveURL(new RegExp(`/articles/\\d+\\${filtered}$`));
     await expect(card(page, "量産記事 20")).toHaveAttribute("aria-current", "true");
     await expect(chat(page)).toBeVisible();
-    // The PC layout: a 320px list, the article, and the chat as a 380px column, not a drawer.
-    expect((await pane(page).boundingBox())!.width).toBe(320);
+    // The list keeps the whole width under the sheet; the chat is a 380px column, not a drawer.
+    await expect(page.getByRole("dialog", { name: "記事" })).toBeVisible();
+    expect((await pane(page).boundingBox())!.width).toBe(1440);
+    await expect.poll(async () => (await chat(page).boundingBox())?.x).toBe(1440 - 380);
     const column = (await chat(page).boundingBox())!;
     expect([column.x + column.width, column.width]).toEqual([1440, 380]);
     await expect(chat(page).getByRole("button", { name: "閉じる" })).toBeHidden();
+    // The empty pane of narrower screens is not beside the list.
+    await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
 
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(`/${filtered}`);
+    await expect(heading(page)).toHaveCount(0);
+    expect(await scrollTop(pane(page))).toBe(top);
+    expect((await pane(page).boundingBox())!.width).toBe(1440);
+    await expect(list(page)).toHaveAttribute("data-e2e", "kept");
+    await expect(card(page, "量産記事 20")).toHaveAttribute("data-seen", "");
+    await expect(feedTitle(page, "E2E 量産サイト")).toBeVisible();
+    await expect(list(page).getByRole("listitem")).toHaveCount(30);
+
+    // Another card opens the sheet again; j moves on in the list behind it.
     await card(page, "量産記事 21").getByRole("link").click();
     await expect(heading(page)).toHaveText("量産記事 21");
     await expect(card(page, "量産記事 21")).toHaveAttribute("aria-current", "true");
-    await expect(card(page, "量産記事 20")).not.toHaveAttribute("aria-current", "true");
-
-    expect(await scrollTop(pane(page))).toBe(top);
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText("量産記事 22");
+    await expect(card(page, "量産記事 22")).toHaveAttribute("aria-current", "true");
     await expect(list(page)).toHaveAttribute("data-e2e", "kept");
-    await expect(feedTitle(page, "E2E 量産サイト")).toBeVisible();
-    await expect(list(page).getByRole("listitem")).toHaveCount(30);
   });
 
   test("記事を切り替えると対話も切り替わる", async ({ page }) => {
     await page.goto("/?a=1");
     await card(page, "対話のある記事").getByRole("link").click();
     await expect(chat(page)).toContainText("要点は E2E テストが通ることです。");
-    await card(page, "ビジネスの記事").getByRole("link").click();
+    // The card just above it in the list.
+    await page.keyboard.press("k");
     await expect(heading(page)).toHaveText("ビジネスの記事");
     await expect(chat(page)).not.toContainText("要点は E2E テストが通ることです。");
     await expect(chat(page).getByRole("button", { name: "要約してもらう" })).toBeVisible();
@@ -148,25 +163,108 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(heading(page)).toHaveText("読み進める 32");
     await expect(card(page, "読み進める 31")).toHaveCount(0);
 
-    // Nothing unread is left after 32, though 1-29 are still above it: the inbox opens beside the list.
+    // Nothing unread is left after 32, though 1-29 are still above it: the sheet closes onto the list.
     await page.keyboard.press("e");
     await expect(page).toHaveURL(`/${filtered}`);
     await expect(heading(page)).toHaveCount(0);
-    await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "記事" })).toHaveCount(0);
+    await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
     await expect(list(page).getByRole("listitem")).toHaveCount(29);
   });
+
+  test("記事の URL を直接開いてもシートの後ろに一覧が届き、戻るで前の記事に戻る", async ({ page }) => {
+    await openFeed(page, "E2E 直接開く");
+    const href = (await card(page, "E2E 直接開く 2").getByRole("link").getAttribute("href"))!;
+
+    await page.goto(href);
+    await expect(heading(page)).toHaveText("E2E 直接開く 2");
+    await expect(list(page).getByRole("listitem")).toHaveCount(3);
+    await expect(card(page, "E2E 直接開く 2")).toHaveAttribute("aria-current", "true");
+    await expect(feedTitle(page, "E2E 直接開くのサイト")).toBeVisible();
+    await expect(chat(page)).toBeVisible();
+
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText("E2E 直接開く 3");
+    await page.goBack();
+    await expect(page).toHaveURL(href);
+    await expect(heading(page)).toHaveText("E2E 直接開く 2");
+    await expect(card(page, "E2E 直接開く 2")).toHaveAttribute("aria-current", "true");
+
+    await page.reload();
+    await expect(heading(page)).toHaveText("E2E 直接開く 2");
+    await expect(list(page).getByRole("listitem")).toHaveCount(3);
+  });
+
+  test("j / k で移動、e で読了、s でスキップ。入力中は効かない", async ({ page }) => {
+    await openFeed(page, "E2E キーボード");
+    const filtered = new URL(page.url()).search;
+    // Nothing beside the list; j still opens its first article.
+    await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
+
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText("E2E キーボード 1");
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText("E2E キーボード 2");
+    await page.keyboard.press("k");
+    await expect(heading(page)).toHaveText("E2E キーボード 1");
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText("E2E キーボード 2");
+    const url = page.url();
+
+    const input = chat(page).getByPlaceholder("質問や感想を書く");
+    await input.click();
+    await page.keyboard.type("jkes");
+    await page.keyboard.press("Escape");
+    await expect(input).toHaveValue("jkes");
+    await expect(page).toHaveURL(url);
+    await expect(heading(page)).toHaveText("E2E キーボード 2");
+    await input.fill("");
+    await heading(page).click(); // leaves the input
+
+    await page.keyboard.press("s");
+    await expect(heading(page)).toHaveText("E2E キーボード 3");
+    await expect(card(page, "E2E キーボード 2")).toHaveCount(0);
+    await page.keyboard.press("e");
+    // Nothing comes after 3, so the feed's list is left with no article beside it.
+    await expect(page).toHaveURL(`/${filtered}`);
+    await expect(card(page, "E2E キーボード 3")).toHaveCount(0);
+    await expect(card(page, "E2E キーボード 1")).toBeVisible();
+
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText("E2E キーボード 1");
+    await page.keyboard.press("e");
+    await expect(page).toHaveURL(`/${filtered.replace(/&s=\d+$/, "")}`);
+    await expect(heading(page)).toHaveCount(0);
+
+    await page.goto("/read");
+    for (const n of [1, 3]) await expect(page.getByText(`E2E キーボード ${n}`)).toBeVisible();
+    await expect(page.getByText("E2E キーボード 2")).toHaveCount(0);
+  });
+});
+
+// From `split` up to `lg` the list stays beside the open article; the chat is a drawer.
+test.describe("一覧が記事の横に出る幅 1000×800", () => {
+  test.use({ viewport: { width: 1000, height: 800 } });
 
   test("記事を開いたままチップや「もっと見る」を押すと一覧だけが切り替わり、記事と書きかけの対話が残る", async ({ page }) => {
     await page.goto("/?a=1");
     await card(page, "対話のある記事").getByRole("link").click();
     await expect(heading(page)).toHaveText("対話のある記事");
     const path = new URL(page.url()).pathname;
-    const input = chat(page).getByPlaceholder("質問や感想を書く");
-    await input.fill("書きかけの質問");
+    // Found also while the drawer is closed (by role it would be hidden).
+    const drawer = page.locator('aside[aria-label="AI と話す"]');
+    const input = drawer.getByPlaceholder("質問や感想を書く");
+    // The chat is a drawer here, closed again so that the list can be pressed.
+    const draft = async () => {
+      await page.getByRole("button", { name: "AI と話す" }).click();
+      await input.fill("書きかけの質問");
+      await drawer.getByRole("button", { name: "閉じる" }).click();
+    };
+    await draft();
     const kept = async () => {
       await expect(heading(page)).toHaveText("対話のある記事");
       await expect(input).toHaveValue("書きかけの質問");
-      await expect(chat(page)).toContainText("要点は E2E テストが通ることです。");
+      await expect(drawer).toContainText("要点は E2E テストが通ることです。");
     };
 
     await folderNav(page).getByRole("link", { name: /^E2E たくさん\s*\d+$/ }).click();
@@ -200,7 +298,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(heading(page)).toHaveText("対話のある記事");
 
     // A site chip turns the list into the feed's, under its hero. (The reload took the draft.)
-    await input.fill("書きかけの質問");
+    await draft();
     await page.getByRole("navigation", { name: "サイト" }).getByRole("link", { name: /^E2E 量産サイト/ }).click();
     await expect(page).toHaveURL(new RegExp(`${path}\\?f=\\d+&s=\\d+&a=1$`));
     await expect(feedTitle(page, "E2E 量産サイト")).toBeVisible();
@@ -289,29 +387,6 @@ test.describe("PC 幅(3 ペイン)", () => {
     for (const t of ["切り替え前 1", "切り替え後 1", "切り替え後 2"]) await expect(page.getByText(t)).toHaveCount(0);
   });
 
-  test("記事の URL を直接開いても 3 ペインで表示され、戻るで前の記事に戻る", async ({ page }) => {
-    await openFeed(page, "E2E 直接開く");
-    const href = (await card(page, "E2E 直接開く 2").getByRole("link").getAttribute("href"))!;
-
-    await page.goto(href);
-    await expect(heading(page)).toHaveText("E2E 直接開く 2");
-    await expect(list(page).getByRole("listitem")).toHaveCount(3);
-    await expect(card(page, "E2E 直接開く 2")).toHaveAttribute("aria-current", "true");
-    await expect(feedTitle(page, "E2E 直接開くのサイト")).toBeVisible();
-    await expect(chat(page)).toBeVisible();
-
-    await card(page, "E2E 直接開く 3").getByRole("link").click();
-    await expect(heading(page)).toHaveText("E2E 直接開く 3");
-    await page.goBack();
-    await expect(page).toHaveURL(href);
-    await expect(heading(page)).toHaveText("E2E 直接開く 2");
-    await expect(card(page, "E2E 直接開く 2")).toHaveAttribute("aria-current", "true");
-
-    await page.reload();
-    await expect(heading(page)).toHaveText("E2E 直接開く 2");
-    await expect(list(page).getByRole("listitem")).toHaveCount(3);
-  });
-
   test("記事を開いてもサーバーは一覧を作らず、チップや「もっと見る」では一覧を 1 回だけ作る", async ({ page }) => {
     await openWithSeen(page, "E2E たくさん");
     let responses = await serverLists(page, async () => {
@@ -357,49 +432,221 @@ test.describe("PC 幅(3 ペイン)", () => {
     await expect(page).toHaveURL(url);
     await expect(card(page, "量産記事 6")).toHaveAttribute("aria-current", "true");
   });
+});
 
-  test("j / k で移動、e で読了、s でスキップ。入力中は効かない", async ({ page }) => {
-    await openFeed(page, "E2E キーボード");
-    const filtered = new URL(page.url()).search;
-    await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeVisible();
+// The article sheet over the Board (`lg` and up). Its folders are the last ones in e2e/seed.mts.
+const sheet = (page: Page) => page.getByRole("dialog", { name: "記事" });
+const closeButton = (page: Page) => page.getByRole("button", { name: "記事を閉じる" });
+const column = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
+const columnList = (page: Page, name: string) => column(page, name).getByRole("list");
+const row = (page: Page, name: string, title: string) =>
+  columnList(page, name).getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
+const unreadIn = (page: Page, name: string) => column(page, name).getByLabel(/^未読 \d+ 本$/);
+const place = (page: Page) => sheet(page).getByText(/^\d+ \/ \d+$/);
+/** The row of folder groups on the Board, which scrolls sideways. */
+const boardRow = (page: Page) => page.locator("[data-list-pane] section[aria-label]").first().locator("xpath=..");
+const scrollLeft = (el: Locator) => el.evaluate((e) => e.scrollLeft);
 
+test.describe("PC 幅のシート", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("ボードの見出しでシートが重なり、Esc / ✕ / スクリムでボードに同じ位置のまま戻る", async ({ page }) => {
+    const site = "E2E シート A";
+    await page.goto("/");
+    // The folder is the last one: the Board scrolls sideways to it, and the column scrolls a little
+    // (less than a row, which would count the row as seen).
+    await column(page, site).scrollIntoViewIfNeeded();
+    await columnList(page, site).evaluate((e) => (e.scrollTop = 30));
+    const left = await scrollLeft(boardRow(page));
+    expect(left).toBeGreaterThan(0);
+    expect(await scrollTop(columnList(page, site))).toBe(30);
+    await expect(unreadIn(page, site)).toHaveText("20");
+    await markPage(page);
+
+    // Rows below the first, which the scroll above has cut: a click would scroll that one into view.
+    const titles = ["E2E シート A 2", "E2E シート A 3", "E2E シート A 4"];
+    const closes = [
+      () => page.keyboard.press("Escape"),
+      () => closeButton(page).click(),
+      // The scrim, to the left of the sheet.
+      () => page.mouse.click(100, 450),
+    ];
+    for (const [i, close] of closes.entries()) {
+      await row(page, site, titles[i]).getByRole("link").click();
+      await expect(heading(page)).toHaveText(titles[i]);
+      await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
+      await expect(sheet(page)).toBeVisible();
+      await expect(place(page)).toHaveText(`${i + 2} / 20`);
+      // The Board stays behind at the whole width; no feed list takes its place.
+      await expect(column(page, site)).toBeVisible();
+      await expect(page.getByRole("list", { name: "記事", exact: true })).toHaveCount(0);
+      expect((await page.locator("[data-list-pane]").boundingBox())!.width).toBe(1440);
+      await expect.poll(async () => (await sheet(page).boundingBox())?.x).toBeCloseTo(1440 - 1440 * 0.72, 0);
+      const box = (await sheet(page).boundingBox())!;
+      expect(box.x + box.width).toBe(1440);
+      // The chat is a column of the sheet at this width.
+      const chatBox = (await chat(page).boundingBox())!;
+      expect([chatBox.x + chatBox.width, chatBox.width]).toEqual([1440, 380]);
+      // The feed's favicon and name head the sheet; there is no ←.
+      await expect(sheet(page).getByRole("banner").getByText(site, { exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "戻る", exact: true })).toBeHidden();
+
+      await close();
+      await expect(page).toHaveURL("/");
+      await expect(heading(page)).toHaveCount(0);
+      await expect(sheet(page)).toHaveCount(0);
+      expect(await scrollLeft(boardRow(page))).toBe(left);
+      expect(await scrollTop(columnList(page, site))).toBe(30);
+      await expect(row(page, site, titles[i])).toHaveAttribute("data-seen", "");
+      await expect(unreadIn(page, site)).toHaveText(String(19 - i));
+    }
+    await expectNoReload(page);
+
+    // Browser back opens the sheet over the Board again; forward closes it.
+    await page.goBack();
+    await expect(heading(page)).toHaveText(titles[2]);
+    await expect(column(page, site)).toBeVisible();
+    await page.goForward();
+    await expect(page).toHaveURL("/");
+    await expect(heading(page)).toHaveCount(0);
+    await expect(column(page, site)).toBeVisible();
+  });
+
+  test("フォルダのタブから開くと、閉じてそのタブに戻る", async ({ page }) => {
+    const site = "E2E シート B";
+    await page.goto("/");
+    await folderNav(page).getByRole("link", { name: /^E2E シート\s*\d+$/ }).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    const tab = page.url();
+    await row(page, site, "E2E シート B 1").getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E シート B 1");
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(tab);
+    await expect(column(page, site)).toBeVisible();
+  });
+
+  test("j / k でその列の中を進み、列の末尾を越えても別のフィードに移らない。「n / N」が変わる", async ({ page }) => {
+    await page.goto("/");
+    await folderNav(page).getByRole("link", { name: /^E2E シートで j\s*\d+$/ }).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+
+    const three = "E2E シート 三本";
+    await row(page, three, `${three} 1`).getByRole("link").click();
+    await expect(heading(page)).toHaveText(`${three} 1`);
+    await expect(place(page)).toHaveText("1 / 3");
     await page.keyboard.press("j");
-    await expect(heading(page)).toHaveText("E2E キーボード 1");
+    await expect(heading(page)).toHaveText(`${three} 2`);
+    await expect(place(page)).toHaveText("2 / 3");
     await page.keyboard.press("j");
-    await expect(heading(page)).toHaveText("E2E キーボード 2");
+    await expect(heading(page)).toHaveText(`${three} 3`);
+    await expect(place(page)).toHaveText("3 / 3");
+    // The last of the feed: j goes nowhere, not to the next column.
+    await page.keyboard.press("j");
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(`${three} 3`);
     await page.keyboard.press("k");
-    await expect(heading(page)).toHaveText("E2E キーボード 1");
-    await page.keyboard.press("j");
-    await expect(heading(page)).toHaveText("E2E キーボード 2");
-    const url = page.url();
+    await expect(heading(page)).toHaveText(`${three} 2`);
+    await expect(place(page)).toHaveText("2 / 3");
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
 
+    // Past the 50 rows of a column, j goes on in the same feed, and k comes back.
+    const many = "E2E シート 五十二本";
+    const last = columnList(page, many).getByRole("listitem").nth(49);
+    await expect(last).toContainText(`${many} 50`);
+    await last.getByRole("link").click();
+    await expect(heading(page)).toHaveText(`${many} 50`);
+    await expect(place(page)).toHaveText("50 / 50");
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText(`${many} 51`);
+    await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
+    await expect(place(page)).toHaveText("51 / 51");
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText(`${many} 52`);
+    await page.keyboard.press("j");
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(`${many} 52`);
+    await page.keyboard.press("k");
+    await expect(heading(page)).toHaveText(`${many} 51`);
+    await page.keyboard.press("k");
+    await expect(heading(page)).toHaveText(`${many} 50`);
+    await expect(column(page, many)).toBeVisible();
+  });
+
+  test("読了 / スキップで同じフィードの次が開き、最後の 1 本でシートが閉じてボードに戻る。保存に失敗すればもう一度押せる", async ({ page }) => {
+    const site = "E2E シート 読了";
+    await page.goto("/");
+    await folderNav(page).getByRole("link", { name: /^E2E シートで読了\s*\d+$/ }).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    const tab = page.url();
+    await row(page, site, `${site} 1`).getByRole("link").click();
+    await expect(heading(page)).toHaveText(`${site} 1`);
+
+    await page.route("**/*", (route) => ("next-action" in route.request().headers() ? route.abort() : route.fallback()));
+    await sheet(page).getByRole("button", { name: "読了にする" }).click();
+    await expect(sheet(page).getByRole("alert")).toHaveText("保存できませんでした。もう一度押してください");
+    await expect(heading(page)).toHaveText(`${site} 1`);
+    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+    await page.unrouteAll();
+
+    await sheet(page).getByRole("button", { name: "読了にする" }).click();
+    await expect(heading(page)).toHaveText(`${site} 2`);
+    await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
+    await expect(column(page, site)).toBeVisible();
+
+    await sheet(page).getByRole("button", { name: "スキップ" }).click();
+    await expect(page).toHaveURL(tab);
+    await expect(sheet(page)).toHaveCount(0);
+    await expect(unreadIn(page, site)).toHaveText("0");
+    // The toast stays above everything, so the skip can be undone.
+    await expect(page.getByRole("button", { name: "元に戻す" })).toBeVisible();
+
+    await page.goto("/read");
+    await expect(page.getByText(`${site} 1`)).toBeVisible();
+    await expect(page.getByText(`${site} 2`)).toHaveCount(0);
+  });
+
+  test("記事の URL を直接開くとシートの後ろに一覧が届き、Esc でフィードの一覧に戻る。リロードでも同じ", async ({ page }) => {
+    const site = "E2E シート 直接";
+    await page.goto("/");
+    await folderNav(page).getByRole("link", { name: /^E2E シートを直接\s*\d+$/ }).click();
+    const href = (await row(page, site, `${site} 1`).getByRole("link").getAttribute("href"))!;
+
+    await page.goto(href);
+    await expect(heading(page)).toHaveText(`${site} 1`);
+    await expect(sheet(page)).toBeVisible();
+    await expect(card(page, `${site} 1`)).toHaveAttribute("aria-current", "true");
+    await expect(list(page).getByRole("listitem")).toHaveCount(2);
+    await expect(page).toHaveURL(href);
+    await expect(place(page)).toHaveText("1 / 2");
+    await page.reload();
+    await expect(heading(page)).toHaveText(`${site} 1`);
+    await expect(list(page).getByRole("listitem")).toHaveCount(2);
+
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(`/${new URL(href, page.url()).search}`);
+    await expect(heading(page)).toHaveCount(0);
+    await expect(feedTitle(page, site)).toBeVisible();
+    // The feed list takes the whole width, with nothing beside it.
+    await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
+  });
+
+  test("チャットの入力中は Esc / j / k / e / s が効かない", async ({ page }) => {
+    const site = "E2E シート 入力";
+    await page.goto("/");
+    await folderNav(page).getByRole("link", { name: /^E2E シートで入力\s*\d+$/ }).click();
+    await row(page, site, `${site} 1`).getByRole("link").click();
+    await expect(heading(page)).toHaveText(`${site} 1`);
+    const url = page.url();
     const input = chat(page).getByPlaceholder("質問や感想を書く");
     await input.click();
     await page.keyboard.type("jkes");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(500);
     await expect(input).toHaveValue("jkes");
     await expect(page).toHaveURL(url);
-    await expect(heading(page)).toHaveText("E2E キーボード 2");
-    await input.fill("");
-    await heading(page).click(); // leaves the input
-
-    await page.keyboard.press("s");
-    await expect(heading(page)).toHaveText("E2E キーボード 3");
-    await expect(card(page, "E2E キーボード 2")).toHaveCount(0);
-    await page.keyboard.press("e");
-    // Nothing comes after 3, so the feed's list is left with no article beside it.
-    await expect(page).toHaveURL(`/${filtered}`);
-    await expect(card(page, "E2E キーボード 3")).toHaveCount(0);
-    await expect(card(page, "E2E キーボード 1")).toBeVisible();
-
-    await page.keyboard.press("j");
-    await expect(heading(page)).toHaveText("E2E キーボード 1");
-    await page.keyboard.press("e");
-    await expect(page).toHaveURL(`/${filtered.replace(/&s=\d+$/, "")}`);
-    await expect(heading(page)).toHaveCount(0);
-
-    await page.goto("/read");
-    for (const n of [1, 3]) await expect(page.getByText(`E2E キーボード ${n}`)).toBeVisible();
-    await expect(page.getByText("E2E キーボード 2")).toHaveCount(0);
+    await expect(sheet(page)).toBeVisible();
+    await expect(heading(page)).toHaveText(`${site} 1`);
   });
 });
 
