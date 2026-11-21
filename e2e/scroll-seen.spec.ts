@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openFeed, openTab } from "./nav";
 
 // Seen by scrolling past (SeenOnScroll). Each test uses its own folder from the end of
-// e2e/seed.mts: site A with 25 short articles (32 in 位置), and in some a site B.
+// e2e/seed.mts: site A with 25 short articles (32 in 位置 and 続き), and in some a site B.
 
 const list = (page: Page) => page.getByRole("list", { name: "記事" });
 const cards = (page: Page) => list(page).locator("li[data-article]");
@@ -251,6 +251,50 @@ test.describe("スマホ @mobile", () => {
     await expect(section.locator("li[data-row][data-seen]")).toHaveCount(0);
     await expect(columnUnread(page, `${name} A`)).toHaveText(String(25 - n));
     await expect(section.getByRole("link", { name: `もっと見る(あと ${25 - n - 3} 件)›` })).toBeVisible();
+  });
+
+  test("保存の途中で「元に戻す」を押しても、保存中の行まで未読に戻る @mobile", async ({ page }) => {
+    const name = "E2E 流し読み 保存中";
+    await openFeed(page, name);
+    await expect(cards(page)).toHaveCount(25);
+    await settle(page);
+    await wheel(page, 400);
+    const n = await lineCount(page);
+
+    // The next save takes its time.
+    await page.route("**/*", async (route) => {
+      if (!("next-action" in route.request().headers())) return route.fallback();
+      await new Promise((done) => setTimeout(done, 2500));
+      await route.fallback();
+    });
+    const saving = page.waitForRequest((r) => "next-action" in r.headers());
+    await wheel(page, 400);
+    await saving;
+    expect(await seenCards(page).count()).toBeGreaterThan(n);
+    await press(undo(page));
+
+    await expect(seenCards(page)).toHaveCount(0, { timeout: 15_000 });
+    await expect(line(page)).toHaveCount(0);
+    await expect(unread(page)).toHaveText(/^25 本/);
+    await page.unroute("**/*");
+    await page.reload();
+    await expect(cards(page)).toHaveCount(25);
+    await expect(unread(page)).toHaveText(/^25 本/);
+  });
+
+  test("「もっと見る」の直後に流した行も既読になる @mobile", async ({ page }) => {
+    const name = "E2E 流し読み 続き";
+    await openFeed(page, name);
+    await expect(cards(page)).toHaveCount(30);
+    await settle(page);
+    await press(page.getByRole("link", { name: /^もっと見る/ }));
+    await expect(cards(page)).toHaveCount(32);
+    // At once: only a list that has just shown waits a second.
+    await wheel(page, 600);
+    const n = await lineCount(page);
+    expect(n).toBeGreaterThanOrEqual(2);
+    await expect(cards(page).first()).toHaveAttribute("data-seen", "");
+    await expect(unread(page)).toHaveText(new RegExp(`^${32 - n} 本`));
   });
 });
 

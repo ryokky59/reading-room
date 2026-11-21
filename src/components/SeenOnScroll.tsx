@@ -31,7 +31,8 @@ export function SeenLine({ after, className = "" }: { after: number; className?:
   if (line?.after !== after) return null;
   const rule = <span aria-hidden="true" className="h-px min-w-2 flex-1 border-t border-dashed border-muted/60" />;
   return (
-    <li data-seen-line="" className={`flex items-center gap-2 text-xs text-muted ${className}`}>
+    // Not a list item to assistive technology (or to a count of the cards): it is a note between them.
+    <li role="presentation" data-seen-line="" className={`flex items-center gap-2 text-xs text-muted ${className}`}>
       {rule}
       <span className="shrink-0">ここまで既読 · {line.count} 件</span>
       <BusyButton type="button" busy={line.busy} onClick={line.undo} className="shrink-0 py-1 text-accent disabled:opacity-60">
@@ -98,6 +99,10 @@ export function SeenOnScroll({
     queue: new Set<number>(),
     /** Nothing counts before this (SETTLE_MS). */
     activeAt: 0,
+    /** What the list last showed as (article open or not, the layout), to tell when it shows anew. */
+    shownAs: "",
+    /** Every row saved so far, in order; 「元に戻す」 reads the ones saved while it waits. */
+    saved: [] as number[],
     dwellTimer: undefined as ReturnType<typeof setTimeout> | undefined,
     saveTimer: undefined as ReturnType<typeof setTimeout> | undefined,
     /** The saves so far; 「元に戻す」 waits for them. */
@@ -116,7 +121,9 @@ export function SeenOnScroll({
       const { shell, toast } = live.current;
       try {
         // Only the rows it marked: one seen or read elsewhere meanwhile stays faded, and out of 「元に戻す」.
-        shell.settleScrolled(await markSeen(ids));
+        const saved = await markSeen(ids);
+        s.saved.push(...saved);
+        shell.settleScrolled(saved);
       } catch (e) {
         console.error(e);
         shell.dropScrolled(ids);
@@ -185,7 +192,10 @@ export function SeenOnScroll({
       wait();
     };
 
-    s.activeAt = performance.now() + SETTLE_MS;
+    // Not when only the rows changed (「もっと見る」, a card that left): the owner may be scrolling.
+    const shownAs = `${open}:${layout}`;
+    if (s.shownAs !== shownAs) s.activeAt = performance.now() + SETTLE_MS;
+    s.shownAs = shownAs;
     s.measure();
     let frame = 0;
     const onScroll = () => {
@@ -223,15 +233,18 @@ export function SeenOnScroll({
       shell.dropScrolled([...s.queue]);
       s.queue.clear();
       s.crossed.clear();
+      // A save on its way finishes first, and its rows go back with the rest.
+      const from = s.saved.length;
       await s.saving;
+      const ids = [...new Set([...batch, ...s.saved.slice(from)])];
       try {
-        for (let i = 0; i < batch.length; i += MAX_IDS) await unmarkSeen(batch.slice(i, i + MAX_IDS));
+        for (let i = 0; i < ids.length; i += MAX_IDS) await unmarkSeen(ids.slice(i, i + MAX_IDS));
       } catch (e) {
         console.error(e);
         toast.fail(FAILED);
         return;
       }
-      shell.dropScrolled(batch);
+      shell.dropScrolled(ids);
       // The server may have these rows as seen by now (a refresh since); they come back unread.
       router.refresh();
     });
