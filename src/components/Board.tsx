@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { FeedBadge } from "@/components/FeedBadge";
 import { FolderTabs } from "@/components/FolderTabs";
-import { BoardPane, BoardRow, ListLink, MarkAllSeenButton } from "@/components/InboxShell";
+import { BoardPane, BoardRow, ColumnUnread, ListedSince, ListLink, MarkAllSeenButton, UnreadCount } from "@/components/InboxShell";
 import { LinkPending } from "@/components/NavPending";
+import { SeenOnScroll } from "@/components/SeenOnScroll";
 import { COLUMN_ROWS, loadBoard, PHONE_ROWS, type BoardColumn, type StoppedFeed } from "@/lib/board";
 import { formatAgo, formatDate, isForeign, readingMinutes } from "@/lib/format";
 import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
-import { requestOpened } from "@/lib/opened-request";
+import { cutKey } from "@/lib/opened";
+import { requestListed } from "@/lib/opened-request";
 
 /**
  * The inbox with no site chosen: a column per feed, grouped by folder. With the `board` variant
@@ -21,8 +23,8 @@ export async function Board({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const filter = parseInboxFilter(await searchParams);
-  const opened = await requestOpened();
-  const { groups, stopped, folders, buckets } = await loadBoard(filter, opened);
+  const listed = await requestListed();
+  const { groups, stopped, folders, buckets } = await loadBoard(filter, listed);
   const selected = filter.f === "none" ? null : filter.f ? Number(filter.f) : "all";
   const total = buckets
     .filter((b) => selected === "all" || b.folderId === selected)
@@ -30,8 +32,13 @@ export async function Board({
   const shown = (c: BoardColumn) => c.unread > 0 || c.rows.length > 0;
   const anyShown = groups.some((g) => g.columns.some(shown));
   const stoppedUnread = stopped.reduce((t, f) => t + f.unread, 0);
+  const columns = groups.flatMap((g) => g.columns);
   return (
-    <BoardPane columns={groups.flatMap((g) => g.columns.map((c) => c.rows.map((r) => r.id)))}>
+    <BoardPane
+      columns={columns.map((c) => c.rows.map((r) => r.id))}
+      unseen={columns.flatMap((c) => c.rows.filter((r) => r.seenAt === null).map((r) => r.id))}
+    >
+      <ListedSince since={listed.since.getTime()} />
       <div className="shrink-0 px-4 pt-3">
         <FolderTabs folders={folders} buckets={buckets} selected={selected} />
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
@@ -46,7 +53,9 @@ export async function Board({
             <LinkPending />
           </ListLink>
           {selected !== "all" && total > 0 && <MarkAllSeenButton target={{ folderId: selected }} screen="board" />}
-          <p className="ml-auto">{total} 本</p>
+          <p className="ml-auto">
+            <UnreadCount n={total} folder={filter.f} /> 本
+          </p>
         </div>
       </div>
 
@@ -85,7 +94,8 @@ function unreadLeft(column: BoardColumn, limit: number) {
 }
 
 function Column({ column }: { column: BoardColumn }) {
-  const { feedId, name, color, favicon, lastFetchedAt, unread, rows, clearIds, articleQuery, listQuery } = column;
+  const { feedId, name, color, favicon, lastFetchedAt, unread, rows, folder, articleQuery, listQuery } = column;
+  const feed = cutKey(feedId);
   const phoneLeft = unreadLeft(column, PHONE_ROWS);
   const columnLeft = unreadLeft(column, COLUMN_ROWS);
   return (
@@ -104,20 +114,25 @@ function Column({ column }: { column: BoardColumn }) {
               <LinkPending />
             </Link>
           </h3>
-          <span aria-label={`未読 ${unread} 本`} className="shrink-0 text-sm tabular-nums text-accent">
-            {unread}
-          </span>
+          <ColumnUnread n={unread} feed={feed} className="shrink-0 text-sm tabular-nums text-accent" />
         </div>
         <div className="mt-0.5 flex min-h-6 items-center gap-2 text-xs text-muted">
           {lastFetchedAt && <span className="truncate">{formatAgo(lastFetchedAt)}に取得</span>}
           {unread > 0 && (
             <span className="ml-auto shrink-0">
-              <MarkAllSeenButton target={{ feedId }} rows={clearIds} screen="board" />
+              <MarkAllSeenButton target={{ feedId }} screen="board" />
             </span>
           )}
         </div>
       </header>
-      <ul aria-label={`${name}の記事`} className="board:min-h-0 board:flex-1 board:overflow-y-auto board:overscroll-contain">
+      <SeenOnScroll
+        mode="column"
+        feed={feed}
+        folder={folder}
+        rows={rows.map((r) => ({ id: r.id, seen: r.seenAt !== null }))}
+        aria-label={`${name}の記事`}
+        className="board:min-h-0 board:flex-1 board:overflow-y-auto board:overscroll-contain"
+      >
         {rows.map((row, i) => (
           <BoardRow
             key={row.id}
@@ -147,7 +162,7 @@ function Column({ column }: { column: BoardColumn }) {
           </BoardRow>
         ))}
         {rows.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted">未読はありません</li>}
-      </ul>
+      </SeenOnScroll>
       {phoneLeft > 0 && (
         <Link
           href={`/${listQuery}`}

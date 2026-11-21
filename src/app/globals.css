@@ -36,6 +36,7 @@
  * `board:` lays the Board out in columns. Width alone is not enough: a phone on its side is as wide
  * as `split` but too short for a column under the header and the tabs, so it stacks like a
  * phone. A tall `split` width (an unfolded phone) and a PC have room.
+ * Keep in sync with BOARD in InboxShell.tsx.
  */
 @custom-variant board (@media (min-width: 37.5rem) and (min-height: 30rem));
 

@@ -590,6 +590,46 @@ const actionArticles = actionFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(actionArticles);
 
+// Seen by scrolling (e2e/scroll-seen.spec.ts): one folder per test, each with site A of 14 short
+// articles (25 where a Board column must scroll). Some have a site B beside it, and two
+// (位置, 続き) have more than a page of the list.
+const skimFolders = await db
+  .insert(schema.folders)
+  .values(
+    [
+      "E2E 流し読み スマホ",
+      "E2E 流し読み 失敗",
+      "E2E 流し読み 取消失敗",
+      "E2E 流し読み 列",
+      "E2E 流し読み フォルダ",
+      "E2E 流し読み 横向き",
+      "E2E 流し読み 開く",
+      "E2E 流し読み 位置",
+      "E2E 流し読み ボードへ",
+      "E2E 流し読み 対象外",
+      "E2E 流し読み PC 一覧",
+      "E2E 流し読み 続き",
+      "E2E 流し読み 保存中",
+    ].map((name, i) => ({ name, position: 170 + i })),
+  )
+  .returning();
+const skimSites = skimFolders.flatMap((f, i) => [
+  // 14 scroll a phone or a pane; a column on a PC takes 25. Kept low: every row is on the Board at `/`.
+  { folder: f, site: "A", slug: `skim-${i}-a`, count: /位置|続き/.test(f.name) ? 32 : /列|フォルダ/.test(f.name) ? 25 : 14 },
+  ...(/列|フォルダ/.test(f.name) ? [{ folder: f, site: "B", slug: `skim-${i}-b`, count: 3 }] : []),
+]);
+const skimFeeds = await db
+  .insert(schema.feeds)
+  .values(skimSites.map((s) => feed(s.slug, `${s.folder.name} ${s.site}`, s.folder.id)))
+  .returning();
+const skimArticles = skimFeeds.flatMap((f, i) =>
+  Array.from({ length: skimSites[i].count }, (_, j) => {
+    const n = 4000 + i * 100 + j;
+    return article(n, { title: `${f.name} ${j + 1}`, titleJa: `${f.name} ${j + 1}`, source: f.name, feedId: f.id, fetchedAt: old(n) });
+  }),
+);
+await db.insert(schema.articles).values(skimArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length} articles into ${dir}`,
 );

@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { articles, feeds, folders, getDb } from "./db";
 import { addUrl, discoverFeed, fetchAllFeeds, fetchFeed } from "./feeds";
-import { inboxOrder, inboxWhere, parseInboxFilter } from "./inbox";
+import { inboxOrder, inboxWhere, parseInboxFilter, seenNow } from "./inbox";
+import { dbNow } from "./opened-request";
 
 export type ActionState = { message?: string; error?: string };
 
@@ -81,18 +82,33 @@ export async function undoLeave(id: number): Promise<boolean> {
   return !!row?.seenAt;
 }
 
-/** Marks the unread articles `scope` picks as seen. */
+/** What 「すべて既読」 wrote: the seen_at every row got (in ms, for the cookie in lib/opened.ts) and how many rows. */
+export type SeenAll = { seenAt: number; count: number };
+
+/** Marks the unread articles `scope` picks as seen, all with one seen_at, and returns them. */
 async function setSeen(scope: SQL | undefined) {
   const db = await getDb();
-  await db
+  return db
     .update(articles)
-    .set({ seenAt: new Date() })
-    .where(and(eq(articles.status, "inbox"), isNull(articles.seenAt), scope));
+    .set({ seenAt: seenNow })
+    .where(and(eq(articles.status, "inbox"), isNull(articles.seenAt), scope))
+    .returning({ id: articles.id, seenAt: articles.seenAt });
 }
 
-export async function markSeen(ids: number[]) {
+async function setAllSeen(scope: SQL | undefined): Promise<SeenAll> {
+  const rows = await setSeen(scope);
+  // Nothing was unread (seen elsewhere meanwhile): what is listed as seen still leaves, as of now.
+  return { seenAt: rows[0]?.seenAt?.getTime() ?? (await dbNow()), count: rows.length };
+}
+
+/**
+ * Marks the unread ones of `ids` as seen and returns those: an article seen or read meanwhile is
+ * not among them, so undoing this leaves it alone.
+ */
+export async function markSeen(ids: number[]): Promise<number[]> {
   const list = ids.filter(Number.isInteger).slice(0, 1000);
-  if (list.length) await setSeen(inArray(articles.id, list));
+  if (list.length === 0) return [];
+  return (await setSeen(inArray(articles.id, list))).map((r) => r.id);
 }
 
 export async function unmarkSeen(ids: number[]) {
@@ -106,18 +122,18 @@ export async function unmarkSeen(ids: number[]) {
 }
 
 /** Everything unread from a feed; null is the articles with no feed (URL から追加). */
-export async function markFeedSeen(feedId: number | null) {
-  await setSeen(feedId === null ? isNull(articles.feedId) : eq(articles.feedId, feedId));
+export async function markFeedSeen(feedId: number | null): Promise<SeenAll> {
+  return setAllSeen(feedId === null ? isNull(articles.feedId) : eq(articles.feedId, feedId));
 }
 
 /** Everything unread in a folder; null is 未分類, which also holds the articles without a feed. */
-export async function markFolderSeen(folderId: number | null) {
+export async function markFolderSeen(folderId: number | null): Promise<SeenAll> {
   const db = await getDb();
   const inFolder = db
     .select({ id: feeds.id })
     .from(feeds)
     .where(folderId === null ? isNull(feeds.folderId) : eq(feeds.folderId, folderId));
-  await setSeen(
+  return setAllSeen(
     folderId === null
       ? or(isNull(articles.feedId), inArray(articles.feedId, inFolder))
       : inArray(articles.feedId, inFolder),

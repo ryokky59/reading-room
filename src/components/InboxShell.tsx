@@ -15,11 +15,12 @@ import {
 } from "react";
 import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen } from "@/lib/actions";
 import { lastNavPath } from "@/lib/last-nav";
-import { OPENED_COOKIE, parseOpened, serializeOpened } from "@/lib/opened";
+import { cutKey, LISTED_COOKIE, parseListed, serializeListed, type Listed } from "@/lib/opened";
 import { track } from "@/lib/track";
 import { BusyButton } from "./BusyButton";
 import { Header } from "./Header";
 import { InboxControls } from "./InboxControls";
+import { SeenLine } from "./SeenOnScroll";
 import { useNavPending } from "./NavPending";
 import { ToastProvider, useToast } from "./Toast";
 
@@ -31,6 +32,25 @@ const WIDE = "(min-width: 600px)";
 /** Whether the screen is wide enough for the list pane; read at event time. */
 export function isWide() {
   return window.matchMedia(WIDE).matches;
+}
+
+// The `board` variant in globals.css: the Board's columns sit side by side and each scrolls on
+// its own. A phone on its side is WIDE but not this: its Board stacks, and the page scrolls.
+// Keep this in sync with globals.css.
+const BOARD = "(min-width: 600px) and (min-height: 480px)";
+
+/** Whether the Board shows as columns; read at event time. */
+export function isBoard() {
+  return window.matchMedia(BOARD).matches;
+}
+
+/** Runs `onChange` when the screen starts or stops being wide enough for the panes or the columns. */
+export function watchLayout(onChange: () => void) {
+  const queries = [WIDE, BOARD].map((q) => window.matchMedia(q));
+  for (const q of queries) q.addEventListener("change", onChange);
+  return () => {
+    for (const q of queries) q.removeEventListener("change", onChange);
+  };
 }
 
 /** Whether a key press is typing (an input, a textarea, a select or an IME) rather than a shortcut. */
@@ -48,7 +68,8 @@ export function isTyping(e: KeyboardEvent) {
 type InboxNav = {
   /** Unread article ids in the order the list shows them; null until the list has rendered. */
   ids: number[] | null;
-  setIds: (ids: number[]) => void;
+  /** `unseen` are the ids the list or the Board came with as unread. */
+  setIds: (ids: number[], unseen: number[]) => void;
 };
 
 const InboxNavContext = createContext<InboxNav>({ ids: null, setIds: () => {} });
@@ -61,80 +82,199 @@ export function useInboxIds() {
   return useContext(InboxNavContext).ids;
 }
 
-function readOpened() {
-  const match = new RegExp(`(?:^|; )${OPENED_COOKIE}=([^;]*)`).exec(document.cookie);
-  return parseOpened(match?.[1]);
+function readListed() {
+  const match = new RegExp(`(?:^|; )${LISTED_COOKIE}=([^;]*)`).exec(document.cookie);
+  return parseListed(match?.[1]);
 }
 
-function writeOpened(ids: number[]) {
-  const age = ids.length ? "" : "; max-age=0";
-  document.cookie = `${OPENED_COOKIE}=${serializeOpened(ids)}; path=/; samesite=lax${age}`;
+function writeListed(listed: Listed) {
+  document.cookie = `${LISTED_COOKIE}=${serializeListed(listed)}; path=/; samesite=lax`;
 }
+
+/**
+ * Writes down the `since` the server rendered a list or the Board with (lib/opened.ts), when it
+ * picked a new one: on a full load, or when the cookie had none. Never an older one: a page from
+ * the router's cache (browser back) comes with the `since` of its time.
+ */
+export function ListedSince({ since }: { since: number }) {
+  const openId = useOpenId();
+  const openIdRef = useRef(openId);
+  // Layout effects: the cookie must be there before ListAfterFullLoad's effect or a refresh asks for a list.
+  useLayoutEffect(() => {
+    openIdRef.current = openId;
+  });
+  useLayoutEffect(() => {
+    const listed = readListed();
+    if (listed.since === null || listed.since < since) writeListed({ since, open: openIdRef.current, cut: listed.cut });
+  }, [since]);
+  return null;
+}
+
+/** A row that SeenOnScroll marked as seen, or is about to. */
+export type Scrolled = {
+  /** Its feed and folder, as the cookie and the filter name them ("none" for neither). */
+  feed: string;
+  folder: string;
+  /** The list or column it was scrolled past in. */
+  owner: string;
+  /** Saved, and still behind that list's 「ここまで既読」 line, whose 「元に戻す」 takes it back. */
+  saved: boolean;
+};
+
+type SeenAllTarget = { feedId: number | null } | { folderId: number | null };
 
 type Opened = {
   /** The articles opened beside the list since the shell mounted; their cards fade at once. */
   opened: ReadonlySet<number>;
+  /** The rows scrolled past since the shell mounted; they fade at once, too. */
+  scrolled: ReadonlyMap<number, Scrolled>;
   /** Stops fading a card, once its article is unread again. */
   forget: (id: number) => void;
-  /**
-   * Keeps a seen article in the list, faded, though it was not opened beside it: one that
-   * 「元に戻す」 put back. On phones too, where opening an article does not keep it.
-   */
+  /** Fades the card of a seen article that was not opened here: one that 「元に戻す」 put back. */
   keep: (id: number) => void;
   /**
-   * After 「すべて既読」: `rows` (a Board column's) leave; without them, the list keeps only the
-   * open article.
+   * After 「すべて既読」, which wrote `seenAt`: a feed's seen rows leave (a `cut`), and the other
+   * feeds keep theirs; after a folder's, every seen row but the open article leaves (`since`).
    */
-  clear: (rows?: number[]) => void;
+  clear: (target: SeenAllTarget, seenAt: number) => void;
+  /** Fades rows as SeenOnScroll is about to save them. */
+  addScrolled: (ids: number[], row: Omit<Scrolled, "saved">) => void;
+  /** After a save: `saved` are the rows it marked, which go behind the line. */
+  settleScrolled: (saved: number[]) => void;
+  /** Takes rows back: their save failed, or it was undone. */
+  dropScrolled: (ids: number[]) => void;
 };
 
-const OpenedContext = createContext<Opened>({ opened: new Set(), forget: () => {}, keep: () => {}, clear: () => {} });
+const OpenedContext = createContext<Opened>({
+  opened: new Set(),
+  scrolled: new Map(),
+  forget: () => {},
+  keep: () => {},
+  clear: () => {},
+  addScrolled: () => {},
+  settleScrolled: () => {},
+  dropScrolled: () => {},
+});
 
 /** Forgets that an article was opened beside the list, for when it goes back to unread. */
 export function useForgetOpened() {
   return useContext(OpenedContext).forget;
 }
 
+/** What SeenOnScroll needs of the shell: which rows are faded already, and its own to add. */
+export function useScrolledSeen() {
+  return useContext(OpenedContext);
+}
+
 /**
- * Keeps the articles opened beside the list (see lib/opened.ts). A full load of the list starts
- * without them: the server ignores the cookie for it (lib/opened-request.ts) and this drops the
- * cookie before the router's next request. Beside an article, a reload keeps them. Phones have no list beside the article
- * and drop a seen card, but a row opened from the Board stays: it may be its section's last.
+ * Keeps what the list needs to hold seen rows in place (see lib/opened.ts): the open article goes
+ * in the cookie, on phones too, and 「すべて既読」 moves `cut` or `since`. A full load of the list
+ * starts again: the server ignores the cookie for it (lib/opened-request.ts) and ListedSince
+ * writes the new one. Beside an article, a reload keeps the cookie.
  */
-function useOpened(openId: number | null, fromBoard: boolean): Opened {
+function useOpened(openId: number | null): Opened {
   const [opened, setOpened] = useState<ReadonlySet<number>>(() => new Set(openId === null ? [] : [openId]));
+  const [scrolled, setScrolled] = useState<ReadonlyMap<number, Scrolled>>(new Map());
   const [lastOpenId, setLastOpenId] = useState(openId);
   if (openId !== lastOpenId) {
     setLastOpenId(openId);
     if (openId !== null) setOpened(new Set(opened).add(openId));
   }
   const openIdRef = useRef(openId);
-  const forget = useCallback((id: number) => {
-    setOpened((s) => {
-      if (!s.has(id)) return s;
-      const next = new Set(s);
-      next.delete(id);
+  const dropScrolled = useCallback((ids: number[]) => {
+    setScrolled((m) => {
+      if (!ids.some((id) => m.has(id))) return m;
+      const next = new Map(m);
+      for (const id of ids) next.delete(id);
       return next;
     });
   }, []);
+  const addScrolled = useCallback((ids: number[], row: Omit<Scrolled, "saved">) => {
+    setScrolled((m) => {
+      const next = new Map(m);
+      for (const id of ids) next.set(id, { ...row, saved: false });
+      return next;
+    });
+  }, []);
+  /** Sets `saved` on the rows `pick` chooses. */
+  const setSaved = useCallback((saved: boolean, pick: (id: number, row: Scrolled) => boolean) => {
+    setScrolled((m) => {
+      const next = new Map(m);
+      for (const [id, row] of m) if (row.saved !== saved && pick(id, row)) next.set(id, { ...row, saved });
+      return next;
+    });
+  }, []);
+  const settleScrolled = useCallback((saved: number[]) => setSaved(true, (id) => saved.includes(id)), [setSaved]);
+  const forget = useCallback(
+    (id: number) => {
+      setOpened((s) => {
+        if (!s.has(id)) return s;
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
+      dropScrolled([id]);
+    },
+    [dropScrolled],
+  );
   const keep = useCallback((id: number) => {
     setOpened((s) => (s.has(id) ? s : new Set(s).add(id)));
-    writeOpened([...readOpened().filter((other) => other !== id), id]);
   }, []);
-  const clear = useCallback((rows?: number[]) => {
-    const keep = (id: number) => (rows ? !rows.includes(id) : id === openIdRef.current);
-    setOpened((s) => new Set([...s].filter(keep)));
-    writeOpened(readOpened().filter(keep));
-  }, []);
+  const clear = useCallback(
+    (target: SeenAllTarget, seenAt: number) => {
+      const listed = readListed();
+      if ("feedId" in target) {
+        const feed = cutKey(target.feedId);
+        writeListed({ ...listed, cut: { ...listed.cut, [feed]: seenAt } });
+        // The rows stay faded until the refreshed list drops them, but their line goes now.
+        setSaved(false, (_, row) => row.feed === feed);
+      } else {
+        // One past it: `since` keeps what was seen at it or later.
+        writeListed({ ...listed, since: seenAt + 1 });
+        setOpened((s) => new Set([...s].filter((id) => id === openIdRef.current)));
+        setSaved(false, () => true);
+      }
+    },
+    [setSaved],
+  );
   // A layout effect: the cookie must be there before ListAfterFullLoad's effect asks for the list.
   useLayoutEffect(() => {
     openIdRef.current = openId;
-    if (openId !== null && (isWide() || fromBoard)) writeOpened([...readOpened().filter((id) => id !== openId), openId]);
-  }, [openId, fromBoard]);
-  useLayoutEffect(() => {
-    if (openIdRef.current === null) writeOpened([]);
-  }, []);
-  return useMemo(() => ({ opened, forget, keep, clear }), [opened, forget, keep, clear]);
+    const listed = readListed();
+    if (listed.open !== openId) writeListed({ ...listed, open: openId });
+  }, [openId]);
+  return useMemo(
+    () => ({ opened, scrolled, forget, keep, clear, addScrolled, settleScrolled, dropScrolled }),
+    [opened, scrolled, forget, keep, clear, addScrolled, settleScrolled, dropScrolled],
+  );
+}
+
+/** The scrolled-past rows that the unread counts on screen still include. */
+const UncountedContext = createContext<Scrolled[]>([]);
+
+/**
+ * An unread count from the server, less the rows scrolled past since: the list is not refreshed
+ * while it scrolls. With `feed` or `folder` (as in Scrolled) only theirs count.
+ */
+export function useUnread(n: number, { feed, folder }: { feed?: string; folder?: string } = {}) {
+  const gone = useContext(UncountedContext).filter(
+    (row) => (feed === undefined || row.feed === feed) && (folder === undefined || row.folder === folder),
+  );
+  return Math.max(0, n - gone.length);
+}
+
+export function UnreadCount({ n, feed, folder }: { n: number; feed?: string; folder?: string }) {
+  return useUnread(n, { feed, folder });
+}
+
+/** A Board column's count, with its label. */
+export function ColumnUnread({ n, feed, className }: { n: number; feed: string; className?: string }) {
+  const unread = useUnread(n, { feed });
+  return (
+    <span aria-label={`未読 ${unread} 本`} className={className}>
+      {unread}
+    </span>
+  );
 }
 
 /** Which way a list card leaves: スキップ to the left, 読了 to the right. */
@@ -182,7 +322,7 @@ export function useLeaving(id: number) {
   return useContext(LeavingContext).leaving.get(id)?.dir;
 }
 
-const FAILED = "保存できませんでした。もう一度押してください";
+export const FAILED = "保存できませんでした。もう一度押してください";
 
 /** Copies the card of article `id` from the page, to show as a Ghost after the list is refetched. */
 function takeGhost(id: number): Ghost | undefined {
@@ -227,7 +367,6 @@ export function useLeftInbox() {
         }
         // The screen it was pressed on; not a step of the view the article may have open.
         track("undo", { articleId: id, viewId: null, props: { of: kind } });
-        // Before the refresh: the list query drops a seen row that the cookie does not name.
         if (seen) keep(id);
         else forget(id);
         router.refresh();
@@ -236,6 +375,11 @@ export function useLeftInbox() {
     },
     [setLeaving, toast, router, forget, keep],
   );
+}
+
+/** Whether an article is open: on phones the list is then hidden under it. */
+export function useArticleOpen() {
+  return useOpenId() !== null;
 }
 
 /** The article id open next to the list, if any. */
@@ -305,13 +449,22 @@ export function BoardLink({ className, children }: { className?: string; childre
  * `columns` are the row ids of each column. An open article moves only within its own column,
  * from before the feed list arrives; with no article open every row counts as listed.
  */
-export function BoardPane({ columns, children }: { columns: number[][]; children: React.ReactNode }) {
+export function BoardPane({
+  columns,
+  unseen,
+  children,
+}: {
+  columns: number[][];
+  /** The rows that came as unread. */
+  unseen: number[];
+  children: React.ReactNode;
+}) {
   const openId = useOpenId();
   const open = openId !== null;
   const ids = open ? (columns.find((c) => c.includes(openId)) ?? []) : columns.flat();
   return (
     <>
-      <InboxNavSync ids={ids} />
+      <InboxNavSync ids={ids} unseen={unseen} />
       {open && <ListAfterFullLoad />}
       <div className={`${open ? "split:hidden" : "board:flex"} board:h-full board:min-w-0 board:flex-col`}>{children}</div>
     </>
@@ -332,13 +485,16 @@ export function BoardRow({
 }) {
   const faded = useFaded(id, seen);
   return (
-    <li
-      data-row={id}
-      data-seen={faded ? "" : undefined}
-      className={`${className} ${faded ? "opacity-60" : ""} has-[[data-pending=true]]:bg-accent-soft`}
-    >
-      {children}
-    </li>
+    <>
+      <li
+        data-row={id}
+        data-seen={faded ? "" : undefined}
+        className={`${className} ${faded ? "opacity-60" : ""} has-[[data-pending=true]]:bg-accent-soft`}
+      >
+        {children}
+      </li>
+      <SeenLine after={id} className="border-b border-line px-3 py-1" />
+    </>
   );
 }
 
@@ -366,8 +522,10 @@ export function InboxShell({
       return next;
     });
   }, []);
-  const syncIds = useCallback((ids: number[]) => {
+  const [unseen, setUnseen] = useState<ReadonlySet<number>>(new Set());
+  const syncIds = useCallback((ids: number[], unseen: number[]) => {
     setIds(ids);
+    setUnseen(new Set(unseen));
     // A card is gone for good once the refreshed list no longer has it; a ghost of it removes
     // itself once it has left (LeavingGhosts).
     setLeavingMap((m) => {
@@ -399,7 +557,12 @@ export function InboxShell({
   const openId = useOpenId();
   const open = openId !== null;
   const boardOrigin = useBoardOrigin(open);
-  const openedValue = useOpened(openId, boardOrigin.openedFrom);
+  const openedValue = useOpened(openId);
+  const { scrolled } = openedValue;
+  const uncounted = useMemo(
+    () => [...scrolled].filter(([id]) => unseen.has(id)).map(([, row]) => row),
+    [scrolled, unseen],
+  );
   usePhoneListScroll(open);
   useArticleUrlAfterListChange();
   useRefreshOnLeavingArticle(open, leaving.size > 0);
@@ -409,6 +572,7 @@ export function InboxShell({
     <InboxNavContext.Provider value={{ ids: shownIds, setIds: syncIds }}>
       <LeavingContext.Provider value={leavingValue}>
         <OpenedContext.Provider value={openedValue}>
+        <UncountedContext.Provider value={uncounted}>
         <BoardOriginContext.Provider value={boardOrigin}>
         {/* Phones: bottom centre, and hidden over an article, whose buttons sit at the bottom.
             Beside an article (`split` and up): over the bottom of the list pane. */}
@@ -426,6 +590,8 @@ export function InboxShell({
               {/* A role, not an element, so the list is not remounted when an article opens. */}
               {/* The safe-area insets (0 on PCs) keep the panes clear of a landscape iPhone's notch and corners. */}
               <div
+                // Where SeenOnScroll finds the pane a list scrolls in.
+                data-list-pane=""
                 role={open ? "region" : "main"}
                 aria-label={open ? "新着一覧" : undefined}
                 className={`${open ? "hidden split:block" : ""} ${
@@ -445,6 +611,7 @@ export function InboxShell({
           </div>
         </ToastProvider>
         </BoardOriginContext.Provider>
+        </UncountedContext.Provider>
         </OpenedContext.Provider>
       </LeavingContext.Provider>
     </InboxNavContext.Provider>
@@ -508,12 +675,13 @@ function usePhoneListScroll(open: boolean) {
 }
 
 /** Tells the shell which articles the list shows, in order. */
-export function InboxNavSync({ ids }: { ids: number[] }) {
+export function InboxNavSync({ ids, unseen }: { ids: number[]; unseen: number[] }) {
   const { setIds } = useContext(InboxNavContext);
-  const key = ids.join(",");
+  const key = `${ids.join(",")};${unseen.join(",")}`;
   // Before paint, so a card's ghost (LeavingGhosts) shows in the same frame as the list without it.
   useLayoutEffect(() => {
-    setIds(key ? key.split(",").map(Number) : []);
+    const [ids, unseen] = key.split(";").map((part) => (part ? part.split(",").map(Number) : []));
+    setIds(ids, unseen);
   }, [key, setIds]);
   return null;
 }
@@ -590,9 +758,13 @@ export function ListAfterFullLoad() {
   );
 }
 
-/** Whether a card shows as seen: the server says so, or its article was opened since the list came. */
+/**
+ * Whether a card shows as seen: the server says so, or since the list came its article was opened
+ * or the card was scrolled past.
+ */
 function useFaded(id: number, seen: boolean) {
-  return useContext(OpenedContext).opened.has(id) || seen;
+  const { opened, scrolled } = useContext(OpenedContext);
+  return opened.has(id) || scrolled.has(id) || seen;
 }
 
 /**
@@ -627,6 +799,7 @@ export function InboxItem({ id, seen, children }: { id: number; seen: boolean; c
       >
         {children}
       </li>
+      <SeenLine after={id} />
     </>
   );
 }
@@ -763,16 +936,14 @@ function CardUnseeButton({ id }: { id: number }) {
 
 /**
  * 「すべて既読」 for a site, a folder, or (feedId null) the articles with no feed. Unconfirmed:
- * 「既読を含む」 still has the articles. In a Board column, `rows` are the column's rows, so the
- * seen rows of the other columns stay.
+ * 「既読を含む」 still has the articles. A site's leaves the seen rows of the other Board columns
+ * in place; a folder's leaves only the open article.
  */
 export function MarkAllSeenButton({
   target,
-  rows,
   screen,
 }: {
-  target: { feedId: number | null } | { folderId: number | null };
-  rows?: number[];
+  target: SeenAllTarget;
   /** Where the button is, for the activity log: beside an article the URL says `article`. */
   screen: "board" | "list";
 }) {
@@ -787,15 +958,16 @@ export function MarkAllSeenButton({
       busy={pending}
       onClick={() =>
         startTransition(async () => {
+          let seenAt: number;
           try {
-            await ("feedId" in target ? markFeedSeen(target.feedId) : markFolderSeen(target.folderId));
+            ({ seenAt } = await ("feedId" in target ? markFeedSeen(target.feedId) : markFolderSeen(target.folderId)));
           } catch (e) {
             console.error(e);
             toast.fail(FAILED);
             return;
           }
           track("seen_all", { screen, props: target });
-          clear(rows);
+          clear(target, seenAt);
           router.refresh();
         })
       }

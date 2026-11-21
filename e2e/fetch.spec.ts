@@ -9,6 +9,17 @@ import { expect, test, type Page } from "@playwright/test";
 const cards = (page: Page) => page.getByRole("list", { name: "記事" }).getByRole("listitem");
 const card = (page: Page, title: string) => cards(page).filter({ hasText: title });
 const fetchButton = (page: Page) => page.getByRole("button", { name: "今すぐ取得" });
+/**
+ * Presses 「今すぐ取得」 once the page is hydrated. `goto` returns at `load`, and in CI the Board
+ * at `/` takes about a second more to hydrate. A press in between is replayed afterwards, and
+ * the fetch then really runs instead of meeting the routes the test set (CI traces: the press
+ * at 1.0s, the first prefetch at 1.9s, and 「N 本の新着を追加しました」 on screen at the end).
+ * The sign is the folder tabs' pill, which an effect of ChipRow shows: React has committed by then.
+ */
+async function pressFetch(page: Page) {
+  await expect(page.locator(".chip-pill:not([hidden])").first()).toBeAttached({ timeout: 30_000 });
+  await fetchButton(page).click();
+}
 const fetchFailure = (page: Page) => page.getByRole("alert").filter({ hasText: "取得できませんでした" });
 const fetchCut = (page: Page) => page.getByRole("alert").filter({ hasText: "通信が切れました" });
 const cutMessage = "通信が切れました。取得が終わっていれば一覧に出ています。出ていなければもう一度押してください";
@@ -185,7 +196,7 @@ ${listCutItems ? `<item><title>通信切れテスト 保存された記事</titl
       reachedServer = true;
       await route.abort();
     });
-    await fetchButton(page).click();
+    await pressFetch(page);
     await expect(fetchCut(page)).toHaveText(cutMessage, { timeout: 90_000 });
     expect(reachedServer).toBe(true);
     await expect(fetchFailure(page)).toHaveCount(0);
@@ -228,7 +239,7 @@ test("「今すぐ取得」の通信が切れると、ボタンの下に通信�
   test.setTimeout(90_000);
   await page.goto("/");
   await abortActions(page);
-  await fetchButton(page).click();
+  await pressFetch(page);
   await expect(fetchCut(page)).toHaveText(cutMessage);
   await expect(fetchFailure(page)).toHaveCount(0);
   await expect(fetchButton(page)).toBeEnabled();
@@ -248,7 +259,7 @@ test("「今すぐ取得」でサーバーがエラーを返すと、取得で�
       ? route.fulfill({ status: 500, contentType: "text/plain", body: "Internal Server Error" })
       : route.fallback(),
   );
-  await fetchButton(page).click();
+  await pressFetch(page);
   await expect(fetchFailure(page)).toHaveText("取得できませんでした。もう一度押してください");
   await expect(fetchCut(page)).toHaveCount(0);
   await expect(fetchButton(page)).toBeEnabled();

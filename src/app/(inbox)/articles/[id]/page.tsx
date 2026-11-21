@@ -2,7 +2,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ArticleView } from "@/components/ArticleView";
 import { articles, feeds, folders, getDb, messages } from "@/lib/db";
-import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
+import { inboxQuery, parseInboxFilter, seenNow } from "@/lib/inbox";
 
 // The header beside the article runs "今すぐ取得" as a server action of this page.
 export const maxDuration = 300;
@@ -28,7 +28,7 @@ export default async function ArticlePage({ params, searchParams }: PageProps<"/
   if (article.status === "inbox" && !article.seenAt) {
     await db
       .update(articles)
-      .set({ seenAt: new Date() })
+      .set({ seenAt: seenNow })
       .where(and(eq(articles.id, id), eq(articles.status, "inbox"), isNull(articles.seenAt)));
   }
   const history = await db

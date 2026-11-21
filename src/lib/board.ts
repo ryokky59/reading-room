@@ -1,9 +1,9 @@
 import "server-only";
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, max, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, isNull, lte, max, or, sql } from "drizzle-orm";
 import { articles, feeds, folders, getDb } from "./db";
 import { faviconUrl } from "./favicon";
 import { formatAgo } from "./format";
-import { inboxQuery, inboxWhere, listedWhere, type InboxFilter } from "./inbox";
+import { inboxQuery, inboxWhere, listedWhere, type InboxFilter, type ListedRows } from "./inbox";
 
 /** Rows a column shows on PCs; the rest are behind 「あと N 件」. */
 export const COLUMN_ROWS = 50;
@@ -80,8 +80,8 @@ export type BoardColumn = {
   lastFetchedAt: Date | null;
   unread: number;
   rows: BoardRowData[];
-  /** What 「すべて既読」 takes off the column: its rows, and seen ones kept past COLUMN_ROWS. */
-  clearIds: number[];
+  /** The feed's folder as a filter's `f`, "none" for 未分類. */
+  folder: string;
   /** Search string a row's article opens with. */
   articleQuery: string;
   /** Search string of the list behind the column. */
@@ -100,10 +100,10 @@ export type StoppedFeed = {
 };
 
 /**
- * What the Board shows for the folder tab in `filter.f`. Seen articles in `kept` stay in their
- * columns, as they do in a list (lib/opened.ts).
+ * What the Board shows for the folder tab in `filter.f`. The seen articles of `listed` stay in
+ * their columns, as they do in a list (lib/opened.ts).
  */
-export async function loadBoard(filter: InboxFilter, kept: number[]) {
+export async function loadBoard(filter: InboxFilter, listed: ListedRows) {
   const db = await getDb();
   const running = or(isNull(articles.feedId), and(eq(feeds.enabled, true), isNull(feeds.lastError)));
   const ranked = db
@@ -127,9 +127,9 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
     })
     .from(articles)
     .leftJoin(feeds, eq(feeds.id, articles.feedId))
-    .where(and(listedWhere({ f: filter.f }, kept), running))
+    .where(and(listedWhere({ f: filter.f }, listed), running))
     .as("ranked");
-  const [rows, feedRows, latest, folderRows, buckets, keptRows] = await Promise.all([
+  const [rows, feedRows, latest, folderRows, buckets] = await Promise.all([
     db.select().from(ranked).where(lte(ranked.place, COLUMN_ROWS)).orderBy(ranked.place),
     db
       .select({
@@ -150,18 +150,12 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
       .orderBy(articles.feedId, desc(articles.fetchedAt)),
     folderList(),
     unreadBuckets(),
-    kept.length
-      ? db.select({ id: articles.id, feedId: articles.feedId }).from(articles).where(inArray(articles.id, kept))
-      : [],
   ]);
   type FeedRow = (typeof feedRows)[number];
 
   const urlOf = new Map(latest.map((a) => [a.feedId, a.url]));
   const unreadOf = (feedId: number | null) => buckets.filter((b) => b.feedId === feedId).reduce((t, b) => t + b.n, 0);
   const rowsOf = (feedId: number | null) => rows.filter((r) => r.feedId === feedId);
-  const clearIds = (feedId: number | null) => [
-    ...new Set([...rowsOf(feedId), ...keptRows.filter((r) => r.feedId === feedId)].map((r) => r.id)),
-  ];
   const folderParam = (id: number | null) => (id === null ? "none" : String(id));
   const shown = (id: number | null) => filter.f === undefined || filter.f === folderParam(id);
   const isStopped = (f: FeedRow) => !f.enabled || f.lastError !== null;
@@ -180,7 +174,7 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
       lastFetchedAt: f.lastFetchedAt,
       unread,
       rows: rowsOf(f.id),
-      clearIds: clearIds(f.id),
+      folder: folderParam(f.folderId),
       articleQuery: inboxQuery({ f: folderParam(f.folderId), s: String(f.id) }),
       listQuery: feedList(f, unread),
     };
@@ -207,7 +201,7 @@ export async function loadBoard(filter: InboxFilter, kept: number[]) {
       lastFetchedAt: null,
       unread,
       rows: noFeed,
-      clearIds: clearIds(null),
+      folder: "none",
       // These have no `s` to narrow by, so they open and list as 未分類; with `a`, as without it
       // the list would be this Board.
       articleQuery: inboxQuery({ f: "none" }),

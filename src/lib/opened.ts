@@ -1,26 +1,66 @@
-// Articles opened beside the list (PCs) or from the Board are seen, so the list query would drop them on its next
-// refresh, while they should stay there, faded, for j / k and for keeping one's place. The list
-// is a Server Component that router.refresh() refetches from the URL it was loaded from, so the
-// only way to tell it which ones is on the request: a session cookie that InboxShell writes.
-// A full load of the list starts again without them (lib/opened-request.ts).
+// Seen articles leave the unread list, but the ones seen in this sitting (opened, or scrolled
+// past) should stay in place, faded, for j / k and for keeping one's place. The list is a Server
+// Component that router.refresh() refetches from the URL it was loaded from, so the only way to
+// tell it which ones is on the request: a session cookie that InboxShell writes. It holds
+//
+// - `since`: when this sitting's list was loaded in full. Articles seen from then on stay. The
+//   server picks it (lib/opened-request.ts) and the page writes it down; every seen_at is the
+//   database's clock in whole milliseconds, like this, so the two compare exactly.
+// - `open`: the article last opened, which stays whenever it was seen.
+// - `cut`: per feed ("none" is the articles without one), the time of its 「すべて既読」. What that
+//   feed had seen by then leaves, while the other feeds keep their faded rows.
+//
+// A full load of the list starts again: a new `since`, and nothing else.
 
-export const OPENED_COOKIE = "opened";
+export const LISTED_COOKIE = "listed";
 
-// Enough for a long sitting; the cookie goes with every request.
-const MAX_OPENED = 100;
+export type Listed = { since: number | null; open: number | null; cut: Readonly<Record<string, number>> };
+
+export const NOTHING_LISTED: Listed = { since: null, open: null, cut: {} };
+
+// Feeds number about 20; this only bounds a hand-edited cookie.
+const MAX_CUTS = 50;
 
 // Ids are int4; a larger one in a hand-edited cookie would make the list query fail.
 const MAX_ID = 2147483647;
 
-export function parseOpened(value: string | undefined): number[] {
-  if (!value) return [];
-  return value
-    .split(".")
-    .map(Number)
-    .filter((id) => Number.isInteger(id) && id > 0 && id <= MAX_ID)
-    .slice(-MAX_OPENED);
+// The latest time a Date can hold.
+const MAX_TIME = 8.64e15;
+
+const idOf = (s: string | undefined) => {
+  const n = /^[1-9]\d{0,9}$/.test(s ?? "") ? Number(s) : 0;
+  return n > 0 && n <= MAX_ID ? n : null;
+};
+
+const timeOf = (s: string | undefined) => {
+  const n = /^[1-9]\d{0,15}$/.test(s ?? "") ? Number(s) : 0;
+  return n > 0 && n <= MAX_TIME ? n : null;
+};
+
+/** A feed (or, alike, a folder) as the cookie and a filter's `f` name it: "none" for null. */
+export function cutKey(feedId: number | null) {
+  return feedId === null ? "none" : String(feedId);
 }
 
-export function serializeOpened(ids: number[]) {
-  return ids.slice(-MAX_OPENED).join(".");
+/** Reads `<since>~<open>~<feed>-<time>.<feed>-<time>`; anything malformed in it is left out. */
+export function parseListed(value: string | undefined): Listed {
+  if (!value) return NOTHING_LISTED;
+  const [since, open, cuts] = value.split("~");
+  const cut: Record<string, number> = {};
+  for (const part of (cuts ?? "").split(".").slice(0, MAX_CUTS)) {
+    const [feed, time] = part.split("-");
+    const at = timeOf(time);
+    if (at !== null && (feed === "none" || idOf(feed) !== null)) cut[feed] = at;
+  }
+  return { since: timeOf(since), open: idOf(open), cut };
+}
+
+/** Leaves out the cuts `since` already covers, and all but the newest few. */
+export function serializeListed({ since, open, cut }: Listed) {
+  const cuts = Object.entries(cut)
+    .filter(([, at]) => since === null || at >= since)
+    .sort((a, b) => a[1] - b[1])
+    .slice(-MAX_CUTS)
+    .map(([feed, at]) => `${feed}-${at}`);
+  return `${since ?? ""}~${open ?? ""}~${cuts.join(".")}`;
 }
