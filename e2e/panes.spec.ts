@@ -631,6 +631,41 @@ test.describe("PC 幅のシート", () => {
     await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
   });
 
+  test("シートを開くとキーは記事に向き、後ろの列はスクロールも既読にもならず、Tab も届かない。閉じると行に戻る", async ({ page }) => {
+    const site = "E2E シート キー";
+    await page.goto("/");
+    await folderNav(page).getByRole("link", { name: /^E2E シートでキー\s*\d+$/ }).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(unreadIn(page, site)).toHaveText("20");
+    const link = row(page, site, `${site} 1`).getByRole("link");
+    await link.click();
+    await expect(heading(page)).toHaveText(`${site} 1`);
+    const inSheet = () => page.evaluate(() => !!document.activeElement?.closest("[role=dialog]"));
+    await expect.poll(inSheet).toBe(true);
+
+    // PageDown scrolls the article; the column behind stays, and no row of it counts as scrolled past.
+    const pane = sheet(page).locator("main").locator("xpath=ancestor::div[contains(@class,'overflow-y-auto')][1]");
+    for (let i = 0; i < 3; i++) await page.keyboard.press("PageDown");
+    await expect.poll(() => scrollTop(pane)).toBeGreaterThan(0);
+    // Longer than SeenOnScroll takes to count and save a row.
+    await page.waitForTimeout(2500);
+    expect(await scrollTop(columnList(page, site))).toBe(0);
+    await expect(unreadIn(page, site)).toHaveText("20");
+    await expect(page.getByText(/ここまで既読/)).toHaveCount(0);
+
+    // Tab stays out of the Board and the header behind the sheet.
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => !!document.activeElement?.closest("[data-list-pane], [data-app-header]"))).toBe(false);
+    }
+
+    await page.keyboard.press("Escape");
+    await expect(heading(page)).toHaveCount(0);
+    await expect(link).toBeFocused();
+    await expect(unreadIn(page, site)).toHaveText("19");
+    expect(await scrollTop(columnList(page, site))).toBe(0);
+  });
+
   test("チャットの入力中は Esc / j / k / e / s が効かない", async ({ page }) => {
     const site = "E2E シート 入力";
     await page.goto("/");

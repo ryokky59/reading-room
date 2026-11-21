@@ -6,11 +6,13 @@ export function Header({
   className,
   panes,
   controls,
+  inert,
 }: {
   active?: "inbox" | "read" | "feeds";
   className?: string;
   panes?: boolean; // spans the list / article / chat panes from `split` up
   controls?: React.ReactNode; // the inbox's 今すぐ取得 and URL を追加
+  inert?: boolean; // behind the article sheet (InboxShell)
 }) {
   const tab = (href: string, label: string, on: boolean) => (
     <Link
@@ -25,6 +27,7 @@ export function Header({
     <header
       // SeenOnScroll measures from its bottom edge on phones.
       data-app-header=""
+      inert={inert}
       className={`sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)] ${className ?? ""}`}
     >
       {/* The insets (0 outside a landscape iPhone) keep the title and the tabs clear of its notch. */}

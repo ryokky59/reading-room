@@ -657,6 +657,7 @@ export function InboxShell({
   useRefreshOnLeavingArticle(open, leaving.size > 0);
   const sheet = useSheet(open, boardOrigin, search);
   const asDialog = useMatches(SHEET) && open;
+  useFocusBack(asDialog);
   // The Board takes the whole width; nothing goes beside it. From `lg` up neither does a feed
   // list: an open article is a sheet over it.
   const board = useBoardUrl() !== null;
@@ -677,6 +678,7 @@ export function InboxShell({
             <Header
               active="inbox"
               className={open ? "hidden split:block" : undefined}
+              inert={asDialog || undefined}
               panes
               controls={<InboxControls lastFetched={lastFetched} />}
             />
@@ -688,6 +690,9 @@ export function InboxShell({
                 data-list-pane=""
                 role={open ? "region" : "main"}
                 aria-label={open ? "新着一覧" : undefined}
+                // Behind the sheet: keys and Tab must not reach it (a column would scroll, and
+                // SeenOnScroll count its rows as seen). Beside the article it stays usable.
+                inert={asDialog || undefined}
                 className={`${open ? "hidden split:block" : ""} ${
                   board
                     ? "split:min-w-0 split:flex-1 split:overflow-y-auto split:pr-[env(safe-area-inset-right)]"
@@ -774,6 +779,25 @@ function useSheet(open: boolean, { href: board, openedFrom }: BoardOrigin, searc
     return () => window.removeEventListener("keydown", onKey);
   }, [open, close]);
   return useMemo(() => ({ setHref, close }), [setHref, close]);
+}
+
+/**
+ * Puts focus back where it was (the Board row or list card that opened the sheet) once the sheet
+ * closes, rather than leaving it on the page. ArticleView moves it into the sheet.
+ */
+function useFocusBack(asDialog: boolean) {
+  const before = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (asDialog) {
+      const active = document.activeElement;
+      before.current = active instanceof HTMLElement && active !== document.body ? active : null;
+      return;
+    }
+    const el = before.current;
+    before.current = null;
+    if (el?.isConnected && (document.activeElement === null || document.activeElement === document.body))
+      el.focus({ preventScroll: true });
+  }, [asDialog]);
 }
 
 /**

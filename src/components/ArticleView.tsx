@@ -95,6 +95,13 @@ export function ArticleView({
   const mainRef = useRef<HTMLElement>(null);
   // `leave` for the activity log: time on the article and how far down it was read.
   useReadingLog(article.id, { pane: paneRef, main: mainRef }, bodyLang);
+  // In the sheet (`lg` and up) keys go to the article: PageDown / space scroll it, and focus
+  // leaves the row behind that opened it. Not while something is being typed.
+  useEffect(() => {
+    if (!isSheet()) return;
+    if (document.activeElement?.closest("input, textarea, select, [contenteditable='']")) return;
+    paneRef.current?.focus({ preventScroll: true });
+  }, []);
 
   async function send(message?: string) {
     setStreaming(true);
@@ -383,7 +390,7 @@ export function ArticleView({
   return (
     <div className="min-h-dvh pb-36 split:flex split:min-h-0 split:min-w-0 split:flex-1 split:pb-0">
       {/* Beside the list (`split` and up) the article scrolls on its own, apart from the list and the chat. */}
-      <div ref={paneRef} className="split:min-w-0 split:flex-1 split:overflow-y-auto">
+      <div ref={paneRef} tabIndex={-1} className="outline-none split:min-w-0 split:flex-1 split:overflow-y-auto">
         <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
           <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4 lg:max-w-3xl lg:px-8">
             <Link href={closeHref} className="pressable py-1 pr-2 text-muted lg:hidden" aria-label="戻る">
