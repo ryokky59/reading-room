@@ -705,7 +705,8 @@ export function InboxShell({
                 />
               )}
               {/* From `lg` up: a sheet over the list or the Board, with the chat as its own column from `xl`.
-                  The chat drawer inside it (`lg` to `xl`) is `position: fixed`, so the sheet must not be transformed. */}
+                  The chat drawer inside it (`lg` to `xl`) is `position: fixed`, so the sheet must not be transformed.
+                  Its width is whole pixels: a fractional edge moves the text and buttons inside by subpixels. */}
               <div
                 data-sheet={open ? "" : undefined}
                 role={asDialog ? "dialog" : undefined}
@@ -713,7 +714,7 @@ export function InboxShell({
                 aria-label={asDialog ? "記事" : undefined}
                 className={`${
                   open
-                    ? "split:flex lg:fixed lg:inset-y-0 lg:right-0 lg:z-30 lg:w-[min(72vw,1100px)] lg:border-l lg:border-line lg:bg-bg lg:shadow-[-8px_0_30px_rgba(0,0,0,0.25)]"
+                    ? "split:flex lg:fixed lg:inset-y-0 lg:right-0 lg:z-30 lg:w-[min(round(down,72vw,1px),1100px)] lg:border-l lg:border-line lg:bg-bg lg:shadow-[-8px_0_30px_rgba(0,0,0,0.25)]"
                     : `hidden ${board ? "" : "split:flex lg:hidden"}`
                 } split:min-w-0 split:flex-1 split:pr-[env(safe-area-inset-right)]`}
               >

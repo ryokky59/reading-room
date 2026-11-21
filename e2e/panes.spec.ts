@@ -481,7 +481,7 @@ test.describe("PC 幅のシート", () => {
       await expect(column(page, site)).toBeVisible();
       await expect(page.getByRole("list", { name: "記事", exact: true })).toHaveCount(0);
       expect((await page.locator("[data-list-pane]").boundingBox())!.width).toBe(1440);
-      await expect.poll(async () => (await sheet(page).boundingBox())?.x).toBeCloseTo(1440 - 1440 * 0.72, 0);
+      await expect.poll(async () => (await sheet(page).boundingBox())?.x).toBe(1440 - Math.floor(1440 * 0.72));
       const box = (await sheet(page).boundingBox())!;
       expect(box.x + box.width).toBe(1440);
       // The chat is a column of the sheet at this width.
