@@ -113,10 +113,11 @@ test.describe("PC 幅", () => {
   });
 
   test("見出しを押すと記事がボードの上のシートで開き、j / k はそのフィードの中で動く。閉じるとボードに戻り、薄く残る", async ({ page }) => {
-    // The whole Board stays mounted behind the sheet on a 4x slower CPU: more than the default 30 s on CI.
-    test.slow();
     await slowCpu(page);
-    await page.goto("/");
+    // The folder's tab, not the whole Board at `/`: under the slow CPU, Playwright's own lookups
+    // through a thousand visible rows behind the sheet outlast its timeouts on CI.
+    await openTab(page, "E2E ボードで開く");
+    const tabUrl = page.url();
     await row(page, "E2E 開く A", "E2E 開く A 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 開く A 1");
     await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
@@ -139,7 +140,7 @@ test.describe("PC 幅", () => {
 
     // ✕ leads to the Board it came from, where the opened rows stay, faded, until a full load.
     await closeSheet(page).click();
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL(tabUrl);
     await expect(heading(page)).toHaveCount(0);
     await expect(row(page, "E2E 開く A", "E2E 開く A 1")).toHaveAttribute("data-seen", "");
     await expect(row(page, "E2E 開く A", "E2E 開く A 2")).toHaveAttribute("data-seen", "");
@@ -150,12 +151,12 @@ test.describe("PC 幅", () => {
     await page.goBack();
     await expect(heading(page)).toHaveText("E2E 開く A 2");
     await page.goForward();
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL(tabUrl);
     await expect(column(page, "E2E 開く A")).toBeVisible();
     await expect(heading(page)).toHaveCount(0);
     // A late replace from the article left behind would bring the article back.
     await page.waitForTimeout(1000);
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL(tabUrl);
     await expect(heading(page)).toHaveCount(0);
     await page.goto(articleUrl);
     await expect(heading(page)).toHaveText("E2E 開く A 1");
@@ -168,7 +169,7 @@ test.describe("PC 幅", () => {
     await expect(page).toHaveURL(/\/\?f=\d+(&s=\d+)?(&a=1)?$/);
 
     // A full load drops the seen rows.
-    await page.goto("/");
+    await page.goto(tabUrl);
     await expect(rows(page, "E2E 開く A").filter({ hasText: "E2E 開く A 1" })).toHaveCount(0);
   });
 
