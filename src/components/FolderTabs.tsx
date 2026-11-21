@@ -21,10 +21,10 @@ export function FolderTabs({
       <ChipRow>
         <Chip query={inboxQuery({ a })} label="すべて" count={buckets.reduce((t, b) => t + b.n, 0)} on={selected === "all"} />
         {folders.map((f) => (
-          <Chip key={f.id} query={inboxQuery({ f: String(f.id), a })} label={f.name} count={sum(f.id)} on={selected === f.id} />
+          <Chip key={f.id} query={inboxQuery({ f: String(f.id), a })} label={f.name} count={sum(f.id)} folder={String(f.id)} on={selected === f.id} />
         ))}
         {(unfiled > 0 || selected === null) && (
-          <Chip query={inboxQuery({ f: "none", a })} label="未分類" count={unfiled} on={selected === null} />
+          <Chip query={inboxQuery({ f: "none", a })} label="未分類" count={unfiled} folder="none" on={selected === null} />
         )}
       </ChipRow>
     </nav>

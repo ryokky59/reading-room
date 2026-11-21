@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import { ListLink } from "./InboxShell";
+import { ListLink, UnreadCount } from "./InboxShell";
 import { LinkPending } from "./NavPending";
 
 /**
@@ -110,12 +110,15 @@ export function Chip({
   query,
   label,
   count,
+  folder,
   on,
   small,
 }: {
   query: string;
   label: string;
   count?: number;
+  /** The folder `count` is of, as a filter's `f`; none for a count of everything. */
+  folder?: string;
   on: boolean;
   small?: boolean;
 }) {
@@ -130,7 +133,11 @@ export function Chip({
         }`}
       >
         {label}
-        {count !== undefined && <span className="tabular-nums opacity-70">{count}</span>}
+        {count !== undefined && (
+          <span className="tabular-nums opacity-70">
+            <UnreadCount n={count} folder={folder} />
+          </span>
+        )}
         <LinkPending />
       </ListLink>
     </li>

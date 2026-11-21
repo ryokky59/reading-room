@@ -446,21 +446,28 @@ test("既読カードの「未読に戻す」が、行の文字と重ならず�
   await expect(seen.getByRole("button", { name: "スキップ" })).toBeVisible();
 });
 
-test("opened Cookie に範囲外の id や文字列が入っていても一覧とボードが開く", async ({ page, context, baseURL }) => {
-  for (const value of ["9999999999", "2147483648.-1.0.1.5", "abc", "1e400.NaN..%00"]) {
+test("listed Cookie に範囲外の id や時刻、文字列が入っていても一覧とボードが開く", async ({ page, context, baseURL }) => {
+  for (const value of [
+    "9999999999999999~9999999999~",
+    "1~2147483648~5-abc.none-1e400.-1-0.0-0",
+    "abc",
+    "1e400~NaN~..%00",
+    "8640000000000001~-1~2147483648-8640000000000001",
+    "~~~~",
+  ]) {
     await page.goto("/");
     await expect(unread(page)).toBeVisible();
-    // A full load drops the cookie, so it is set again for the router's requests.
-    await context.addCookies([{ name: "opened", value, url: baseURL! }]);
+    // A full load writes the cookie anew, so it is set again for the router's requests.
+    await context.addCookies([{ name: "listed", value, url: baseURL! }]);
     await includeSeen(page).click();
     await expect(page).toHaveURL(/\/\?a=1$/);
     await expect(list(page)).toBeVisible();
-    await context.addCookies([{ name: "opened", value, url: baseURL! }]);
+    await context.addCookies([{ name: "listed", value, url: baseURL! }]);
     await includeSeen(page).click();
     await expect(page).toHaveURL(/\/$/);
     await expect(unread(page)).toBeVisible();
     // And on the request of a full load.
-    await context.addCookies([{ name: "opened", value, url: baseURL! }]);
+    await context.addCookies([{ name: "listed", value, url: baseURL! }]);
     await page.reload();
     await expect(unread(page)).toBeVisible();
     await expect(page.getByText("This page couldn't load")).toHaveCount(0);
@@ -477,7 +484,8 @@ test("PC で記事を開いたあとのフルロードでは、最初の HTML �
   await expect(heading(page)).toHaveText(`${name} A1`);
   await page.getByRole("link", { name: "戻る", exact: true }).click();
   await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
-  expect((await context.cookies()).find((c) => c.name === "opened")?.value).toMatch(/^\d+$/);
+  const listed = async () => (await context.cookies()).find((c) => c.name === "listed")?.value;
+  expect(await listed()).toMatch(/^\d+~~$/);
 
   // The list, then the Board, as the browser's own request gets them.
   for (const url of [listUrl, folderUrl]) {
@@ -486,8 +494,10 @@ test("PC で記事を開いたあとのフルロードでは、最初の HTML �
     expect(html).not.toContain(`${name} A1`);
     await expect(page.getByText(`${name} A2`, { exact: true })).toBeVisible();
     await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
-    // The cookie is dropped without asking for the list again.
-    await expect.poll(async () => (await context.cookies()).some((c) => c.name === "opened")).toBe(false);
+    // The cookie starts again from this load, without asking for the list again.
+    const before = await listed();
+    await expect.poll(listed).toMatch(/^\d+~~$/);
+    expect(Number((await listed())!.split("~")[0])).toBeGreaterThanOrEqual(Number(before!.split("~")[0]));
   }
   await includeSeen(page).click();
   await expect(page).toHaveURL(/&a=1$/);

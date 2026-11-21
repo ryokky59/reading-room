@@ -23,6 +23,8 @@ export function Header({
   );
   return (
     <header
+      // SeenOnScroll measures from its bottom edge on phones.
+      data-app-header=""
       className={`sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)] ${className ?? ""}`}
     >
       {/* The insets (0 outside a landscape iPhone) keep the title and the tabs clear of its notch. */}

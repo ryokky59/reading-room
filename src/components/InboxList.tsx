@@ -12,15 +12,19 @@ import {
   InboxItem,
   InboxNavSync,
   LeavingGhosts,
+  ListedSince,
   ListLink,
   MarkAllSeenButton,
+  UnreadCount,
 } from "@/components/InboxShell";
+import { SeenOnScroll } from "@/components/SeenOnScroll";
 import { feedColor, folderList, unreadBuckets, type Bucket } from "@/lib/board";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { faviconUrl } from "@/lib/favicon";
 import { DIGEST_ATTEMPT_LIMIT, formatAgo, formatDate, hostname, isForeign, readingMinutes } from "@/lib/format";
-import { inboxOrder, inboxQuery, listedWhere, parseInboxFilter, type InboxFilter } from "@/lib/inbox";
-import { requestOpened } from "@/lib/opened-request";
+import { inboxOrder, inboxQuery, listedWhere, parseInboxFilter, type InboxFilter, type ListedRows } from "@/lib/inbox";
+import { cutKey } from "@/lib/opened";
+import { requestListed } from "@/lib/opened-request";
 
 // Cards shown per page; a long list is slow to load and render on phones.
 const PAGE_SIZE = 30;
@@ -40,18 +44,18 @@ export async function InboxList({
   onEmptySite: "redirect" | "folder";
 }) {
   // `folder` is the list beside an article.
-  const opened = await requestOpened({ besideArticle: onEmptySite === "folder" });
-  return <List filter={parseInboxFilter(await searchParams)} onEmptySite={onEmptySite} opened={opened} />;
+  const listed = await requestListed({ besideArticle: onEmptySite === "folder" });
+  return <List filter={parseInboxFilter(await searchParams)} onEmptySite={onEmptySite} listed={listed} />;
 }
 
 async function List({
   filter,
   onEmptySite,
-  opened,
+  listed,
 }: {
   filter: InboxFilter;
   onEmptySite: "redirect" | "folder";
-  opened: number[]; // seen, but stay in the list; see lib/opened.ts
+  listed: ListedRows; // the seen articles that stay in the list; see lib/opened.ts
 }) {
   const limit = Math.min(Math.max(Number(filter.n) || PAGE_SIZE, PAGE_SIZE), 500);
   const folderId = filter.f && filter.f !== "none" ? Number(filter.f) : null;
@@ -82,7 +86,7 @@ async function List({
       .from(articles)
       .leftJoin(feeds, eq(feeds.id, articles.feedId))
       .leftJoin(folders, eq(folders.id, feeds.folderId))
-      .where(listedWhere(filter, opened))
+      .where(listedWhere(filter, listed))
       .orderBy(...inboxOrder)
       .limit(limit),
     unreadBuckets(),
@@ -111,7 +115,7 @@ async function List({
       // The site has nothing left to show (e.g. its last unread was just read): show its folder instead.
       const f = filter.f ?? (feed ? (feed.folderId === null ? "none" : String(feed.folderId)) : undefined);
       if (onEmptySite === "redirect") redirect(`/${inboxQuery({ f, n: filter.n, a: filter.a })}`);
-      return <List filter={{ f, n: filter.n, a: filter.a }} onEmptySite={onEmptySite} opened={opened} />;
+      return <List filter={{ f, n: filter.n, a: filter.a }} onEmptySite={onEmptySite} listed={listed} />;
     }
     // Nothing unread, but seen articles are listed: the site stays selected.
     site = { folderId: feed?.folderId ?? null, feedId, name: feed?.name ?? null, n: 0 };
@@ -143,12 +147,16 @@ async function List({
   const moreQuery = inboxQuery({ ...current, n: String(limit + PAGE_SIZE) });
   const articleQuery = inboxQuery(current);
   const listedTotal = rows[0]?.listed ?? 0;
+  // What `total` counts, for the rows scrolled past since (useUnread).
+  const countOf =
+    feedId !== null ? { feed: String(feedId) } : selectedFolder === "all" ? {} : { folder: cutKey(selectedFolder) };
 
   // Clipped sideways so a card sliding out does not widen the page or the pane; the bottom
   // padding keeps the last card clear of the toast (InboxShell).
   return (
     <div className="mx-auto max-w-5xl overflow-x-clip px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
-      <InboxNavSync ids={rows.map((a) => a.id)} />
+      <InboxNavSync ids={rows.map((a) => a.id)} unseen={rows.filter((a) => a.seenAt === null).map((a) => a.id)} />
+      <ListedSince since={listed.since.getTime()} />
       {feedId !== null ? (
         <div>
           <BoardLink className="pressable inline-block py-1 text-sm text-muted">
@@ -198,7 +206,9 @@ async function List({
         {selectedFolder !== "all" && total > 0 && (
           <MarkAllSeenButton target={feedId !== null ? { feedId } : { folderId: selectedFolder }} screen="list" />
         )}
-        <p className="ml-auto">{total} 本</p>
+        <p className="ml-auto">
+          <UnreadCount n={total} {...countOf} /> 本
+        </p>
       </div>
 
       {rows.length === 0 ? (
@@ -206,7 +216,15 @@ async function List({
           未読の記事はありません。「今すぐ取得」で新着を取ってこられます。
         </p>
       ) : (
-        <ul aria-label="記事" className="mt-2 grid grid-cols-1 gap-2">
+        <SeenOnScroll
+          // A feed's unread list is skimmed; 既読を含む and a folder's list mark nothing.
+          mode={feedId !== null && !filter.a ? "list" : null}
+          feed={cutKey(feedId)}
+          folder={cutKey(site?.folderId ?? null)}
+          rows={rows.map((a) => ({ id: a.id, seen: a.seenAt !== null }))}
+          aria-label="記事"
+          className="mt-2 grid grid-cols-1 gap-2"
+        >
           {rows.map((a) => (
             <InboxItem key={a.id} id={a.id} seen={a.seenAt !== null}>
               <Link href={`/articles/${a.id}${articleQuery}`} className="block flex-1 px-4 pt-2.5 pb-1">
@@ -249,7 +267,7 @@ async function List({
             </InboxItem>
           ))}
           <LeavingGhosts before={null} />
-        </ul>
+        </SeenOnScroll>
       )}
       {rows.length < listedTotal && (
         <ListLink
