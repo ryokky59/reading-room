@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openFeed, openTab } from "./nav";
 
 // Seen by scrolling past (SeenOnScroll). Each test uses its own folder from the end of
-// e2e/seed.mts: site A with 25 short articles (32 in 位置 and 続き), and in some a site B.
+// e2e/seed.mts: site A with 14 short articles (25 in 列 and フォルダ, 32 in 位置 and 続き), and in those two a site B of 3.
 
 const list = (page: Page) => page.getByRole("list", { name: "記事" });
 const cards = (page: Page) => list(page).locator("li[data-article]");
@@ -62,8 +62,8 @@ test.describe("スマホ @mobile", () => {
   test("流した記事が薄くなり、線が出て未読数が減る。元に戻せて、リロードで一覧から消える @mobile", async ({ page }) => {
     const name = "E2E 流し読み スマホ";
     await openFeed(page, name);
-    await expect(cards(page)).toHaveCount(25);
-    await expect(unread(page)).toHaveText(/^25 本/);
+    await expect(cards(page)).toHaveCount(14);
+    await expect(unread(page)).toHaveText(/^14 本/);
     await settle(page);
 
     await wheel(page, 600);
@@ -73,14 +73,14 @@ test.describe("スマホ @mobile", () => {
     await expect(seenCards(page)).toHaveCount(n);
     await expect(cards(page).nth(n - 1)).toHaveAttribute("data-seen", "");
     expect(await line(page).evaluate((el) => el.previousElementSibling?.querySelector("h2")?.textContent)).toBe(`${name} A ${n}`);
-    await expect(unread(page)).toHaveText(new RegExp(`^${25 - n} 本`));
+    await expect(unread(page)).toHaveText(new RegExp(`^${14 - n} 本`));
     // Faded in place: no card has left the list.
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
 
     await press(undo(page));
     await expect(line(page)).toHaveCount(0);
     await expect(seenCards(page)).toHaveCount(0);
-    await expect(unread(page)).toHaveText(/^25 本/);
+    await expect(unread(page)).toHaveText(/^14 本/);
     // They stay unread while they stay above the screen.
     await page.waitForTimeout(NOTHING_MS);
     await expect(seenCards(page)).toHaveCount(0);
@@ -90,21 +90,21 @@ test.describe("スマホ @mobile", () => {
     const more = await lineCount(page);
     await expect(seenCards(page)).toHaveCount(more);
     await expect(cards(page).first()).not.toHaveAttribute("data-seen", "");
-    await expect(unread(page)).toHaveText(new RegExp(`^${25 - more} 本`));
+    await expect(unread(page)).toHaveText(new RegExp(`^${14 - more} 本`));
 
     await page.reload();
-    await expect(cards(page)).toHaveCount(25 - more);
+    await expect(cards(page)).toHaveCount(14 - more);
     await expect(seenCards(page)).toHaveCount(0);
     await expect(line(page)).toHaveCount(0);
-    await expect(unread(page)).toHaveText(new RegExp(`^${25 - more} 本`));
+    await expect(unread(page)).toHaveText(new RegExp(`^${14 - more} 本`));
     await page.getByRole("switch", { name: "既読を含む" }).click();
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
   });
 
   test("保存できなければ行と未読数が戻ってメッセージが出て、線は出ない。次のスクロールでもう一度試す @mobile", async ({ page }) => {
     const name = "E2E 流し読み 失敗";
     await openFeed(page, name);
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
     await settle(page);
     await failActions(page);
 
@@ -114,20 +114,20 @@ test.describe("スマホ @mobile", () => {
     await expect(savedAlert(page)).toBeVisible();
     await expect(seenCards(page)).toHaveCount(0);
     await expect(line(page)).toHaveCount(0);
-    await expect(unread(page)).toHaveText(/^25 本/);
+    await expect(unread(page)).toHaveText(/^14 本/);
 
     await page.unroute("**/*");
     await wheel(page, 100);
     const n = await lineCount(page);
     expect(n).toBeGreaterThanOrEqual(2);
     await expect(seenCards(page)).toHaveCount(n);
-    await expect(unread(page)).toHaveText(new RegExp(`^${25 - n} 本`));
+    await expect(unread(page)).toHaveText(new RegExp(`^${14 - n} 本`));
   });
 
   test("「元に戻す」が保存できなければメッセージが出て、線と薄い行はそのまま。もう一度押せる @mobile", async ({ page }) => {
     const name = "E2E 流し読み 取消失敗";
     await openFeed(page, name);
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
     await settle(page);
     await wheel(page, 600);
     const n = await lineCount(page);
@@ -137,19 +137,19 @@ test.describe("スマホ @mobile", () => {
     await expect(retryAlert(page)).toBeVisible();
     await expect(line(page)).toBeVisible();
     await expect(seenCards(page)).toHaveCount(n);
-    await expect(unread(page)).toHaveText(new RegExp(`^${25 - n} 本`));
+    await expect(unread(page)).toHaveText(new RegExp(`^${14 - n} 本`));
 
     await page.unroute("**/*");
     await undo(page).click();
     await expect(line(page)).toHaveCount(0);
     await expect(seenCards(page)).toHaveCount(0);
-    await expect(unread(page)).toHaveText(/^25 本/);
+    await expect(unread(page)).toHaveText(/^14 本/);
   });
 
   test("記事を開いて ← で戻っても、戻った位置より上の行は既読にならない。開いた記事は薄く残り、リロードで消える @mobile", async ({ page }) => {
     const name = "E2E 流し読み 開く";
     await openFeed(page, name);
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
     await settle(page);
     // Unread rows above the screen: scrolled past, then put back.
     await wheel(page, 600);
@@ -168,11 +168,11 @@ test.describe("スマホ @mobile", () => {
 
     // Only the opened one: it stays, faded, and is not counted.
     await expect(card(page, title)).toHaveAttribute("data-seen", "");
-    await expect(unread(page)).toHaveText(/^24 本/);
+    await expect(unread(page)).toHaveText(/^13 本/);
     await page.waitForTimeout(NOTHING_MS);
     await expect(seenCards(page)).toHaveCount(1);
     await expect(line(page)).toHaveCount(0);
-    await expect(unread(page)).toHaveText(/^24 本/);
+    await expect(unread(page)).toHaveText(/^13 本/);
 
     // The same with the browser's back.
     const next = `${name} A ${n + 4}`;
@@ -183,12 +183,12 @@ test.describe("スマホ @mobile", () => {
     await expect(card(page, next)).toHaveAttribute("data-seen", "");
     await page.waitForTimeout(NOTHING_MS);
     await expect(seenCards(page)).toHaveCount(2);
-    await expect(unread(page)).toHaveText(/^23 本/);
+    await expect(unread(page)).toHaveText(/^12 本/);
 
     await page.reload();
-    await expect(cards(page)).toHaveCount(23);
+    await expect(cards(page)).toHaveCount(12);
     await expect(card(page, title)).toHaveCount(0);
-    await expect(unread(page)).toHaveText(/^23 本/);
+    await expect(unread(page)).toHaveText(/^12 本/);
   });
 
   test("記事を開いている間に上の 8 本が既読になっても、← で戻った画面の先頭のカードは同じで、既読の行は薄く残る @mobile", async ({
@@ -230,7 +230,7 @@ test.describe("スマホ @mobile", () => {
   }) => {
     const name = "E2E 流し読み ボードへ";
     await openFeed(page, name);
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
     await settle(page);
     await wheel(page, 900);
     const n = await lineCount(page);
@@ -241,22 +241,22 @@ test.describe("スマホ @mobile", () => {
     const shown = section.locator("li[data-row]:visible");
     await expect(shown).toHaveCount(3);
     await expect(section.locator("li[data-row][data-seen]:visible")).toHaveCount(3);
-    await expect(columnUnread(page, `${name} A`)).toHaveText(String(25 - n));
-    await expect(section.getByRole("link", { name: `もっと見る(あと ${25 - n} 件)›` })).toBeVisible();
+    await expect(columnUnread(page, `${name} A`)).toHaveText(String(14 - n));
+    await expect(section.getByRole("link", { name: `もっと見る(あと ${14 - n} 件)›` })).toBeVisible();
     // A stacked Board has no line.
     await expect(line(page)).toHaveCount(0);
 
     await page.reload();
     await expect(shown).toHaveCount(3);
     await expect(section.locator("li[data-row][data-seen]")).toHaveCount(0);
-    await expect(columnUnread(page, `${name} A`)).toHaveText(String(25 - n));
-    await expect(section.getByRole("link", { name: `もっと見る(あと ${25 - n - 3} 件)›` })).toBeVisible();
+    await expect(columnUnread(page, `${name} A`)).toHaveText(String(14 - n));
+    await expect(section.getByRole("link", { name: `もっと見る(あと ${14 - n - 3} 件)›` })).toBeVisible();
   });
 
   test("保存の途中で「元に戻す」を押しても、保存中の行まで未読に戻る @mobile", async ({ page }) => {
     const name = "E2E 流し読み 保存中";
     await openFeed(page, name);
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
     await settle(page);
     await wheel(page, 400);
     const n = await lineCount(page);
@@ -275,11 +275,11 @@ test.describe("スマホ @mobile", () => {
 
     await expect(seenCards(page)).toHaveCount(0, { timeout: 15_000 });
     await expect(line(page)).toHaveCount(0);
-    await expect(unread(page)).toHaveText(/^25 本/);
+    await expect(unread(page)).toHaveText(/^14 本/);
     await page.unroute("**/*");
     await page.reload();
-    await expect(cards(page)).toHaveCount(25);
-    await expect(unread(page)).toHaveText(/^25 本/);
+    await expect(cards(page)).toHaveCount(14);
+    await expect(unread(page)).toHaveText(/^14 本/);
   });
 
   test("「もっと見る」の直後に流した行も既読になる @mobile", async ({ page }) => {
@@ -305,7 +305,7 @@ test.describe("PC 幅", () => {
     const name = "E2E 流し読み 列";
     const [a, b] = [`${name} A`, `${name} B`];
     await openTab(page, name);
-    await expect(tab(page, name, 50)).toBeVisible();
+    await expect(tab(page, name, 28)).toBeVisible();
     await settle(page);
 
     await wheel(page, 500, column(page, a).getByRole("list"));
@@ -313,12 +313,12 @@ test.describe("PC 幅", () => {
     expect(n).toBeGreaterThanOrEqual(2);
     await expect(column(page, a).locator("li[data-row][data-seen]")).toHaveCount(n);
     await expect(columnUnread(page, a)).toHaveText(String(25 - n));
-    await expect(tab(page, name, 50 - n)).toBeVisible();
-    await expect(unread(page)).toHaveText(new RegExp(`^${50 - n} 本`));
+    await expect(tab(page, name, 28 - n)).toBeVisible();
+    await expect(unread(page)).toHaveText(new RegExp(`^${28 - n} 本`));
     // The other column is as it was.
     await expect(line(column(page, b))).toHaveCount(0);
     await expect(column(page, b).locator("li[data-row][data-seen]")).toHaveCount(0);
-    await expect(columnUnread(page, b)).toHaveText("25");
+    await expect(columnUnread(page, b)).toHaveText("3");
 
     await column(page, b).getByRole("button", { name: "すべて既読" }).click();
     await expect(column(page, b).getByRole("listitem")).toHaveText(["未読はありません"]);
@@ -358,25 +358,25 @@ test.describe("PC 幅", () => {
     const name = "E2E 流し読み PC 一覧";
     await openFeed(page, name);
     const listUrl = page.url();
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
     await settle(page);
     await wheel(page, 600, list(page));
     const n = await lineCount(page);
     expect(n).toBeGreaterThanOrEqual(2);
-    await expect(unread(page)).toHaveText(new RegExp(`^${25 - n} 本`));
+    await expect(unread(page)).toHaveText(new RegExp(`^${14 - n} 本`));
 
     await card(page, `${name} A ${n + 2}`).getByRole("link").first().click();
     await expect(heading(page)).toHaveText(`${name} A ${n + 2}`);
     await page.keyboard.press("j");
     await expect(heading(page)).toHaveText(`${name} A ${n + 3}`);
     await expect(line(page)).toContainText(`ここまで既読 · ${n} 件`);
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
     await expect(cards(page).first()).toHaveAttribute("data-seen", "");
 
     const html = await (await page.goto(listUrl))!.text();
     expect(html).not.toContain(`${name} A 1<`);
-    expect(html).toContain(`${name} A 25<`);
-    await expect(cards(page)).toHaveCount(25 - n - 2);
+    expect(html).toContain(`${name} A 14<`);
+    await expect(cards(page)).toHaveCount(14 - n - 2);
     await expect(seenCards(page)).toHaveCount(0);
   });
 
@@ -385,11 +385,11 @@ test.describe("PC 幅", () => {
     await openFeed(page, name);
     const feedUrl = page.url();
     const folder = new URL(feedUrl).searchParams.get("f");
-    const href = await cards(page).nth(20).getByRole("link").first().getAttribute("href");
+    const href = await cards(page).nth(10).getByRole("link").first().getAttribute("href");
 
     for (const url of [`${feedUrl}&a=1`, `/?f=${folder}&a=1`, `${href!.split("?")[0]}?f=${folder}`]) {
       await page.goto(url);
-      await expect(cards(page)).toHaveCount(25);
+      await expect(cards(page)).toHaveCount(14);
       await settle(page);
       await wheel(page, 600, list(page));
       await page.waitForTimeout(NOTHING_MS);
@@ -398,7 +398,7 @@ test.describe("PC 幅", () => {
       await expect(seenCards(page)).toHaveCount(0);
     }
     await page.goto(feedUrl);
-    await expect(cards(page)).toHaveCount(24);
+    await expect(cards(page)).toHaveCount(13);
   });
 });
 
@@ -415,14 +415,14 @@ test.describe("横向きのスマホ 844×390", () => {
     await page.waitForTimeout(NOTHING_MS);
     await expect(line(page)).toHaveCount(0);
     await expect(page.locator("li[data-row][data-seen]")).toHaveCount(0);
-    await expect(columnUnread(page, `${name} A`)).toHaveText("25");
+    await expect(columnUnread(page, `${name} A`)).toHaveText("14");
 
     await section.getByRole("heading", { level: 3 }).getByRole("link").click();
-    await expect(cards(page)).toHaveCount(25);
+    await expect(cards(page)).toHaveCount(14);
     await settle(page);
     await wheel(page, 600, list(page));
     const n = await lineCount(page);
     await expect(seenCards(page)).toHaveCount(n);
-    await expect(unread(page)).toHaveText(new RegExp(`^${25 - n} 本`));
+    await expect(unread(page)).toHaveText(new RegExp(`^${14 - n} 本`));
   });
 });

@@ -590,8 +590,8 @@ const actionArticles = actionFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(actionArticles);
 
-// Seen by scrolling (e2e/scroll-seen.spec.ts): one folder per test, each with site A of 25 short
-// articles, enough to scroll a phone, a pane or a column. Some have a site B beside it, and two
+// Seen by scrolling (e2e/scroll-seen.spec.ts): one folder per test, each with site A of 14 short
+// articles (25 where a Board column must scroll). Some have a site B beside it, and two
 // (位置, 続き) have more than a page of the list.
 const skimFolders = await db
   .insert(schema.folders)
@@ -614,9 +614,9 @@ const skimFolders = await db
   )
   .returning();
 const skimSites = skimFolders.flatMap((f, i) => [
-  { folder: f, site: "A", slug: `skim-${i}-a`, count: /位置|続き/.test(f.name) ? 32 : 25 },
-  ...(f.name.endsWith("列") ? [{ folder: f, site: "B", slug: `skim-${i}-b`, count: 25 }] : []),
-  ...(f.name.endsWith("フォルダ") ? [{ folder: f, site: "B", slug: `skim-${i}-b`, count: 3 }] : []),
+  // 14 scroll a phone or a pane; a column on a PC takes 25. Kept low: every row is on the Board at `/`.
+  { folder: f, site: "A", slug: `skim-${i}-a`, count: /位置|続き/.test(f.name) ? 32 : /列|フォルダ/.test(f.name) ? 25 : 14 },
+  ...(/列|フォルダ/.test(f.name) ? [{ folder: f, site: "B", slug: `skim-${i}-b`, count: 3 }] : []),
 ]);
 const skimFeeds = await db
   .insert(schema.feeds)
