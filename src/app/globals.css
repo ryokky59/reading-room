@@ -277,6 +277,29 @@ body {
   }
 }
 
+/*
+ * The article sheet (InboxShell, Tailwind `lg` and up) slides in from the right over its scrim. No
+ * transform is left once it is in: the chat drawer inside it is `position: fixed`.
+ */
+@media (min-width: 64rem) and (prefers-reduced-motion: no-preference) {
+  [data-sheet] {
+    animation: sheet-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  [data-sheet-scrim] {
+    animation: scrim-in 0.22s;
+  }
+}
+@keyframes sheet-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* Article body and AI replies */
 .prose-read {
   font-size: 1.0625rem;

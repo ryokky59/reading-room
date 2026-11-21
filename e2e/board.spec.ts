@@ -16,6 +16,10 @@ const feedList = (page: Page) => page.getByRole("list", { name: "記事", exact:
 const card = (page: Page, title: string) =>
   feedList(page).getByRole("listitem").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
 const boardLink = (page: Page) => page.getByRole("link", { name: "‹ ボード" });
+// ✕ of the article sheet over the Board or the list (`lg` and up); phones and narrower screens have ←.
+const closeSheet = (page: Page) => page.getByRole("button", { name: "記事を閉じる" });
+// The widest screen with the feed list beside an article: from `lg` up the article is a sheet.
+const BESIDE = { width: 1000, height: 800 };
 const stopped = (page: Page) => page.getByRole("region", { name: "止まっているフィード" });
 const failed = (page: Page) => page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" });
 const scrollY = (page: Page) => page.evaluate(() => window.scrollY);
@@ -108,15 +112,19 @@ test.describe("PC 幅", () => {
     await expect(stopped(page)).toHaveCount(0);
   });
 
-  test("見出しを押すと記事が開き、左はそのフィードだけで j / k はその中で動く。戻るとボードに戻り、薄く残る", async ({ page }) => {
+  test("見出しを押すと記事がボードの上のシートで開き、j / k はそのフィードの中で動く。閉じるとボードに戻り、薄く残る", async ({ page }) => {
     await slowCpu(page);
-    await page.goto("/");
+    // The folder's tab, not the whole Board at `/`: under the slow CPU, Playwright's own lookups
+    // through a thousand visible rows behind the sheet outlast its timeouts on CI.
+    await openTab(page, "E2E ボードで開く");
+    const tabUrl = page.url();
     await row(page, "E2E 開く A", "E2E 開く A 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 開く A 1");
     await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
-    await expect(feedList(page).getByRole("listitem")).toHaveCount(3);
-    await expect(card(page, "E2E 開く A 1")).toHaveAttribute("aria-current", "true");
-    await expect(card(page, "E2E 開く B 1")).toHaveCount(0);
+    // The Board stays behind the sheet; no feed list takes its place.
+    await expect(column(page, "E2E 開く B")).toBeVisible();
+    await page.waitForTimeout(500);
+    await expect(feedList(page)).toHaveCount(0);
     const articleUrl = page.url();
 
     await page.keyboard.press("j");
@@ -130,9 +138,9 @@ test.describe("PC 幅", () => {
     await page.keyboard.press("k");
     await expect(heading(page)).toHaveText("E2E 開く A 2");
 
-    // ← leads to the Board it came from, where the opened rows stay, faded, until a full load.
-    await page.getByRole("link", { name: "戻る", exact: true }).click();
-    await expect(page).toHaveURL("/");
+    // ✕ leads to the Board it came from, where the opened rows stay, faded, until a full load.
+    await closeSheet(page).click();
+    await expect(page).toHaveURL(tabUrl);
     await expect(heading(page)).toHaveCount(0);
     await expect(row(page, "E2E 開く A", "E2E 開く A 1")).toHaveAttribute("data-seen", "");
     await expect(row(page, "E2E 開く A", "E2E 開く A 2")).toHaveAttribute("data-seen", "");
@@ -143,12 +151,12 @@ test.describe("PC 幅", () => {
     await page.goBack();
     await expect(heading(page)).toHaveText("E2E 開く A 2");
     await page.goForward();
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL(tabUrl);
     await expect(column(page, "E2E 開く A")).toBeVisible();
     await expect(heading(page)).toHaveCount(0);
     // A late replace from the article left behind would bring the article back.
     await page.waitForTimeout(1000);
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL(tabUrl);
     await expect(heading(page)).toHaveCount(0);
     await page.goto(articleUrl);
     await expect(heading(page)).toHaveText("E2E 開く A 1");
@@ -156,12 +164,12 @@ test.describe("PC 幅", () => {
     await expect(card(page, "E2E 開く B 1")).toHaveCount(0);
     await page.reload();
     await expect(heading(page)).toHaveText("E2E 開く A 1");
-    // Without a Board to go back to, ← goes to the feed the URL names.
-    await page.getByRole("link", { name: "戻る", exact: true }).click();
+    // Without a Board to go back to, ✕ goes to the feed the URL names.
+    await closeSheet(page).click();
     await expect(page).toHaveURL(/\/\?f=\d+(&s=\d+)?(&a=1)?$/);
 
     // A full load drops the seen rows.
-    await page.goto("/");
+    await page.goto(tabUrl);
     await expect(rows(page, "E2E 開く A").filter({ hasText: "E2E 開く A 1" })).toHaveCount(0);
   });
 
@@ -171,11 +179,11 @@ test.describe("PC 幅", () => {
     // A seen row kept in another column, and one in the column about to be cleared.
     await row(page, "E2E 既読 B", "E2E 既読 B 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 既読 B 1");
-    await page.getByRole("link", { name: "戻る", exact: true }).click();
+    await closeSheet(page).click();
     await expect(tab(page, "E2E ボードで既読", 3)).toBeVisible();
     await row(page, "E2E 既読 A", "E2E 既読 A 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 既読 A 1");
-    await page.getByRole("link", { name: "戻る", exact: true }).click();
+    await closeSheet(page).click();
     await expect(tab(page, "E2E ボードで既読", 2)).toBeVisible();
 
     await markAll(page, "E2E 既読 A").click();
@@ -221,8 +229,8 @@ test.describe("PC 幅", () => {
     await row(page, "URL から追加", "本番で動くエージェント").getByRole("link").click();
     await expect(heading(page)).toHaveText("本番で動くエージェント");
     await expect(page).toHaveURL(/\/articles\/\d+\?f=none$/);
-    await expect(feedList(page).getByRole("link").first()).toBeVisible();
-    await page.getByRole("link", { name: "戻る", exact: true }).click();
+    await expect(fromUrl).toBeVisible();
+    await closeSheet(page).click();
     await expect(page).toHaveURL("/?f=none");
     await expect(unreadIn(page, "URL から追加")).toHaveText(String(before - 1));
 
@@ -278,7 +286,8 @@ test.describe("PC 幅", () => {
     await boardLink(page).click();
     await expect(page).toHaveURL("/");
 
-    // With an article open, it closes the article too.
+    // With an article open beside the feed list, it closes the article too.
+    await page.setViewportSize(BESIDE);
     await page.goto(url);
     await row(page, "E2E 列 少ない", "E2E 列 少ない 2").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 列 少ない 2");
@@ -300,6 +309,8 @@ test.describe("PC 幅", () => {
   });
 
   test("ボードから開いた記事で一覧が届く前に j / k / 読了を押しても、別のフィードへ移らない", async ({ page }) => {
+    // The feed list comes beside the article below `lg` only; above it the Board stays (panes.spec.ts).
+    await page.setViewportSize(BESIDE);
     // Holds the feed list back, as a slow connection does, until the test lets it through.
     let release = () => {};
     const held = new Promise<void>((resolve) => (release = resolve));
@@ -346,6 +357,9 @@ test.describe("PC 幅", () => {
     await page.getByRole("link", { name: /もっと見る/ }).click();
     await card(page, "E2E 五十二本 52").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 五十二本 52");
+    // The sheet closes onto the feed list, whose 「‹ ボード」 leads back.
+    await page.keyboard.press("Escape");
+    await expect(heading(page)).toHaveCount(0);
     await boardLink(page).click();
     await expect(page).toHaveURL(url);
     await expect(unreadIn(page, "E2E 五十二本")).toHaveText("51");
@@ -356,6 +370,8 @@ test.describe("PC 幅", () => {
   });
 
   test("ボードから開いた記事を一覧のカードで「未読に戻す」と、ボードに戻る", async ({ page }) => {
+    // The card is beside the article below `lg` only.
+    await page.setViewportSize(BESIDE);
     await openTab(page, "E2E ボードから戻す");
     const url = page.url();
     await row(page, "E2E 戻す列", "E2E 戻す列 1").getByRole("link").click();
@@ -451,12 +467,27 @@ test("狭い幅で記事を開いたまま広げると、左に一覧が届い�
   await page.goto("/");
   await row(page, "E2E 広げて一覧", "E2E 広げて一覧 1").getByRole("link").click();
   await expect(heading(page)).toHaveText("E2E 広げて一覧 1");
-  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.setViewportSize(BESIDE);
   await expect(card(page, "E2E 広げて一覧 1")).toHaveAttribute("aria-current", "true");
   await expect(feedList(page).getByRole("listitem")).toHaveCount(2);
   await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
   await page.keyboard.press("j");
   await expect(heading(page)).toHaveText("E2E 広げて一覧 2");
+});
+
+test("狭い幅で記事を開いたまま PC の幅に広げると、後ろにボードが残ったシートになり j が効く", async ({ page }) => {
+  await page.setViewportSize({ width: 500, height: 800 });
+  await page.goto("/");
+  await row(page, "E2E 広げてシート", "E2E 広げてシート 1").getByRole("link").click();
+  await expect(heading(page)).toHaveText("E2E 広げてシート 1");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByRole("dialog", { name: "記事" })).toBeVisible();
+  await expect(column(page, "E2E 広げてシート")).toBeVisible();
+  await page.keyboard.press("j");
+  await expect(heading(page)).toHaveText("E2E 広げてシート 2");
+  await expect(feedList(page)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL("/");
 });
 
 test.describe("横向きのスマホ 844×390 @mobile", () => {

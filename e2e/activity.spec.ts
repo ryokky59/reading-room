@@ -22,6 +22,8 @@ const opens = (sent: Sent[]) => sent.filter((e) => e.type === "open");
 /** The next `open` the page sends. */
 const nextOpen = (page: Page) =>
   page.waitForRequest((r) => isActivity(r) && parse(r).type === "open").then(parse);
+// The widest screen with the list beside an open article.
+const BESIDE = { width: 1000, height: 800 };
 /** The article id in the page's URL. */
 const openId = (page: Page) => Number(/\/articles\/(\d+)/.exec(page.url())![1]);
 
@@ -41,6 +43,8 @@ async function expectOpens(sent: Sent[], n: number) {
 test.describe("PC 幅", () => {
   test("ボードの行から開くと source=board・device=pc・layout=split の open が 1 回送られ、一覧の切り替えや refresh では増えない", async ({ page }) => {
     const folder = "E2E 記録 ボード";
+    // The list beside an open article: from `lg` up the article is a sheet over it (panes.spec.ts).
+    await page.setViewportSize(BESIDE);
     await openTab(page, folder);
     const sent = recordActivity(page);
     const open = nextOpen(page);
@@ -56,8 +60,8 @@ test.describe("PC 幅", () => {
       screen: "article",
       articleId: id,
       standalone: false,
-      vw: 1280,
-      vh: 720,
+      vw: 1000,
+      vh: 800,
     });
     // What the page sends is what the server takes.
     expect((await stored).status()).toBe(204);
@@ -92,6 +96,8 @@ test.describe("PC 幅", () => {
   });
 
   test("記事の横でフォルダのチップや「もっと見る」を押しても open は増えない", async ({ page }) => {
+    // The list beside an open article: from `lg` up the article is a sheet over it (panes.spec.ts).
+    await page.setViewportSize(BESIDE);
     await page.goto("/?a=1");
     const sent = recordActivity(page);
     await card(page, "対話のある記事").getByRole("link").click();

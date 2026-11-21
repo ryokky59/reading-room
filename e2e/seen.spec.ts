@@ -19,6 +19,9 @@ const chip = (nav: Locator, label: string, count: number) =>
   nav.getByRole("link", { name: new RegExp(`^${label}\\s*${count}$`) });
 const failed = (page: Page) => page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" });
 
+// The widest screen with the list beside an open article: from `lg` up the article is a sheet.
+const BESIDE = { width: 1000, height: 800 };
+
 async function openFolder(page: Page, name: string, unreadCount = 3) {
   await page.goto("/");
   await chip(folderNav(page), name, unreadCount).click();
@@ -109,7 +112,12 @@ for (const [name, tag] of [
     await card(page, `${name} 既読`).getByRole("link").click();
     await expect(heading(page)).toHaveText(`${name} 既読`);
     await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&a=1$/);
-    await page.getByRole("link", { name: "戻る", exact: true }).click();
+    // ← on phones, ✕ of the sheet on PCs.
+    await page
+      .getByRole("link", { name: "戻る", exact: true })
+      .or(page.getByRole("button", { name: "記事を閉じる" }))
+      .filter({ visible: true })
+      .click();
     await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
     await expect(card(page, `${name} 既読`)).toBeVisible();
     await expect(unread(page)).toHaveText(/^3 本/);
@@ -144,16 +152,16 @@ test("一覧の「未読に戻す」が保存できなければメッセージ�
   await expect(unread(page)).toHaveText(/^4 本/);
 });
 
-test("PC で記事を開くと一覧に薄く残り、ボードに戻ると未読数に入らない。リロードで消える", async ({ page }) => {
+test("PC で記事を開くと後ろのボードで薄くなり、ボードに戻ると未読数に入らない。リロードで消える", async ({ page }) => {
   const name = "E2E 開いて戻る";
   await openFolder(page, name);
   await columnRow(page, `${name} A`, `${name} A1`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A1`);
   await page.keyboard.press("j");
   await expect(heading(page)).toHaveText(`${name} A2`);
-  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).toHaveAttribute("data-seen", "");
 
-  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await page.getByRole("button", { name: "記事を閉じる" }).click();
   await expect(heading(page)).toHaveCount(0);
   await expect(unread(page)).toHaveText(/^1 本/);
   await expect(chip(folderNav(page), name, 1)).toBeVisible();
@@ -169,6 +177,8 @@ test("PC で記事を開くと一覧に薄く残り、ボードに戻ると未�
 
 test("PC でボードから開いた記事の一覧が届く瞬間に j を押すと、次の記事が開いたまま。戻る・進むで行き来できる", async ({ page }) => {
   const name = "E2E 届く瞬間の j";
+  // The list beside an open article: from `lg` up the article is a sheet over the Board.
+  await page.setViewportSize(BESIDE);
   await page.addInitScript(() => {
     const w = window as unknown as { keydownListeners: number; pressed: boolean };
     w.keydownListeners = 0;
@@ -249,6 +259,8 @@ test("スマホでボードから開いて戻ると未読数に入らず、行�
 
 test("PC で開いている記事を「未読に戻す」と、記事が閉じて未読に戻り、次の更新でも未読のまま", async ({ page }) => {
   const name = "E2E 開いた記事を戻す";
+  // The list beside an open article: from `lg` up the article is a sheet over the Board.
+  await page.setViewportSize(BESIDE);
   await openFolder(page, name);
   await openColumn(page, `${name} A`);
   await card(page, `${name} A1`).getByRole("link").click();
@@ -428,7 +440,9 @@ test("既読カードの「未読に戻す」が、行の文字と重ならず�
   await includeSeen(page).click();
   await expect(seen).toBeVisible();
   await fits();
-  // Beside an open article, where the list is a narrow pane.
+  // Beside an open article, where the list is a narrow pane (below `lg`; above it the article is a
+  // sheet over the list).
+  await page.setViewportSize(BESIDE);
   await card(page, `${name} A1`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A1`);
   await fits();
@@ -480,7 +494,7 @@ test("PC で記事を開いたあとのフルロードでは、最初の HTML �
   const listUrl = page.url();
   await card(page, `${name} A1`).getByRole("link").click();
   await expect(heading(page)).toHaveText(`${name} A1`);
-  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await page.getByRole("button", { name: "記事を閉じる" }).click();
   await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
   const listed = async () => (await context.cookies()).find((c) => c.name === "listed")?.value;
   expect(await listed()).toMatch(/^\d+~~$/);

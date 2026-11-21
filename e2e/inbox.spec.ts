@@ -58,11 +58,11 @@ test("記事を開いて戻っても、選んだフォルダ / サイトのま�
   await expect(page).toHaveURL(/\/\?f=\d+&s=\d+&a=1$/);
   const filtered = page.url();
 
-  // The back link in the article header.
+  // ✕ at the top of the article sheet (the back link on narrower screens).
   await card(page, "速報の2本目").getByRole("link").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("速報の2本目");
   await expect(page.getByRole("main")).toContainText("Business");
-  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await page.getByRole("button", { name: "記事を閉じる" }).click();
   await expect(page).toHaveURL(filtered);
   await expect(page.getByRole("heading", { name: "E2E ビジネス速報", exact: true })).toBeVisible();
   await expect(cards(page)).toHaveCount(2);
@@ -134,7 +134,7 @@ test("「もっと見る」でも選んだフォルダが保たれる", async ({
   const longer = page.url();
   await card(page, "量産記事 35").getByRole("link").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("量産記事 35");
-  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await page.getByRole("button", { name: "記事を閉じる" }).click();
   await expect(page).toHaveURL(longer);
   await expect(cards(page)).toHaveCount(35);
 });

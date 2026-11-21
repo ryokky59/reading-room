@@ -15,15 +15,20 @@ import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
 import { currentViewId, markOpenSource, track } from "@/lib/track";
 import { BusyButton } from "./BusyButton";
+import { FeedBadge } from "./FeedBadge";
 import { FolderBadge } from "./Header";
 import {
+  isSheet,
   isTyping,
   isWide,
   refreshAfterLeave,
+  SheetCloseButton,
+  useAddPast,
   useForgetOpened,
   useInboxIds,
   useLeaveHref,
   useLeftInbox,
+  useSheetHref,
 } from "./InboxShell";
 import { Markdown } from "./Markdown";
 import { useNavPending } from "./NavPending";
@@ -37,6 +42,10 @@ type ArticleProps = {
   url: string;
   source: string;
   feedId: number | null; // null for articles added by URL or whose feed was deleted
+  // The feed as its Board column shows it, for the head of the sheet (`lg` and up).
+  feedName: string;
+  feedColor: string;
+  favicon: string | null;
   feedEnabled: boolean;
   folder: string | null; // null means unfiled (未分類)
   contentHtml: string | null;
@@ -86,6 +95,13 @@ export function ArticleView({
   const mainRef = useRef<HTMLElement>(null);
   // `leave` for the activity log: time on the article and how far down it was read.
   useReadingLog(article.id, { pane: paneRef, main: mainRef }, bodyLang);
+  // In the sheet (`lg` and up) keys go to the article: PageDown / space scroll it, and focus
+  // leaves the row behind that opened it. Not while something is being typed.
+  useEffect(() => {
+    if (!isSheet()) return;
+    if (document.activeElement?.closest("input, textarea, select, [contenteditable='']")) return;
+    paneRef.current?.focus({ preventScroll: true });
+  }, []);
 
   async function send(message?: string) {
     setStreaming(true);
@@ -148,6 +164,10 @@ export function ArticleView({
   const search = inboxHref.slice(1);
   // ←, and 読了 / スキップ with nothing next: the Board, if the article was opened from it.
   const leaveHref = useLeaveHref(inboxHref);
+  // ← on phones and beside the list, and ✕ / Esc / the scrim of the sheet (`lg` and up).
+  const closeHref = done ? "/read" : leaveHref;
+  useSheetHref(closeHref);
+  const addPast = useAddPast();
   // Which button is leaving the article; both are held back until the next screen shows.
   const [leavingBy, setLeavingBy] = useState<LeaveKind | null>(null);
   const [leaving, startLeaving] = useTransition();
@@ -159,6 +179,29 @@ export function ArticleView({
     if (!listIds) return undefined;
     const i = listIds.indexOf(article.id);
     return i < 0 ? (step === 1 ? listIds[0] : undefined) : listIds[i + step];
+  }
+  // Where the article is in the list or the Board column behind it, for 「n / N」.
+  const place = listIds ? listIds.indexOf(article.id) : -1;
+  const lookingPast = useRef(false);
+  /**
+   * j past the end of a Board column (which shows only its first rows) in the sheet: the next
+   * unread of the same filter, which has the column's feed. Nothing when there is none.
+   */
+  async function openPast() {
+    if (!listIds || lookingPast.current) return;
+    lookingPast.current = true;
+    try {
+      const next = await nextInboxArticle(search, [...listIds, article.id]);
+      // As in run(): the owner may have moved on meanwhile.
+      if (next === null || window.location.pathname !== `/articles/${article.id}`) return;
+      addPast(next);
+      markOpenSource("key");
+      router.push(`/articles/${next}${search}`);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      lookingPast.current = false;
+    }
   }
   /**
    * Saves with `save` and then opens `whereTo()`, as one transition: `leaving` stays true until
@@ -225,7 +268,11 @@ export function ArticleView({
         let next = planned;
         // Past the last loaded card, the next unread may still be behind 「もっと見る」.
         // If that lookup fails, the list (with its empty state beside it) is shown instead.
-        if (wide && next === undefined) next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
+        if (wide && next === undefined) {
+          next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
+          // Past the end of the list: j / k and the next 読了 go on from there.
+          if (next !== undefined) addPast(next);
+        }
         return next === undefined ? leaveHref : `/articles/${next}${search}`;
       },
       via,
@@ -254,6 +301,8 @@ export function ArticleView({
         if (id !== undefined) {
           markOpenSource("key");
           router.push(`/articles/${id}${search}`);
+        } else if (e.key === "j" && isSheet()) {
+          void openPast();
         }
       } else if (e.key === "e" && !done) {
         void leave("read", "key");
@@ -341,12 +390,29 @@ export function ArticleView({
   return (
     <div className="min-h-dvh pb-36 split:flex split:min-h-0 split:min-w-0 split:flex-1 split:pb-0">
       {/* Beside the list (`split` and up) the article scrolls on its own, apart from the list and the chat. */}
-      <div ref={paneRef} className="split:min-w-0 split:flex-1 split:overflow-y-auto">
+      <div ref={paneRef} tabIndex={-1} className="outline-none split:min-w-0 split:flex-1 split:overflow-y-auto">
         <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
           <div className="mx-auto flex h-14 max-w-2xl items-center gap-2 px-4 lg:max-w-3xl lg:px-8">
-            <Link href={done ? "/read" : leaveHref} className="pressable py-1 pr-2 text-muted" aria-label="戻る">
+            <Link href={closeHref} className="pressable py-1 pr-2 text-muted lg:hidden" aria-label="戻る">
               ←
             </Link>
+            {/* The sheet (`lg` and up): ✕, the feed, and where the article is in its column. */}
+            <SheetCloseButton className="pressable -ml-2 hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted lg:flex" />
+            <p className="hidden min-w-0 items-center gap-2 text-sm font-bold lg:flex">
+              <FeedBadge name={article.feedName} color={article.feedColor} favicon={article.favicon} />
+              <span className="truncate">{article.feedName}</span>
+            </p>
+            <div className="ml-auto hidden shrink-0 items-center gap-3 text-xs text-muted lg:flex">
+              {listIds && place >= 0 && (
+                <span className="tabular-nums">
+                  {place + 1} / {listIds.length}
+                </span>
+              )}
+              <span className="flex gap-1" title="k で前、j で次の記事">
+                <kbd className="rounded border border-line bg-surface px-1.5 font-mono">k</kbd>
+                <kbd className="rounded border border-line bg-surface px-1.5 font-mono">j</kbd>
+              </span>
+            </div>
           </div>
         </header>
 
