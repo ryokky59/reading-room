@@ -113,6 +113,8 @@ test.describe("PC 幅", () => {
   });
 
   test("見出しを押すと記事がボードの上のシートで開き、j / k はそのフィードの中で動く。閉じるとボードに戻り、薄く残る", async ({ page }) => {
+    // The whole Board stays mounted behind the sheet on a 4x slower CPU: more than the default 30 s on CI.
+    test.slow();
     await slowCpu(page);
     await page.goto("/");
     await row(page, "E2E 開く A", "E2E 開く A 1").getByRole("link").click();
