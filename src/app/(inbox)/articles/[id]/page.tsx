@@ -1,7 +1,9 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ArticleView } from "@/components/ArticleView";
+import { feedColor } from "@/lib/board";
 import { articles, feeds, folders, getDb, messages } from "@/lib/db";
+import { faviconUrl } from "@/lib/favicon";
 import { inboxQuery, parseInboxFilter, seenNow } from "@/lib/inbox";
 
 // The header beside the article runs "今すぐ取得" as a server action of this page.
@@ -15,13 +17,19 @@ export default async function ArticlePage({ params, searchParams }: PageProps<"/
 
   const db = await getDb();
   const [row] = await db
-    .select({ article: articles, folder: folders.name, feedId: feeds.id, feedEnabled: feeds.enabled })
+    .select({
+      article: articles,
+      folder: folders.name,
+      feedId: feeds.id,
+      feedName: feeds.name,
+      feedEnabled: feeds.enabled,
+    })
     .from(articles)
     .leftJoin(feeds, eq(feeds.id, articles.feedId))
     .leftJoin(folders, eq(folders.id, feeds.folderId))
     .where(eq(articles.id, id));
   if (!row) notFound();
-  const { article, folder, feedId, feedEnabled } = row;
+  const { article, folder, feedId, feedName, feedEnabled } = row;
   // Opening an article counts as seeing it. Link prefetches stop at this route's loading.tsx, so
   // only a real visit gets here; a router.refresh() beside the article does too (see
   // CardUnseeButton in InboxShell.tsx).
@@ -47,6 +55,10 @@ export default async function ArticlePage({ params, searchParams }: PageProps<"/
         url: article.url,
         source: article.source,
         feedId,
+        // As the article's Board column shows the feed (lib/board.ts).
+        feedName: feedName ?? article.source,
+        feedColor: feedColor(feedId),
+        favicon: feedId === null ? null : faviconUrl(article.url),
         feedEnabled: feedEnabled ?? false,
         folder,
         contentHtml: article.contentHtml,

@@ -11,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
 } from "react";
 import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen } from "@/lib/actions";
@@ -44,6 +45,33 @@ export function isBoard() {
   return window.matchMedia(BOARD).matches;
 }
 
+// Tailwind `lg`: an open article is a sheet over the list or the Board, which keep the whole width.
+// From `split` up to this the list sits beside the article instead. Keep this in sync with `lg:`.
+const SHEET = "(min-width: 1024px)";
+const BESIDE = "(min-width: 600px) and (max-width: 1023.98px)";
+
+/** Whether an open article is a sheet over the list or the Board; read at event time. */
+export function isSheet() {
+  return window.matchMedia(SHEET).matches;
+}
+
+/** Whether `query` matches, kept up to date; false on the server and before hydration. */
+function useMatches(query: string) {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const media = window.matchMedia(query);
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    },
+    [query],
+  );
+  return useSyncExternalStore(
+    subscribe,
+    () => window.matchMedia(query).matches,
+    () => false,
+  );
+}
+
 /** Runs `onChange` when the screen starts or stops being wide enough for the panes or the columns. */
 export function watchLayout(onChange: () => void) {
   const queries = [WIDE, BOARD].map((q) => window.matchMedia(q));
@@ -70,16 +98,24 @@ type InboxNav = {
   ids: number[] | null;
   /** `unseen` are the ids the list or the Board came with as unread. */
   setIds: (ids: number[], unseen: number[]) => void;
+  /** Adds an article that j opened past the end of the list, so that j / k go on from it. */
+  addPast: (id: number) => void;
 };
 
-const InboxNavContext = createContext<InboxNav>({ ids: null, setIds: () => {} });
+const InboxNavContext = createContext<InboxNav>({ ids: null, setIds: () => {}, addPast: () => {} });
 
 /**
  * The order of the list pane, for opening the next / previous article. Cards leaving the list
- * are left out, though the list has not been refreshed yet.
+ * are left out, though the list has not been refreshed yet. Articles j opened past its end (a
+ * Board column shows only its first rows) follow it, until the article is closed.
  */
 export function useInboxIds() {
   return useContext(InboxNavContext).ids;
+}
+
+/** Notes an article opened past the end of the list (see useInboxIds). */
+export function useAddPast() {
+  return useContext(InboxNavContext).addPast;
 }
 
 function readListed() {
@@ -430,6 +466,34 @@ export function useLeaveHref(inboxHref: string) {
   return openedFrom && href ? href : inboxHref;
 }
 
+type Sheet = {
+  /** Where the open article's page says closing goes (ArticleView); null once it is gone. */
+  setHref: (href: string | null) => void;
+  /** Closes the open article: ✕, Esc and the scrim. */
+  close: () => void;
+};
+
+const SheetContext = createContext<Sheet>({ setHref: () => {}, close: () => {} });
+
+/** Tells the shell where closing the open article goes, for Esc and the scrim. */
+export function useSheetHref(href: string) {
+  const { setHref } = useContext(SheetContext);
+  useLayoutEffect(() => {
+    setHref(href);
+    return () => setHref(null);
+  }, [setHref, href]);
+}
+
+/** ✕ at the top of the article sheet (`lg` and up), which goes back to the list or the Board. */
+export function SheetCloseButton({ className }: { className?: string }) {
+  const { close } = useContext(SheetContext);
+  return (
+    <button type="button" onClick={close} aria-label="記事を閉じる" className={className}>
+      ✕
+    </button>
+  );
+}
+
 /** 「‹ ボード」 on a feed list: back to the folder tab it came from. It closes an open article. */
 export function BoardLink({ className, children }: { className?: string; children: React.ReactNode }) {
   const { href } = useContext(BoardOriginContext);
@@ -441,10 +505,11 @@ export function BoardLink({ className, children }: { className?: string; childre
 }
 
 /**
- * Holds the Board. Next.js keeps the list slot as it was when an article opens from a Board row,
- * but the pane beside an article is too narrow for columns: from `split` up it gets the feed list
- * instead, by the same route as an article loaded directly (ListAfterFullLoad). Phones hide the
- * slot and keep the Board under the article, so ← finds it where it was.
+ * Holds the Board. Next.js keeps the list slot as it was when an article opens from a Board row.
+ * From `lg` up the article is a sheet over it, and the Board stays behind with its scroll
+ * positions. From `split` up to `lg` the pane beside an article is too narrow for columns: it gets
+ * the feed list instead, by the same route as an article loaded directly (ListAfterFullLoad).
+ * Phones hide the slot and keep the Board under the article, so ← finds it where it was.
  *
  * `columns` are the row ids of each column. An open article moves only within its own column,
  * from before the feed list arrives; with no article open every row counts as listed.
@@ -461,12 +526,21 @@ export function BoardPane({
 }) {
   const openId = useOpenId();
   const open = openId !== null;
-  const ids = open ? (columns.find((c) => c.includes(openId)) ?? []) : columns.flat();
+  const found = open ? columns.find((c) => c.includes(openId)) : undefined;
+  // An article opened past the end of its column (j, or 読了 / スキップ there) is in none: the
+  // column it came from goes on, with it after the rows (useInboxIds).
+  const [kept, setKept] = useState<number[]>([]);
+  if (found && found.join() !== kept.join()) setKept(found);
+  const ids = open ? (found ?? kept) : columns.flat();
   return (
     <>
       <InboxNavSync ids={ids} unseen={unseen} />
-      {open && <ListAfterFullLoad />}
-      <div className={`${open ? "split:hidden" : "board:flex"} board:h-full board:min-w-0 board:flex-col`}>{children}</div>
+      {open && <ListAfterFullLoad media={BESIDE} />}
+      <div
+        className={`${open ? "split:hidden lg:flex lg:flex-col" : "board:flex"} board:h-full board:min-w-0 board:flex-col`}
+      >
+        {children}
+      </div>
     </>
   );
 }
@@ -513,7 +587,11 @@ export function InboxShell({
 }) {
   const [ids, setIds] = useState<number[] | null>(null);
   const [leaving, setLeavingMap] = useState<ReadonlyMap<number, LeavingCard>>(new Map());
+  // Articles j opened past the end of the list, under the filter they were opened with.
+  const [past, setPast] = useState<{ search: string; ids: number[] }>({ search: "", ids: [] });
   const setLeaving = useCallback((id: number, card: LeavingCard | null) => {
+    // One that leaves the inbox is not reached by j / k again once the list has dropped it.
+    if (card) setPast((p) => (p.ids.includes(id) ? { ...p, ids: p.ids.filter((x) => x !== id) } : p));
     setLeavingMap((m) => {
       if (!card && !m.has(id)) return m;
       const next = new Map(m);
@@ -553,9 +631,20 @@ export function InboxShell({
     return () => clearTimeout(timer);
   }, [leaving]);
   const leavingValue = useMemo(() => ({ leaving, listed: ids, setLeaving }), [leaving, ids, setLeaving]);
-  const shownIds = useMemo(() => ids && ids.filter((id) => !leaving.has(id)), [ids, leaving]);
   const openId = useOpenId();
   const open = openId !== null;
+  const search = useSearchParams().toString();
+  if (!open && past.ids.length > 0) setPast({ search: "", ids: [] });
+  const addPast = useCallback(
+    (id: number) =>
+      setPast((p) => ({ search, ids: p.search === search ? [...p.ids.filter((x) => x !== id), id] : [id] })),
+    [search],
+  );
+  const shownIds = useMemo(() => {
+    if (!ids) return ids;
+    const after = past.search === search ? past.ids.filter((id) => !ids.includes(id)) : [];
+    return [...ids, ...after].filter((id) => !leaving.has(id));
+  }, [ids, leaving, past, search]);
   const boardOrigin = useBoardOrigin(open);
   const openedValue = useOpened(openId);
   const { scrolled } = openedValue;
@@ -566,18 +655,23 @@ export function InboxShell({
   usePhoneListScroll(open);
   useArticleUrlAfterListChange();
   useRefreshOnLeavingArticle(open, leaving.size > 0);
-  // The Board takes the whole width; nothing goes beside it.
+  const sheet = useSheet(open, boardOrigin, search);
+  const asDialog = useMatches(SHEET) && open;
+  // The Board takes the whole width; nothing goes beside it. From `lg` up neither does a feed
+  // list: an open article is a sheet over it.
   const board = useBoardUrl() !== null;
   return (
-    <InboxNavContext.Provider value={{ ids: shownIds, setIds: syncIds }}>
+    <InboxNavContext.Provider value={{ ids: shownIds, setIds: syncIds, addPast }}>
       <LeavingContext.Provider value={leavingValue}>
         <OpenedContext.Provider value={openedValue}>
         <UncountedContext.Provider value={uncounted}>
         <BoardOriginContext.Provider value={boardOrigin}>
+        <SheetContext.Provider value={sheet}>
         {/* Phones: bottom centre, and hidden over an article, whose buttons sit at the bottom.
-            Beside an article (`split` and up): over the bottom of the list pane. */}
+            Beside an article (`split` and up): over the bottom of the list pane. From `lg` up with
+            an article open: left of the article sheet (72vw wide), over its scrim. */}
         <ToastProvider
-          className={`${open ? "hidden split:block" : ""} pointer-events-none fixed z-40 bottom-[calc(1rem+env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] split:right-auto split:left-[calc(1rem+env(safe-area-inset-left))] split:w-[15.5rem] lg:w-[18rem]`}
+          className={`${open ? "hidden split:block" : ""} pointer-events-none fixed z-40 bottom-[calc(1rem+env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] split:right-auto split:left-[calc(1rem+env(safe-area-inset-left))] split:w-[15.5rem] ${open ? "lg:w-[min(18rem,calc(28vw-2rem))]" : "lg:w-[18rem]"}`}
         >
           <div className="split:flex split:h-dvh split:flex-col">
             <Header
@@ -597,19 +691,38 @@ export function InboxShell({
                 className={`${open ? "hidden split:block" : ""} ${
                   board
                     ? "split:min-w-0 split:flex-1 split:overflow-y-auto split:pr-[env(safe-area-inset-right)]"
-                    : "split:w-[calc(17.5rem+env(safe-area-inset-left))] lg:w-[calc(20rem+env(safe-area-inset-left))] split:shrink-0 split:overflow-y-auto split:overscroll-contain split:border-r split:border-line"
+                    : "split:w-[calc(17.5rem+env(safe-area-inset-left))] split:shrink-0 split:overflow-y-auto split:overscroll-contain split:border-r split:border-line lg:w-auto lg:min-w-0 lg:flex-1 lg:border-r-0 lg:pr-[env(safe-area-inset-right)]"
                 } split:pl-[env(safe-area-inset-left)]`}
               >
                 {list}
               </div>
+              {open && (
+                <div
+                  data-sheet-scrim=""
+                  aria-hidden="true"
+                  onClick={sheet.close}
+                  className="fixed inset-0 z-20 hidden bg-black/30 lg:block"
+                />
+              )}
+              {/* From `lg` up: a sheet over the list or the Board, with the chat as its own column from `xl`.
+                  The chat drawer inside it (`lg` to `xl`) is `position: fixed`, so the sheet must not be transformed. */}
               <div
-                className={`${open ? "" : "hidden"} ${board ? "" : "split:flex"} split:min-w-0 split:flex-1 split:pr-[env(safe-area-inset-right)]`}
+                data-sheet={open ? "" : undefined}
+                role={asDialog ? "dialog" : undefined}
+                aria-modal={asDialog || undefined}
+                aria-label={asDialog ? "記事" : undefined}
+                className={`${
+                  open
+                    ? "split:flex lg:fixed lg:inset-y-0 lg:right-0 lg:z-30 lg:w-[min(72vw,1100px)] lg:border-l lg:border-line lg:bg-bg lg:shadow-[-8px_0_30px_rgba(0,0,0,0.25)]"
+                    : `hidden ${board ? "" : "split:flex lg:hidden"}`
+                } split:min-w-0 split:flex-1 split:pr-[env(safe-area-inset-right)]`}
               >
                 {children}
               </div>
             </div>
           </div>
         </ToastProvider>
+        </SheetContext.Provider>
         </BoardOriginContext.Provider>
         </UncountedContext.Provider>
         </OpenedContext.Provider>
@@ -635,6 +748,31 @@ function useRefreshOnLeavingArticle(open: boolean, cardLeaving: boolean) {
     if (wasOpen.current && !open && !hold.current) router.refresh();
     wasOpen.current = open;
   }, [open, router]);
+}
+
+/**
+ * Closing the article sheet (`lg` and up) with ✕, Esc or the scrim: to where the article's page
+ * says (useSheetHref), or while it loads to where its ← would go. Behind the sheet the Board or
+ * the list was never unmounted, so it shows as it was; useRefreshOnLeavingArticle updates it.
+ * Esc is left alone while typing (the chat).
+ */
+function useSheet(open: boolean, { href: board, openedFrom }: BoardOrigin, search: string): Sheet {
+  const router = useRouter();
+  const href = useRef<string | null>(null);
+  const setHref = useCallback((h: string | null) => {
+    href.current = h;
+  }, []);
+  const fallback = openedFrom && board ? board : `/${search ? `?${search}` : ""}`;
+  const close = useCallback(() => router.push(href.current ?? fallback), [router, fallback]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isTyping(e) && isSheet()) close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, close]);
+  return useMemo(() => ({ setHref, close }), [setHref, close]);
 }
 
 /**
@@ -725,15 +863,16 @@ function useArticleUrlAfterListChange() {
  * The list pane after an article URL is loaded directly (see @list/default.tsx). Phones show
  * no list beside the article, so the article does not wait for one. On PCs (or once the screen
  * becomes wide) this goes to `/articles/<id>/list` like a chip does: the list page fills the
- * pane, the article stays, and useArticleUrlAfterListChange puts the article URL back.
+ * pane, the article stays, and useArticleUrlAfterListChange puts the article URL back. `media`
+ * narrows the screens it does this on (BoardPane: only where the Board cannot stay behind).
  */
-export function ListAfterFullLoad() {
+export function ListAfterFullLoad({ media: query = WIDE }: { media?: string }) {
   const router = useRouter();
   const openId = useOpenId();
   const search = useSearchParams().toString();
   useEffect(() => {
     if (openId === null) return;
-    const media = window.matchMedia(WIDE);
+    const media = window.matchMedia(query);
     const load = () => {
       // As in useArticleUrlAfterListChange: skip once the browser has left this article's URL.
       if (media.matches && window.location.pathname === `/articles/${openId}`)
@@ -742,9 +881,9 @@ export function ListAfterFullLoad() {
     load();
     media.addEventListener("change", load);
     return () => media.removeEventListener("change", load);
-  }, [openId, search, router]);
+  }, [openId, search, router, query]);
   return (
-    <div className="hidden px-4 pt-4 split:block" aria-busy="true">
+    <div className={`hidden px-4 pt-4 split:block ${query === BESIDE ? "lg:hidden" : ""}`} aria-busy="true">
       <ul className="grid gap-3">
         {Array.from({ length: 4 }, (_, i) => (
           <li key={i} className="animate-pulse rounded-xl border border-line bg-surface p-4">

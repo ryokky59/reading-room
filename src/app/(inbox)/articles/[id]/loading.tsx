@@ -1,29 +1,35 @@
 import Link from "next/link";
+import { SheetCloseButton } from "@/components/InboxShell";
 import { PendingWhileMounted } from "@/components/NavPending";
 
 // Shown at once when an article is tapped, while the server renders it.
-// Beside the list (`split` and up) it fills only the article pane; the list beside it stays.
+// Beside the list (`split` to `lg`) it fills only the article pane; the list beside it stays.
+// From `lg` up it fills the sheet over the list or the Board, with the chat's column from `xl`.
 export default function Loading() {
   return (
-    <div className="min-h-dvh split:min-h-0 split:min-w-0 split:flex-1 split:overflow-y-auto">
-      <PendingWhileMounted />
-      <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto flex h-14 max-w-2xl items-center px-4 lg:max-w-3xl lg:px-8">
-          <Link href="/" className="pressable py-1 pr-2 text-muted" aria-label="戻る">
-            ←
-          </Link>
-        </div>
-      </header>
-      <main className="mx-auto max-w-2xl animate-pulse px-4 pt-4 lg:max-w-3xl lg:px-8" aria-busy="true">
-        <div className="h-3 w-1/3 rounded bg-line" />
-        <div className="mt-3 h-6 w-11/12 rounded bg-line" />
-        <div className="mt-2 h-6 w-3/4 rounded bg-line" />
-        <div className="mt-8 flex flex-col gap-3 lg:max-w-[42em]">
-          {Array.from({ length: 8 }, (_, i) => (
-            <div key={i} className={`h-3.5 rounded bg-line/70 ${i % 3 === 2 ? "w-4/5" : "w-full"}`} />
-          ))}
-        </div>
-      </main>
+    <div className="min-h-dvh split:flex split:min-h-0 split:min-w-0 split:flex-1">
+      <div className="split:min-w-0 split:flex-1 split:overflow-y-auto">
+        <PendingWhileMounted />
+        <header className="sticky top-0 z-10 border-b border-line bg-bg/90 backdrop-blur pt-[env(safe-area-inset-top)]">
+          <div className="mx-auto flex h-14 max-w-2xl items-center px-4 lg:max-w-3xl lg:px-8">
+            <Link href="/" className="pressable py-1 pr-2 text-muted lg:hidden" aria-label="戻る">
+              ←
+            </Link>
+            <SheetCloseButton className="pressable -ml-2 hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted lg:flex" />
+          </div>
+        </header>
+        <main className="mx-auto max-w-2xl animate-pulse px-4 pt-4 lg:max-w-3xl lg:px-8" aria-busy="true">
+          <div className="h-3 w-1/3 rounded bg-line" />
+          <div className="mt-3 h-6 w-11/12 rounded bg-line" />
+          <div className="mt-2 h-6 w-3/4 rounded bg-line" />
+          <div className="mt-8 flex flex-col gap-3 lg:max-w-[42em]">
+            {Array.from({ length: 8 }, (_, i) => (
+              <div key={i} className={`h-3.5 rounded bg-line/70 ${i % 3 === 2 ? "w-4/5" : "w-full"}`} />
+            ))}
+          </div>
+        </main>
+      </div>
+      <div aria-hidden="true" className="hidden w-[380px] shrink-0 border-l border-line xl:block" />
     </div>
   );
 }

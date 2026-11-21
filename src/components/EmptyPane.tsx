@@ -4,7 +4,10 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { isTyping, isWide, useInboxIds } from "./InboxShell";
 
-/** The PC article pane when no article is open; `j` opens the first one in the list. */
+/**
+ * The article pane beside a feed list when no article is open (`split` up to `lg`; from `lg` up the
+ * list takes the whole width and InboxShell hides this). `j` opens the first article in the list.
+ */
 export function EmptyPane({ query }: { query: string }) {
   const router = useRouter();
   const ids = useInboxIds();
