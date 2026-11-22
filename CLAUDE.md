@@ -45,7 +45,7 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 - Read a Playwright result from its `N failed` line or `test-results/.last-run.json`, not from the last line of output: `| tail` hides the failed list above the summary and replaces Playwright's exit code.
 - When several worktrees test at once, set `E2E_PORT` at least 2 apart.
 - If new Tailwind classes have no effect, delete `.next` and build again.
-- `npm run build` may stop once, after the build is complete, with Next's upgrade notice (exit 1); run it again. Upgrading Next is its own Issue and the owner's call, whatever the notice says.
+- `next build` may stop once with a notice that this Next.js has a known vulnerability; run it again and it builds. Do not run the upgrade the notice suggests: it changes dependencies, which is the owner's call. Tell the owner it appeared.
 
 ## Notes
 

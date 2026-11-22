@@ -401,6 +401,43 @@ await db.insert(schema.messages).values(
     .map((r) => ({ articleId: r.id, role: "user" as const, content: "カードの対話です" })),
 );
 
+// 「すべて既読」's 「元に戻す」 (e2e/seen.spec.ts): one folder per test with site A of two unread
+// articles and, where the test needs it, a seen one. The folder tests have site B with one more.
+// Few rows: every unread one is on the Board at `/`.
+const undoSeenFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E PC で既読を戻す", "E2E スマホで既読を戻す", "E2E フォルダの既読を戻す", "E2E 開いたまま既読を戻す", "E2E 既読の取消に失敗", "E2E 表示後の新着", "E2E 列のあとでフォルダを戻す"].map(
+      (name, i) => ({ name, position: 109 + i }),
+    ),
+  )
+  .returning();
+const undoSeenSites = undoSeenFolders.flatMap((f, i) => [
+  { folder: f, site: "A", slug: `undo-seen-${i}-a`, titles: ["A1", "A2", ...(i < 3 ? ["既読"] : [])] },
+  ...(["E2E フォルダの既読を戻す", "E2E 列のあとでフォルダを戻す"].includes(f.name)
+    ? [{ folder: f, site: "B", slug: `undo-seen-${i}-b`, titles: ["B1"] }]
+    : []),
+]);
+const undoSeenFeeds = await db
+  .insert(schema.feeds)
+  .values(undoSeenSites.map((s) => feed(s.slug, `${s.folder.name} ${s.site}`, s.folder.id)))
+  .returning();
+const undoSeenArticles = undoSeenFeeds.flatMap((f, i) =>
+  undoSeenSites[i].titles.map((t, j) => {
+    const n = 1950 + i * 5 + j;
+    const title = `${undoSeenSites[i].folder.name} ${t}`;
+    return article(n, {
+      title,
+      titleJa: title,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: old(n),
+      ...(t === "既読" ? { seenAt: new Date(now) } : {}),
+    });
+  }),
+);
+await db.insert(schema.articles).values(undoSeenArticles);
+
 // The Board (e2e/board.spec.ts): one folder per test that changes state.
 const boardFolders = await db
   .insert(schema.folders)
@@ -671,5 +708,5 @@ const sheetArticles = sheetFeeds.flatMap((f, i) =>
 await db.insert(schema.articles).values(sheetArticles);
 
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length} articles into ${dir}`,
 );
