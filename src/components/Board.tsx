@@ -24,7 +24,7 @@ export async function Board({
 }) {
   const filter = parseInboxFilter(await searchParams);
   const listed = await requestListed();
-  const { groups, stopped, folders, buckets } = await loadBoard(filter, listed);
+  const { groups, stopped, folders, buckets, upTo } = await loadBoard(filter, listed);
   const selected = filter.f === "none" ? null : filter.f ? Number(filter.f) : "all";
   const total = buckets
     .filter((b) => selected === "all" || b.folderId === selected)
@@ -52,7 +52,7 @@ export async function Board({
             既読を含む
             <LinkPending />
           </ListLink>
-          {selected !== "all" && total > 0 && <MarkAllSeenButton target={{ folderId: selected }} screen="board" />}
+          {selected !== "all" && total > 0 && <MarkAllSeenButton target={{ folderId: selected }} upTo={upTo} screen="board" />}
           <p className="ml-auto">
             <UnreadCount n={total} folder={filter.f} /> 本
           </p>
@@ -120,7 +120,7 @@ function Column({ column }: { column: BoardColumn }) {
           {lastFetchedAt && <span className="truncate">{formatAgo(lastFetchedAt)}に取得</span>}
           {unread > 0 && (
             <span className="ml-auto shrink-0">
-              <MarkAllSeenButton target={{ feedId }} screen="board" />
+              <MarkAllSeenButton target={{ feedId }} upTo={rows[0]?.fetchedAt.getTime() ?? null} screen="board" />
             </span>
           )}
         </div>

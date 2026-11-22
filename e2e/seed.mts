@@ -348,12 +348,12 @@ const leaveArticles = leaveFeeds.flatMap((f, i) =>
 await db.insert(schema.articles).values(leaveArticles);
 
 // 既読 (e2e/seen.spec.ts): one folder per test, with two sites. Ids start at 1700, after the
-// leave folders' 1400 + i * 10 + j. Each folder has 3 unread articles,
+// leave folders' 1400 + i * 10 + j, and must end before the Board's 2000. Each folder has 3 unread articles,
 // one seen, one skipped and one read.
 const seenFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E PC ですべて既読", "E2E スマホですべて既読", "E2E フォルダをすべて既読", "E2E すべて既読に失敗", "E2E 既読を見返す", "E2E スマホで見返す", "E2E 未読に戻すに失敗", "E2E 開いて戻る", "E2E スマホで開いて戻る", "E2E 読了を戻す", "E2E 開いた記事を戻す", "E2E 先読み", "E2E 届く瞬間の j", "E2E PC で読了を戻す", "E2E カードの高さ", "E2E 未読に戻すの幅", "E2E 開いてフルロード", "E2E 開いたままリロード", "E2E 既読をスキップして戻す"].map(
+    ["E2E PC ですべて既読", "E2E スマホですべて既読", "E2E フォルダをすべて既読", "E2E すべて既読に失敗", "E2E 既読を見返す", "E2E スマホで見返す", "E2E 未読に戻すに失敗", "E2E 開いて戻る", "E2E スマホで開いて戻る", "E2E 読了を戻す", "E2E 開いた記事を戻す", "E2E 先読み", "E2E 届く瞬間の j", "E2E PC で読了を戻す", "E2E カードの高さ", "E2E 未読に戻すの幅", "E2E 開いてフルロード", "E2E 開いたままリロード", "E2E 既読をスキップして戻す", "E2E PC で既読を戻す", "E2E スマホで既読を戻す", "E2E フォルダの既読を戻す", "E2E 開いたまま既読を戻す", "E2E 既読の取消に失敗", "E2E 表示後の新着"].map(
       (name, i) => ({ name, position: 90 + i }),
     ),
   )

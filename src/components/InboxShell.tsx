@@ -14,7 +14,7 @@ import {
   useSyncExternalStore,
   useTransition,
 } from "react";
-import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen } from "@/lib/actions";
+import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen, unmarkSeenAt } from "@/lib/actions";
 import { lastNavPath } from "@/lib/last-nav";
 import { cutKey, LISTED_COOKIE, parseListed, serializeListed, type Listed } from "@/lib/opened";
 import { track } from "@/lib/track";
@@ -171,8 +171,9 @@ type Opened = {
   /**
    * After 「すべて既読」, which wrote `seenAt`: a feed's seen rows leave (a `cut`), and the other
    * feeds keep theirs; after a folder's, every seen row but the open article leaves (`since`).
+   * Answers how to take that back, for its 「元に戻す」: the seen rows that left come back.
    */
-  clear: (target: SeenAllTarget, seenAt: number) => void;
+  clear: (target: SeenAllTarget, seenAt: number) => () => void;
   /** Fades rows as SeenOnScroll is about to save them. */
   addScrolled: (ids: number[], row: Omit<Scrolled, "saved">) => void;
   /** After a save: `saved` are the rows it marked, which go behind the line. */
@@ -186,7 +187,7 @@ const OpenedContext = createContext<Opened>({
   scrolled: new Map(),
   forget: () => {},
   keep: () => {},
-  clear: () => {},
+  clear: () => () => {},
   addScrolled: () => {},
   settleScrolled: () => {},
   dropScrolled: () => {},
@@ -217,6 +218,11 @@ function useOpened(openId: number | null): Opened {
     if (openId !== null) setOpened(new Set(opened).add(openId));
   }
   const openIdRef = useRef(openId);
+  // Read by clear(), which answers with what it changed.
+  const scrolledRef = useRef(scrolled);
+  useLayoutEffect(() => {
+    scrolledRef.current = scrolled;
+  });
   const dropScrolled = useCallback((ids: number[]) => {
     setScrolled((m) => {
       if (!ids.some((id) => m.has(id))) return m;
@@ -258,18 +264,38 @@ function useOpened(openId: number | null): Opened {
   }, []);
   const clear = useCallback(
     (target: SeenAllTarget, seenAt: number) => {
-      const listed = readListed();
+      const before = readListed();
+      // The rows behind a 「ここまで既読」 line, whose line goes now and comes back on undo.
+      const lined = (pick: (row: Scrolled) => boolean) =>
+        new Set([...scrolledRef.current].filter(([, row]) => row.saved && pick(row)).map(([id]) => id));
       if ("feedId" in target) {
         const feed = cutKey(target.feedId);
-        writeListed({ ...listed, cut: { ...listed.cut, [feed]: seenAt } });
+        const unlined = lined((row) => row.feed === feed);
+        writeListed({ ...before, cut: { ...before.cut, [feed]: seenAt } });
         // The rows stay faded until the refreshed list drops them, but their line goes now.
         setSaved(false, (_, row) => row.feed === feed);
-      } else {
-        // One past it: `since` keeps what was seen at it or later.
-        writeListed({ ...listed, since: seenAt + 1 });
-        setOpened((s) => new Set([...s].filter((id) => id === openIdRef.current)));
-        setSaved(false, () => true);
+        return () => {
+          // Only what this wrote: a full load since, or another 「すべて既読」 of the feed, stays.
+          const listed = readListed();
+          if (listed.cut[feed] === seenAt) {
+            const cut = { ...listed.cut };
+            if (feed in before.cut) cut[feed] = before.cut[feed];
+            else delete cut[feed];
+            writeListed({ ...listed, cut });
+          }
+          setSaved(true, (id) => unlined.has(id));
+        };
       }
+      const unlined = lined(() => true);
+      // One past it: `since` keeps what was seen at it or later.
+      writeListed({ ...before, since: seenAt + 1 });
+      setOpened((s) => new Set([...s].filter((id) => id === openIdRef.current)));
+      setSaved(false, () => true);
+      return () => {
+        const listed = readListed();
+        if (listed.since === seenAt + 1) writeListed({ ...listed, since: before.since });
+        setSaved(true, (id) => unlined.has(id));
+      };
     },
     [setSaved],
   );
@@ -1100,14 +1126,19 @@ function CardUnseeButton({ id }: { id: number }) {
 
 /**
  * 「すべて既読」 for a site, a folder, or (feedId null) the articles with no feed. Unconfirmed:
- * 「既読を含む」 still has the articles. A site's leaves the seen rows of the other Board columns
- * in place; a folder's leaves only the open article.
+ * its toast offers 「元に戻す」, and 「既読を含む」 still has the articles. Only what the screen
+ * had is marked: `upTo` is the fetched_at (ms) of the newest article it shows, so one fetched
+ * since stays unread. A site's leaves the seen rows of the other Board columns in place; a
+ * folder's leaves only the open article.
  */
 export function MarkAllSeenButton({
   target,
+  upTo,
   screen,
 }: {
   target: SeenAllTarget;
+  /** Null when the screen has none of the articles to go by: no bound. */
+  upTo: number | null;
   /** Where the button is, for the activity log: beside an article the URL says `article`. */
   screen: "board" | "list";
 }) {
@@ -1122,16 +1153,30 @@ export function MarkAllSeenButton({
       busy={pending}
       onClick={() =>
         startTransition(async () => {
-          let seenAt: number;
+          let seenAt: number, count: number;
           try {
-            ({ seenAt } = await ("feedId" in target ? markFeedSeen(target.feedId) : markFolderSeen(target.folderId)));
+            ({ seenAt, count } = await ("feedId" in target
+              ? markFeedSeen(target.feedId, upTo)
+              : markFolderSeen(target.folderId, upTo)));
           } catch (e) {
             console.error(e);
             toast.fail(FAILED);
             return;
           }
           track("seen_all", { screen, props: target });
-          clear(target, seenAt);
+          const restore = clear(target, seenAt);
+          const undo = async () => {
+            try {
+              await unmarkSeenAt(seenAt);
+            } catch (e) {
+              console.error(e);
+              toast.fail(FAILED, { undo });
+              return;
+            }
+            restore();
+            router.refresh();
+          };
+          toast.show(`${count} 本を既読にしました`, count > 0 ? { undo } : {});
           router.refresh();
         })
       }
