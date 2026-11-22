@@ -144,7 +144,7 @@ export async function loadBoard(filter: InboxFilter, listed: ListedRows) {
       .orderBy(asc(feeds.name), asc(feeds.id)),
     // The newest article of any status, so the favicon stays when a column empties.
     db
-      .selectDistinctOn([articles.feedId], { feedId: articles.feedId, url: articles.url })
+      .selectDistinctOn([articles.feedId], { feedId: articles.feedId, url: articles.url, fetchedAt: articles.fetchedAt })
       .from(articles)
       .where(isNotNull(articles.feedId))
       .orderBy(articles.feedId, desc(articles.fetchedAt)),
@@ -228,5 +228,14 @@ export async function loadBoard(filter: InboxFilter, listed: ListedRows) {
       };
     });
 
-  return { groups: groups.filter((g) => g.columns.length > 0), stopped, folders: folderRows, buckets };
+  // The newest article the folder's 「すべて既読」 may mark (its `upTo`): the newest the columns
+  // show, or that a stopped feed had, whose unread only show as a count.
+  const newestOf = new Map(latest.map((a) => [a.feedId, a.fetchedAt.getTime()]));
+  const newest = [
+    ...rows.map((r) => r.fetchedAt.getTime()),
+    ...feedRows.filter((f) => isStopped(f) && shown(f.folderId)).map((f) => newestOf.get(f.id) ?? 0),
+  ];
+  const upTo = newest.length > 0 ? Math.max(...newest) : null;
+
+  return { groups: groups.filter((g) => g.columns.length > 0), stopped, folders: folderRows, buckets, upTo };
 }

@@ -204,7 +204,12 @@ async function List({
           <LinkPending />
         </ListLink>
         {selectedFolder !== "all" && total > 0 && (
-          <MarkAllSeenButton target={feedId !== null ? { feedId } : { folderId: selectedFolder }} screen="list" />
+          <MarkAllSeenButton
+            target={feedId !== null ? { feedId } : { folderId: selectedFolder }}
+            // The newest row, as the list is newest first.
+            upTo={rows[0]?.fetchedAt.getTime() ?? null}
+            screen="list"
+          />
         )}
         <p className="ml-auto">
           <UnreadCount n={total} {...countOf} /> 本
