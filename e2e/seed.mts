@@ -604,6 +604,9 @@ const actionFolders = await db
       "E2E 操作 AI",
       "E2E 操作 失敗",
       "E2E 操作 遮断",
+      "E2E 操作 既読を戻す",
+      "E2E 操作 一覧で既読を戻す",
+      "E2E 操作 既読の取消に失敗",
     ].map((name, i) => ({ name, position: 150 + i })),
   )
   .returning();

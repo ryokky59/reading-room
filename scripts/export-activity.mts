@@ -284,19 +284,22 @@ const openedBefore = (articleId: number | null, at: number) =>
 
 // The toast's 元に戻す, paired with the read or skip of the same article closest before it.
 // Its `screen` comes from the URL and says nothing; the row it undoes may be missing (a card
-// skip can fail to save after its toast was used).
+// skip can fail to save after its toast was used). The 元に戻す of a 「すべて既読」 has no
+// article: it is paired by `seenAt`, the one seen_at that 「すべて既読」 set and the undo cleared.
 const undoneBy = new Map<number, number>();
 const undoes = new Map<number, number | null>();
+const seenAtOf = (e: Event) => (typeof e.props.seenAt === "number" ? e.props.seenAt : null);
 for (const u of events.filter((e) => e.type === "undo")) {
   const of = u.props.of;
-  const candidates = events.filter(
-    (e) =>
-      e.type === of &&
-      e.articleId === u.articleId &&
-      e.articleId !== null &&
-      !undoneBy.has(e.id) &&
-      e.at >= u.at - UNDO_BEFORE &&
-      e.at <= u.at + UNDO_AFTER,
+  const candidates = events.filter((e) =>
+    of === "seen_all"
+      ? e.type === "seen_all" && seenAtOf(u) !== null && seenAtOf(e) === seenAtOf(u) && !undoneBy.has(e.id)
+      : e.type === of &&
+        e.articleId === u.articleId &&
+        e.articleId !== null &&
+        !undoneBy.has(e.id) &&
+        e.at >= u.at - UNDO_BEFORE &&
+        e.at <= u.at + UNDO_AFTER,
   );
   // The latest one before the undo; failing that, the first one after it.
   const match = candidates.filter((e) => e.at <= u.at).at(-1) ?? candidates.find((e) => e.at > u.at);
@@ -354,8 +357,10 @@ const seenUnopened = new Map<number, number>();
 const actions = events
   .filter((e) => ACTION_TYPES.has(e.type))
   .map((e) => {
-    const target = e.type === "seen_all" ? seenAllTarget(e) : null;
-    const marked = e.type === "seen_all" ? seenAllArticles(e, target) : [];
+    const target = e.type === "seen_all" || (e.type === "undo" && e.props.of === "seen_all") ? seenAllTarget(e) : null;
+    // An undone 「すべて既読」 marked nothing that stays: a seen_at left in its target since was set
+    // by something else (scrolling past, opening).
+    const marked = e.type === "seen_all" && !undoneBy.has(e.id) ? seenAllArticles(e, target) : [];
     for (const id of marked) if (!openedBefore(id, e.at) && !seenUnopened.has(id)) seenUnopened.set(id, e.at);
     const opened = openedBefore(e.articleId, e.at);
     return {
@@ -374,12 +379,12 @@ const actions = events
       via: (e.props.via as string | undefined) ?? null,
       kind: (e.props.kind as string | undefined) ?? null,
       of: (e.props.of as string | undefined) ?? null,
-      // seen_all: the site or folder it marked; feed_pause / feed_resume: the site.
+      // seen_all and its undo: the site or folder it marked; feed_pause / feed_resume: the site.
       target: target ?? feedTarget(e),
       seenArticleIds: e.type === "seen_all" ? marked : null,
       openedBefore: e.articleId === null ? null : opened,
       unopenedSkip: e.type === "skip" ? e.screen === "list" && !opened : null,
-      undone: e.type === "read" || e.type === "skip" ? undoneBy.has(e.id) : null,
+      undone: e.type === "read" || e.type === "skip" || e.type === "seen_all" ? undoneBy.has(e.id) : null,
       undoes: e.type === "undo" ? undoes.get(e.id) : null,
     };
   });

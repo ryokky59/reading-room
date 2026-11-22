@@ -239,6 +239,8 @@ test("記事・フィードと open / leave / skip / read から 3 つのファ�
   expect(actions.find((a) => a.type === "seen_all")).toMatchObject({
     target: { kind: "feed", id: feedIds.B, name: "サイト B" },
     seenArticleIds: [ids["seen-all"]],
+    // The old shape, with no seenAt: nothing can undo it.
+    undone: false,
   });
   expect(actions.find((a) => a.type === "undo" && a.articleId === ids["opened-b"])).toMatchObject({ of: "skip", undoes: null });
   // A skip 10 s after an unmatched undo is a new skip, not the one it undid.
@@ -280,6 +282,102 @@ test("記事・フィードと open / leave / skip / read から 3 つのファ�
   // --env all brings the preview rows back.
   const all = await run(work, dir, ["--env", "all"]);
   expect(all.read("views.json").rows.map((v) => v.viewId)).toContain("vp");
+});
+
+test("「すべて既読」の元に戻すは seenAt で対にし、取り消された「すべて既読」は既読にした記事に数えない", async () => {
+  test.setTimeout(60_000);
+  const now = Date.now();
+  const at = (min: number) => now - min * 60_000;
+  const ids: Record<string, number> = {};
+  const feedIds: Record<string, number> = {};
+  let folderId = 0;
+
+  const { work, dir } = await makeDb("seen-all-undo", async (db) => {
+    const [folder] = await db.insert(schema.folders).values({ name: "取り消しのフォルダ" }).returning();
+    folderId = folder.id;
+    const fs = await db
+      .insert(schema.feeds)
+      .values(["C", "D", "E"].map((s) => ({ name: `サイト ${s}`, url: `https://${s.toLowerCase()}.example/feed`, folderId: folder.id })))
+      .returning();
+    for (const f of fs) feedIds[f.name.slice(-1)] = f.id;
+    const article = (key: string, feed: "C" | "D" | "E", seenAt: number) => ({
+      url: `https://${feed.toLowerCase()}.example/${key}`,
+      title: `Article ${key}`,
+      titleJa: `記事 ${key}`,
+      source: `サイト ${feed}`,
+      feedId: feedIds[feed],
+      fetchedAt: new Date(at(600)),
+      seenAt: new Date(seenAt),
+    });
+    const rows = await db
+      .insert(schema.articles)
+      .values([
+        // Never opened, with a seen_at just before the undone 「すべて既読」 of its site: something
+        // else (scrolling past) set it, since the undo cleared the ones that one set.
+        article("c-left", "C", at(30) - 2_000),
+        // Marked by a 「すべて既読」 that was not undone.
+        article("d-seen", "D", at(20) - 2_000),
+        // Marked by an old-shape 「すべて既読」, with no seenAt.
+        article("e-seen", "E", at(5) - 1_000),
+      ])
+      .returning({ id: schema.articles.id, url: schema.articles.url });
+    for (const r of rows) ids[r.url.split("/").pop()!] = r.id;
+
+    const base = {
+      env: "production",
+      sessionId: "s1",
+      device: "pc",
+      layout: "split",
+      vw: 1440,
+      vh: 900,
+      standalone: false,
+      screen: "board",
+    };
+    const seenC = at(30) - 1_000;
+    const seenFolder = at(10) - 1_000;
+    await db.insert(schema.events).values([
+      { ...base, createdAt: new Date(at(30)), type: "seen_all", props: { feedId: feedIds.C, seenAt: seenC } },
+      // The URL had moved on; the undo carries the screen of the button all the same.
+      { ...base, createdAt: new Date(at(29)), type: "undo", screen: "list", props: { of: "seen_all", feedId: feedIds.C, seenAt: seenC } },
+      { ...base, createdAt: new Date(at(20)), type: "seen_all", props: { feedId: feedIds.D, seenAt: at(20) - 2_000 } },
+      { ...base, createdAt: new Date(at(10)), type: "seen_all", props: { folderId: folder.id, seenAt: seenFolder } },
+      { ...base, createdAt: new Date(at(9)), type: "undo", props: { of: "seen_all", folderId: folder.id, seenAt: seenFolder } },
+      { ...base, createdAt: new Date(at(5)), type: "seen_all", props: { feedId: feedIds.E } },
+      // An undo whose 「すべて既読」 is not in the log.
+      { ...base, createdAt: new Date(at(4)), type: "undo", props: { of: "seen_all", feedId: feedIds.E, seenAt: at(60) } },
+    ]);
+  });
+
+  const { read } = await run(work, dir);
+  const actions = read("actions.json").rows;
+  const seenAll = (key: string, id: number) =>
+    actions.find((a) => a.type === "seen_all" && (a.target as { id: number }).id === id && (a.target as { kind: string }).kind === key)!;
+  const undos = actions.filter((a) => a.type === "undo");
+  expect(undos).toHaveLength(3);
+
+  const c = seenAll("feed", feedIds.C);
+  expect(c).toMatchObject({ undone: true, seenArticleIds: [], undoes: null });
+  expect(undos[0]).toMatchObject({
+    of: "seen_all",
+    articleId: null,
+    screen: "list",
+    undoes: c.id,
+    target: { kind: "feed", id: feedIds.C, name: "サイト C" },
+    undone: null,
+  });
+
+  const f = seenAll("folder", folderId);
+  expect(f).toMatchObject({ undone: true, seenArticleIds: [] });
+  expect(undos[1]).toMatchObject({ undoes: f.id, target: { kind: "folder", id: folderId, name: "取り消しのフォルダ" } });
+
+  expect(seenAll("feed", feedIds.D)).toMatchObject({ undone: false, seenArticleIds: [ids["d-seen"]] });
+  expect(seenAll("feed", feedIds.E)).toMatchObject({ undone: false, seenArticleIds: [ids["e-seen"]] });
+  expect(undos[2]).toMatchObject({ undoes: null, target: { kind: "feed", id: feedIds.E } });
+
+  const feeds = read("feeds.json").rows;
+  expect(feeds.find((x) => x.feedId === feedIds.C)).toMatchObject({ seenUnopened: 0 });
+  expect(feeds.find((x) => x.feedId === feedIds.D)).toMatchObject({ seenUnopened: 1 });
+  expect(feeds.find((x) => x.feedId === feedIds.E)).toMatchObject({ seenUnopened: 1 });
 });
 
 test("イベントが 0 件でもエラーにならず「記録がありません」と出る", async () => {
