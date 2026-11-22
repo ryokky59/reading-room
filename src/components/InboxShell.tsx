@@ -293,7 +293,11 @@ function useOpened(openId: number | null): Opened {
       setSaved(false, () => true);
       return () => {
         const listed = readListed();
-        if (listed.since === seenAt + 1) writeListed({ ...listed, since: before.since });
+        // The cuts that `since` made redundant were dropped from the cookie (serializeListed):
+        // they come back too, and a cut written since the press wins over the one before it.
+        if (listed.since === seenAt + 1) {
+          writeListed({ ...listed, since: before.since, cut: { ...before.cut, ...listed.cut } });
+        }
         setSaved(true, (id) => unlined.has(id));
       };
     },

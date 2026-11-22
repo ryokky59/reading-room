@@ -620,6 +620,34 @@ test("フォルダの「すべて既読」を「元に戻す」と全部が未�
   await expect(card(page, `${name} A1`)).not.toHaveAttribute("data-seen", "");
 });
 
+test("サイトの「すべて既読」のあとフォルダの「すべて既読」を「元に戻す」と、サイトの分は既読のまま列から消えたまま", async ({ page }) => {
+  const name = "E2E 列のあとでフォルダを戻す";
+  await openFolder(page, name);
+  await column(page, `${name} A`).getByRole("button", { name: "すべて既読" }).click();
+  await expect(toast(page).getByText("2 本を既読にしました")).toBeVisible();
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).toHaveCount(0);
+  await expect(unread(page)).toHaveText(/^1 本/);
+
+  await markAll(page).first().click();
+  await expect(toast(page).getByText("1 本を既読にしました")).toBeVisible();
+  await expect(page.getByText(`${name} B1`)).toHaveCount(0);
+
+  // Only the folder's press is undone: column A stays as the site's press left it.
+  await undo(page).click();
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).toBeVisible();
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).not.toHaveAttribute("data-seen", "");
+  await expect(unread(page)).toHaveText(/^1 本/);
+  // B1 came with the refreshed Board, so the rows of column A would be here by now.
+  await expect(column(page, `${name} A`).getByRole("listitem").filter({ hasText: name })).toHaveCount(0);
+  // And again on the next refresh: the cookie still has the site's cut.
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/&a=1$/);
+  await includeSeen(page).click();
+  await expect(page).not.toHaveURL(/&a=1$/);
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).toBeVisible();
+  await expect(column(page, `${name} A`).getByRole("listitem").filter({ hasText: name })).toHaveCount(0);
+});
+
 test("PC で記事を開いたまま「すべて既読」を「元に戻す」と、開いている記事は一覧に残ったまま、ほかの記事が未読で戻る", async ({ page }) => {
   const name = "E2E 開いたまま既読を戻す";
   // The list beside an open article: from `lg` up the article is a sheet over the Board.

@@ -402,19 +402,21 @@ await db.insert(schema.messages).values(
 );
 
 // 「すべて既読」's 「元に戻す」 (e2e/seen.spec.ts): one folder per test with site A of two unread
-// articles and, where the test needs it, a seen one. The folder test has site B with one more.
+// articles and, where the test needs it, a seen one. The folder tests have site B with one more.
 // Few rows: every unread one is on the Board at `/`.
 const undoSeenFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E PC で既読を戻す", "E2E スマホで既読を戻す", "E2E フォルダの既読を戻す", "E2E 開いたまま既読を戻す", "E2E 既読の取消に失敗", "E2E 表示後の新着"].map(
+    ["E2E PC で既読を戻す", "E2E スマホで既読を戻す", "E2E フォルダの既読を戻す", "E2E 開いたまま既読を戻す", "E2E 既読の取消に失敗", "E2E 表示後の新着", "E2E 列のあとでフォルダを戻す"].map(
       (name, i) => ({ name, position: 109 + i }),
     ),
   )
   .returning();
 const undoSeenSites = undoSeenFolders.flatMap((f, i) => [
   { folder: f, site: "A", slug: `undo-seen-${i}-a`, titles: ["A1", "A2", ...(i < 3 ? ["既読"] : [])] },
-  ...(f.name === "E2E フォルダの既読を戻す" ? [{ folder: f, site: "B", slug: `undo-seen-${i}-b`, titles: ["B1"] }] : []),
+  ...(["E2E フォルダの既読を戻す", "E2E 列のあとでフォルダを戻す"].includes(f.name)
+    ? [{ folder: f, site: "B", slug: `undo-seen-${i}-b`, titles: ["B1"] }]
+    : []),
 ]);
 const undoSeenFeeds = await db
   .insert(schema.feeds)
