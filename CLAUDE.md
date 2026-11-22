@@ -40,11 +40,13 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 ```
 
 - E2E tests live in `e2e/` and run against a production build with a seeded PGlite database (`e2e/seed.mts`). They must not call the Anthropic API or the network.
-- Add or update an E2E test for each user-visible change. Add seed rows rather than relying on test order.
+- Add or update an E2E test for each user-visible change. Add seed rows rather than relying on test order, and only as many as the test needs: every unread row shows on the Board at `/`, and a heavier Board hydrates later in every test.
+- `goto` returns at `load`, which in CI is before hydration. A test whose first press React must handle waits first for something only an effect renders (`pressFetch` in `e2e/fetch.spec.ts`).
 - To show a timing bug is fixed, run the test several times with a fresh seed before each run. `--repeat-each` reuses one seed, so tests that open or mark rows fail from the second repeat on.
 - Read a Playwright result from its `N failed` line or `test-results/.last-run.json`, not from the last line of output: `| tail` hides the failed list above the summary and replaces Playwright's exit code.
 - When several worktrees test at once, set `E2E_PORT` at least 2 apart.
 - If new Tailwind classes have no effect, delete `.next` and build again.
+- `npm run build` may stop once, after the build is complete, with Next's upgrade notice (exit 1); run it again. Upgrading Next is its own Issue and the owner's call, whatever the notice says.
 
 ## Notes
 
