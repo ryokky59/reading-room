@@ -1,14 +1,18 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 // 既読 (seen) apart from 読了 (read). Each test uses its own folder from the end of e2e/seed.mts:
 // sites A (2 unread) and B (1 unread, 1 seen, 1 skipped, 1 read).
+// The 「元に戻す」 tests of 「すべて既読」 at the end have lighter folders of their own.
 
 const folderNav = (page: Page) => page.getByRole("navigation", { name: "フォルダ" });
 const list = (page: Page) => page.getByRole("list", { name: "記事" });
 const card = (page: Page, title: string) =>
   list(page).getByRole("listitem").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
-const unread = (page: Page) => page.getByText(/^\d+ 本/);
+// Not the toast's 「N 本を既読にしました」.
+const unread = (page: Page) => page.getByText(/^\d+ 本$/);
 const includeSeen = (page: Page) => page.getByRole("switch", { name: "既読を含む" });
 const markAll = (page: Page) => page.getByRole("button", { name: "すべて既読" });
 const column = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
@@ -18,6 +22,10 @@ const openColumn = (page: Page, site: string) => column(page, site).getByRole("l
 const chip = (nav: Locator, label: string, count: number) =>
   nav.getByRole("link", { name: new RegExp(`^${label}\\s*${count}$`) });
 const failed = (page: Page) => page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" });
+const toast = (page: Page) => page.getByRole("status");
+const undo = (page: Page) => toast(page).getByRole("button", { name: "元に戻す" });
+const abortActions = (page: Page) =>
+  page.route("**/*", (route) => ("next-action" in route.request().headers() ? route.abort() : route.fallback()));
 
 // The widest screen with the list beside an open article: from `lg` up the article is a sheet.
 const BESIDE = { width: 1000, height: 800 };
@@ -536,4 +544,218 @@ test("PC で記事を開いたままリロードすると、前に開いた記�
   await expect(card(page, `${name} A2`)).toHaveAttribute("aria-current", "true");
   await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
   await expect(list(page).getByRole("listitem")).toHaveCount(2);
+});
+
+for (const [name, tag] of [
+  ["E2E PC で既読を戻す", ""],
+  ["E2E スマホで既読を戻す", " @mobile"],
+]) {
+  test(`サイトの「すべて既読」を「元に戻す」と、その記事が未読で戻り、サイトとフォルダの未読数が戻る${tag}`, async ({ page }) => {
+    await openFolder(page, name, 2);
+    await openColumn(page, `${name} A`);
+    await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
+    await expect(list(page).getByRole("listitem")).toHaveCount(2);
+
+    await markAll(page).click();
+    await expect(toast(page).getByText("2 本を既読にしました")).toBeVisible();
+    // The site has nothing left, so its folder's Board is shown, and the toast stays.
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(chip(folderNav(page), name, 0)).toHaveAttribute("aria-current", "page");
+
+    await undo(page).click();
+    await expect(chip(folderNav(page), name, 2)).toHaveAttribute("aria-current", "page");
+    await expect(unread(page)).toHaveText(/^2 本/);
+    await expect(column(page, `${name} A`).getByLabel("未読 2 本")).toBeVisible();
+    for (const title of ["A1", "A2"]) {
+      await expect(columnRow(page, `${name} A`, `${name} ${title}`)).toBeVisible();
+      await expect(columnRow(page, `${name} A`, `${name} ${title}`)).not.toHaveAttribute("data-seen", "");
+    }
+
+    // The server agrees, and the article that was seen before is still seen.
+    await page.reload();
+    await expect(unread(page)).toHaveText(/^2 本/);
+    await includeSeen(page).click();
+    await expect(card(page, `${name} 既読`)).toHaveAttribute("data-seen", "");
+    await expect(card(page, `${name} A1`)).not.toHaveAttribute("data-seen", "");
+    await expect(card(page, `${name} A2`)).not.toHaveAttribute("data-seen", "");
+  });
+}
+
+test("フォルダの「すべて既読」を「元に戻す」と全部が未読で戻る。開いて既読にした記事は既読のまま薄く戻る", async ({ page }) => {
+  const name = "E2E フォルダの既読を戻す";
+  await openFolder(page, name);
+  await markAll(page).first().click();
+  await expect(toast(page).getByText("3 本を既読にしました")).toBeVisible();
+  await expect(chip(folderNav(page), name, 0)).toHaveAttribute("aria-current", "page");
+
+  await undo(page).click();
+  await expect(chip(folderNav(page), name, 3)).toHaveAttribute("aria-current", "page");
+  await expect(unread(page)).toHaveText(/^3 本/);
+  for (const [site, title] of [["A", "A1"], ["A", "A2"], ["B", "B1"]]) {
+    await expect(columnRow(page, `${name} ${site}`, `${name} ${title}`)).toBeVisible();
+    await expect(columnRow(page, `${name} ${site}`, `${name} ${title}`)).not.toHaveAttribute("data-seen", "");
+  }
+
+  // An article opened before it was seen then, not by 「すべて既読」: it leaves with the rest, and
+  // comes back seen.
+  await columnRow(page, `${name} B`, `${name} B1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} B1`);
+  await page.getByRole("button", { name: "記事を閉じる" }).click();
+  await expect(heading(page)).toHaveCount(0);
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).toHaveAttribute("data-seen", "");
+  await expect(unread(page)).toHaveText(/^2 本/);
+  await markAll(page).first().click();
+  await expect(toast(page).getByText("2 本を既読にしました")).toBeVisible();
+  await expect(page.getByText(`${name} B1`)).toHaveCount(0);
+
+  await undo(page).click();
+  await expect(unread(page)).toHaveText(/^2 本/);
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).toHaveAttribute("data-seen", "");
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).not.toHaveAttribute("data-seen", "");
+  await expect(columnRow(page, `${name} A`, `${name} A2`)).not.toHaveAttribute("data-seen", "");
+
+  await includeSeen(page).click();
+  await expect(card(page, `${name} 既読`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} B1`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} A1`)).not.toHaveAttribute("data-seen", "");
+});
+
+test("サイトの「すべて既読」のあとフォルダの「すべて既読」を「元に戻す」と、サイトの分は既読のまま列から消えたまま", async ({ page }) => {
+  const name = "E2E 列のあとでフォルダを戻す";
+  await openFolder(page, name);
+  await column(page, `${name} A`).getByRole("button", { name: "すべて既読" }).click();
+  await expect(toast(page).getByText("2 本を既読にしました")).toBeVisible();
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).toHaveCount(0);
+  await expect(unread(page)).toHaveText(/^1 本/);
+
+  await markAll(page).first().click();
+  await expect(toast(page).getByText("1 本を既読にしました")).toBeVisible();
+  await expect(page.getByText(`${name} B1`)).toHaveCount(0);
+
+  // Only the folder's press is undone: column A stays as the site's press left it.
+  await undo(page).click();
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).toBeVisible();
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).not.toHaveAttribute("data-seen", "");
+  await expect(unread(page)).toHaveText(/^1 本/);
+  // B1 came with the refreshed Board, so the rows of column A would be here by now.
+  await expect(column(page, `${name} A`).getByRole("listitem").filter({ hasText: name })).toHaveCount(0);
+  // And again on the next refresh: the cookie still has the site's cut.
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/&a=1$/);
+  await includeSeen(page).click();
+  await expect(page).not.toHaveURL(/&a=1$/);
+  await expect(columnRow(page, `${name} B`, `${name} B1`)).toBeVisible();
+  await expect(column(page, `${name} A`).getByRole("listitem").filter({ hasText: name })).toHaveCount(0);
+});
+
+test("PC で記事を開いたまま「すべて既読」を「元に戻す」と、開いている記事は一覧に残ったまま、ほかの記事が未読で戻る", async ({ page }) => {
+  const name = "E2E 開いたまま既読を戻す";
+  // The list beside an open article: from `lg` up the article is a sheet over the Board.
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name, 2);
+  await openColumn(page, `${name} A`);
+  await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
+  await card(page, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("aria-current", "true");
+
+  // A1 is seen already, by opening it.
+  await markAll(page).click();
+  await expect(toast(page).getByText("1 本を既読にしました")).toBeVisible();
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("aria-current", "true");
+
+  await undo(page).click();
+  await expect(card(page, `${name} A2`)).toBeVisible();
+  await expect(card(page, `${name} A2`)).not.toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} A1`)).toHaveAttribute("aria-current", "true");
+  await expect(list(page).getByRole("listitem")).toHaveCount(2);
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await expect(unread(page)).toHaveText(/^1 本/);
+});
+
+test("「すべて既読」の「元に戻す」が保存できなければメッセージが出て、もう一度押せる", async ({ page }) => {
+  const name = "E2E 既読の取消に失敗";
+  await openFolder(page, name, 2);
+  await markAll(page).first().click();
+  await expect(toast(page).getByText("2 本を既読にしました")).toBeVisible();
+  await expect(chip(folderNav(page), name, 0)).toBeVisible();
+
+  await abortActions(page);
+  await undo(page).click();
+  await expect(failed(page)).toBeVisible();
+  await expect(chip(folderNav(page), name, 0)).toBeVisible();
+  await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+
+  await page.unrouteAll();
+  await undo(page).click();
+  await expect(chip(folderNav(page), name, 2)).toBeVisible();
+  await expect(unread(page)).toHaveText(/^2 本/);
+});
+
+test.describe("一覧を表示したあとに取得された記事", () => {
+  // The feed's page comes from a local server, so 「今すぐ取得」 reaches no outside network.
+  let server: Server;
+  let origin: string;
+  // Empty while the feed is added; its article comes in through 「今すぐ取得」.
+  let listItem = false;
+  const name = "E2E 表示後の新着";
+  const site = `${name} 新サイト`;
+  const title = `${name} 新しい記事`;
+
+  test.beforeAll(async () => {
+    server = createServer((req, res) => {
+      if (req.url === "/rss.xml") {
+        res.writeHead(200, { "content-type": "application/rss+xml; charset=utf-8" });
+        res.end(`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>${site}</title><link>${origin}/</link>
+${listItem ? `<item><title>${title}</title><link>${origin}/posts/new</link><pubDate>${new Date().toUTCString()}</pubDate></item>` : ""}
+</channel></rss>`);
+      } else if (req.url === "/posts/new") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(
+          `<!doctype html><html><head><title>${title}</title></head><body><article><h1>${title}</h1>${"<p>表示後に取得された記事の本文です。</p>".repeat(8)}</article></body></html>`,
+        );
+      } else {
+        res.writeHead(404).end();
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  test.afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  test("一覧を表示したあとに別の画面で取得された記事は、「すべて既読」で既読にならない", async ({ page, browser, baseURL }) => {
+    test.setTimeout(180_000);
+    await page.goto("/feeds");
+    await page.getByLabel("サイトを追加").fill(`${origin}/rss.xml`);
+    await page.getByPlaceholder("表示名(空ならサイト名を使います)").fill(site);
+    await page.getByLabel("追加先のフォルダ").selectOption({ label: name });
+    await page.getByRole("button", { name: "追加する" }).click();
+    await expect(page.getByText(`「${site}」を追加し、0 本を取り込みました`)).toBeVisible({ timeout: 60_000 });
+
+    await openFolder(page, name, 2);
+    await expect(page.getByText(title)).toHaveCount(0);
+
+    // Another device fetches while this one shows the folder.
+    listItem = true;
+    const other = await browser.newContext({ baseURL });
+    const elsewhere = await other.newPage();
+    await elsewhere.goto("/");
+    // Pressed once hydrated (see pressFetch in e2e/fetch.spec.ts).
+    await expect(elsewhere.locator(".chip-pill:not([hidden])").first()).toBeAttached({ timeout: 30_000 });
+    await elsewhere.getByRole("button", { name: "今すぐ取得" }).click();
+    await expect(elsewhere.getByText(/^1 本の新着を追加しました/)).toBeVisible({ timeout: 90_000 });
+    await other.close();
+
+    await markAll(page).first().click();
+    await expect(toast(page).getByText("2 本を既読にしました")).toBeVisible();
+    await expect(columnRow(page, site, title)).toBeVisible();
+    await expect(columnRow(page, site, title)).not.toHaveAttribute("data-seen", "");
+    await expect(chip(folderNav(page), name, 1)).toHaveAttribute("aria-current", "page");
+    await expect(unread(page)).toHaveText(/^1 本/);
+    await page.reload();
+    await expect(unread(page)).toHaveText(/^1 本/);
+  });
 });

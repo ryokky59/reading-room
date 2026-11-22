@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, inArray, isNull, max, notInArray, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, max, notInArray, or, type SQL } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { articles, feeds, folders, getDb } from "./db";
@@ -95,10 +95,37 @@ async function setSeen(scope: SQL | undefined) {
     .returning({ id: articles.id, seenAt: articles.seenAt });
 }
 
-async function setAllSeen(scope: SQL | undefined): Promise<SeenAll> {
-  const rows = await setSeen(scope);
+// The latest time a Date can hold.
+const MAX_TIME = 8.64e15;
+
+/**
+ * 「すべて既読」 of the articles `scope` picks, up to the newest one the screen had (`upTo`, its
+ * fetched_at in ms; null for no bound): one fetched since the list was shown stays unread.
+ */
+async function setAllSeen(scope: SQL | undefined, upTo: number | null): Promise<SeenAll> {
+  // fetched_at has microseconds and `upTo` only milliseconds, so the newest row itself is
+  // `fetched_at < upTo + 1 ms`, not `<= upTo`.
+  const bound =
+    upTo !== null && Number.isInteger(upTo) && Math.abs(upTo) < MAX_TIME
+      ? lt(articles.fetchedAt, new Date(upTo + 1))
+      : undefined;
+  const rows = await setSeen(and(scope, bound));
   // Nothing was unread (seen elsewhere meanwhile): what is listed as seen still leaves, as of now.
   return { seenAt: rows[0]?.seenAt?.getTime() ?? (await dbNow()), count: rows.length };
+}
+
+/**
+ * The toast's 「元に戻す」 after 「すべて既読」: the articles it marked, which all have the seen_at it
+ * answered with (`at`, in ms like every seen_at; see `seenNow`), are unread again. An article seen
+ * before it, or opened or scrolled past since, has another seen_at and stays seen.
+ */
+export async function unmarkSeenAt(at: number) {
+  if (!Number.isInteger(at) || at <= 0 || at >= MAX_TIME) return;
+  const db = await getDb();
+  await db
+    .update(articles)
+    .set({ seenAt: null })
+    .where(and(eq(articles.status, "inbox"), eq(articles.seenAt, new Date(at))));
 }
 
 /**
@@ -121,13 +148,13 @@ export async function unmarkSeen(ids: number[]) {
     .where(and(eq(articles.status, "inbox"), inArray(articles.id, list)));
 }
 
-/** Everything unread from a feed; null is the articles with no feed (URL から追加). */
-export async function markFeedSeen(feedId: number | null): Promise<SeenAll> {
-  return setAllSeen(feedId === null ? isNull(articles.feedId) : eq(articles.feedId, feedId));
+/** Everything unread from a feed up to `upTo` (see setAllSeen); null is the articles with no feed (URL から追加). */
+export async function markFeedSeen(feedId: number | null, upTo: number | null): Promise<SeenAll> {
+  return setAllSeen(feedId === null ? isNull(articles.feedId) : eq(articles.feedId, feedId), upTo);
 }
 
-/** Everything unread in a folder; null is 未分類, which also holds the articles without a feed. */
-export async function markFolderSeen(folderId: number | null): Promise<SeenAll> {
+/** Everything unread in a folder up to `upTo`; null is 未分類, which also holds the articles without a feed. */
+export async function markFolderSeen(folderId: number | null, upTo: number | null): Promise<SeenAll> {
   const db = await getDb();
   const inFolder = db
     .select({ id: feeds.id })
@@ -137,6 +164,7 @@ export async function markFolderSeen(folderId: number | null): Promise<SeenAll> 
     folderId === null
       ? or(isNull(articles.feedId), inArray(articles.feedId, inFolder))
       : inArray(articles.feedId, inFolder),
+    upTo,
   );
 }
 
