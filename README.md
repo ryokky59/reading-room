@@ -90,10 +90,10 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 | --- | --- | --- | --- |
 | `read` | 「読了にする」 | `article` | `via`: `button`(ボタン)/ `key`(PC の e) |
 | `skip` | 「スキップ」 | `article`(記事の中)/ `list`(一覧のカード、`view_id` なし) | `via`: `button` / `key`(PC の s) |
-| `undo` | トーストの「元に戻す」 | 押した時の画面(当てにならない) | `of`: 元に戻した操作(`read` / `skip`) |
+| `undo` | トーストの「元に戻す」 | 押した時の画面(当てにならない)。`of` が `seen_all` の時は「すべて既読」を押した画面 | `of`: 元に戻した操作(`read` / `skip` / `seen_all`)。`seen_all` の時は `article_id` なしで、その `seen_all` と同じ `feedId` / `folderId` と `seenAt` が付く |
 | `restore` | 読了済みの記事の「未読に戻す」 | `article` | なし |
 | `unsee` | 既読のカードの「未読に戻す」 | `list` | なし |
-| `seen_all` | 「すべて既読」 | `board`(ボードの列・フォルダ)/ `list` | `feedId` か `folderId` のどちらか 1 つ。null は「フィードなし」「未分類」。`article_id` なし |
+| `seen_all` | 「すべて既読」 | `board`(ボードの列・フォルダ)/ `list` | `feedId` か `folderId` のどちらか 1 つ。null は「フィードなし」「未分類」。`seenAt`: 既読にした記事に付けた `seen_at`(ms の整数)。`article_id` なし |
 | `chat` | AI への送信(応答を待たずに記録。AI が失敗しても 1 行) | `article` | `kind`: `summary`(要約してもらう)/ `message`(質問)。本文は入れない |
 | `original` | 「元記事を開く」(クリックと中クリックだけ。長押しのメニューからは残らない) | `article` | なし |
 | `feed_pause` / `feed_resume` | 記事ページからサイトの取得を止める / 再開する | `article` | `feedId` |
@@ -131,16 +131,16 @@ DATABASE_URL="$(npx neonctl connection-string main --project-id round-feather-65
   - その閲覧での操作: `actions`(記事の中で押した `read` / `skip` / `chat` / `original` など)、`outcome`(取り消されなかった最後の `read` / `skip`)
 - `actions.json`: 操作のイベント 1 つ = 1 行。記事・サイト・フォルダ・端末の列に加えて:
   - `via` / `kind` / `of`: `props` を列にしたもの
-  - `target`: `seen_all` の対象(`kind` が `feed` か `folder`、`id`、`name`)と `feed_pause` / `feed_resume` のサイト。`seen_all` は `props` に `feedId` と `folderId` のどちらのキーがあるかで決め、値が null なら「フィードなし」「未分類」
-  - `seenArticleIds`: `seen_all` で既読になったと推定した記事(下の注意)
+  - `target`: `seen_all` と、それを取り消した `undo` の対象(`kind` が `feed` か `folder`、`id`、`name`)と `feed_pause` / `feed_resume` のサイト。`seen_all` は `props` に `feedId` と `folderId` のどちらのキーがあるかで決め、値が null なら「フィードなし」「未分類」
+  - `seenArticleIds`: `seen_all` で既読になったと推定した記事(下の注意)。取り消された `seen_all` は空
   - `openedBefore`: その記事にそれより前の `open` があったか(どのタブでも。`--env` に関係なく、プレビューで開いたものも含む)
   - `unopenedSkip`: `skip` のうち、一覧のカードからで、それまで一度も開いていない記事なら true
-  - `undone`(`read` / `skip`)と `undoes`(`undo`): 「元に戻す」との対応。`undoes` が null の `undo` は、対になる行が見つからなかったもの
+  - `undone`(`read` / `skip` / `seen_all`)と `undoes`(`undo`): 「元に戻す」との対応。`undoes` が null の `undo` は、対になる行が見つからなかったもの
 - `feeds.json`: サイトごとの集計(フィードは `feeds` の 1 行ごと、URL から追加した記事は `site` ごと)。
   - `fetched`: 期間内に取得した記事の数(`articles.fetched_at`)
   - `opened` / `read` / `skipped`: 期間内に開いた・読了にした・スキップした記事の数(「元に戻す」で取り消したものは除く)
   - `skippedUnopened`: 開かずにスキップした記事(`actions` の `unopenedSkip`)
-  - `seenUnopened`: 開かずに「すべて既読」で既読にした記事
+  - `seenUnopened`: 開かずに「すべて既読」で既読にした記事(取り消された「すべて既読」は数えない)
   - `byDevice`: 端末ごとの `opens` / `reads` / `skips` と、`leave` が届いた閲覧の数(`views`)と `dwell_ms` の中央値(`medianDwellMs`)
 
 ### 読むときの注意
@@ -153,5 +153,7 @@ DATABASE_URL="$(npx neonctl connection-string main --project-id round-feather-65
 - **`device = phone` にはタブレットと開いた折りたたみも入る。** `vw` で分けられる。
 - `screen = list` の操作には、PC で記事の横に出ている一覧で押したものも入る。`layout = 'split'` で分け、開いていた記事自身のカードかは `openedBefore` で見る。
 - `undo` の `screen` は URL で決まるので当てにならない。元の操作とは `article_id` と時刻で結び付けてあり(10 分前までの直前のもの。無ければ 5 秒後までのもの)、元の行が無いこともある(カードのスキップは、「元に戻す」の後に保存が失敗することがある)。
+- **「すべて既読」の「元に戻す」は `props.seenAt` で結び付ける。** `of` が `seen_all` の `undo` は記事を持たず、`seenAt` が同じ `seen_all` と対にする(1 回の「すべて既読」が付ける `seen_at` は 1 つの値で、「元に戻す」はその値の記事を未読に戻す)。`undo` の `screen` は「すべて既読」を押した画面。
+- **「すべて既読」の取り消しは、2026-11-22 から #117 が本番に出るまで記録がない。** 「元に戻す」が付いた #115(2026-11-22)からこの記録が始まるまでの `seen_all` は、`seenAt` も無く、取り消されたかどうか分からない(`undone` は false になる)。
 - 「すべて既読」で既読になった記事の一覧は残らない。対象のサイト・フォルダの記事のうち、`articles.seen_at` がイベントの 2 分前から 5 秒後までのものと推定する。記事を開いても `seen_at` が付くので、`seen_at` の直後(30 秒以内)に `open` がある記事は、開いて既読になったものとして除く。その後に「未読に戻す」された記事は `seen_at` が消えるので数えられない。フォルダはいまの所属で決める。
 - `chat` は送った回数で、AI を使えた回数ではない。

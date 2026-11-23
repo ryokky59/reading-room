@@ -6,7 +6,8 @@
  * The kinds of event. `open`: an article was opened. `leave`: the time spent on it and how far
  * it was read, sent on leaving it and when its tab is hidden; the last one of a view counts.
  * The rest are the owner's actions, sent once they are saved; their `props` are in README.md:
- * `read` 読了にする, `skip` スキップ, `undo` the toast's 元に戻す, `restore` 未読に戻す on a read
+ * `read` 読了にする, `skip` スキップ, `undo` the toast's 元に戻す (of a read or skip, with the article;
+ * of a seen_all, with no article and the seen_all's `seenAt`), `restore` 未読に戻す on a read
  * article, `unsee` 未読に戻す on a seen card, `seen_all` すべて既読, `chat` a message to the AI,
  * `original` 元記事を開く, `feed_pause` / `feed_resume` the site's fetching from an article.
  */

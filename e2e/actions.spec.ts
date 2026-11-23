@@ -204,6 +204,94 @@ test.describe("PC 幅", () => {
     expect(beside.articleId).toBeUndefined();
   });
 
+  test("「すべて既読」の元に戻すは of=seen_all の undo で、seen_all と同じ seenAt と feedId / folderId 付き", async ({ page }) => {
+    const folder = "E2E 操作 既読を戻す";
+    await openTab(page, folder);
+    const folderId = Number(/[?&]f=(\d+)/.exec(page.url())![1]);
+    const feedA = await columnFeedId(page, `${folder} A`);
+    const sent = recordActivity(page);
+
+    let seen = next(page, "seen_all");
+    await column(page, `${folder} A`).getByRole("button", { name: "すべて既読" }).click();
+    const seenFeed = await seen;
+    expect(seenFeed).toMatchObject({ screen: "board", props: { feedId: feedA } });
+    const seenAt = (seenFeed.props as Sent).seenAt;
+    expect(Number.isInteger(seenAt)).toBe(true);
+    await expect(column(page, `${folder} A`).getByLabel("未読 0 本")).toBeVisible();
+
+    let undone = next(page, "undo");
+    await undo(page).click();
+    const undoFeed = await undone;
+    expect(undoFeed).toMatchObject({ type: "undo", screen: "board", viewId: null, props: { of: "seen_all", feedId: feedA, seenAt } });
+    expect(undoFeed.props).toEqual({ of: "seen_all", feedId: feedA, seenAt });
+    expect(undoFeed.articleId).toBeUndefined();
+    await expect(column(page, `${folder} A`).getByLabel("未読 4 本")).toBeVisible();
+    expect(await settled(sent, "undo")).toHaveLength(1);
+
+    // The folder's button comes before the columns' own.
+    seen = next(page, "seen_all");
+    await markAll(page).first().click();
+    const seenFolder = await seen;
+    expect(seenFolder).toMatchObject({ screen: "board", props: { folderId } });
+    const folderSeenAt = (seenFolder.props as Sent).seenAt;
+    expect(Number.isInteger(folderSeenAt)).toBe(true);
+    await expect(page.getByText("未読の記事はありません。", { exact: false })).toBeVisible();
+
+    undone = next(page, "undo");
+    await undo(page).click();
+    const undoFolder = await undone;
+    expect(undoFolder).toMatchObject({ screen: "board", viewId: null });
+    expect(undoFolder.props).toEqual({ of: "seen_all", folderId, seenAt: folderSeenAt });
+    expect(undoFolder.articleId).toBeUndefined();
+    await expect(column(page, `${folder} A`).getByLabel("未読 4 本")).toBeVisible();
+    expect(await settled(sent, "undo")).toHaveLength(2);
+  });
+
+  test("サイトの一覧の「すべて既読」をボードに移ってから元に戻しても、undo は screen=list", async ({ page }) => {
+    const folder = "E2E 操作 一覧で既読を戻す";
+    await openFeed(page, folder, `${folder} A`);
+    const feedA = Number(/[?&]s=(\d+)/.exec(page.url())![1]);
+
+    const seen = next(page, "seen_all");
+    await markAll(page).click();
+    const seenAt = ((await seen).props as Sent).seenAt;
+    // The site has nothing left, so its folder's Board is shown, and the URL says `board`.
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+
+    const undone = next(page, "undo");
+    await undo(page).click();
+    const sent = await undone;
+    expect(sent).toMatchObject({ screen: "list", viewId: null });
+    expect(sent.props).toEqual({ of: "seen_all", feedId: feedA, seenAt });
+    await expect(column(page, `${folder} A`).getByLabel("未読 4 本")).toBeVisible();
+  });
+
+  test("「すべて既読」の元に戻すの保存に失敗すると undo は送られず、もう一度押して成功すると 1 回だけ送られる", async ({ page }) => {
+    const folder = "E2E 操作 既読の取消に失敗";
+    await openTab(page, folder);
+    const feedA = await columnFeedId(page, `${folder} A`);
+    const sent = recordActivity(page);
+
+    const seen = next(page, "seen_all");
+    await column(page, `${folder} A`).getByRole("button", { name: "すべて既読" }).click();
+    const seenAt = ((await seen).props as Sent).seenAt;
+    await expect(column(page, `${folder} A`).getByLabel("未読 0 本")).toBeVisible();
+
+    await page.route("**/*", (route) => ("next-action" in route.request().headers() ? route.abort() : route.fallback()));
+    await undo(page).click();
+    await expect(failed(page)).toBeVisible();
+    await expect(column(page, `${folder} A`).getByLabel("未読 0 本")).toBeVisible();
+    await expect(errorPage(page)).toHaveCount(0);
+    expect(await settled(sent, "undo")).toHaveLength(0);
+
+    await page.unrouteAll();
+    const undone = next(page, "undo");
+    await undo(page).click();
+    expect((await undone).props).toEqual({ of: "seen_all", feedId: feedA, seenAt });
+    await expect(column(page, `${folder} A`).getByLabel("未読 4 本")).toBeVisible();
+    expect(await settled(sent, "undo")).toHaveLength(1);
+  });
+
   test("要約・質問の送信は kind 付きの chat で本文なし。元記事を開く・取得の停止と再開・未読に戻すも送られる", async ({ page }) => {
     // The chat is answered here; the AI is never called.
     await page.route("**/api/articles/*/chat", (route) =>
@@ -295,8 +383,11 @@ test.describe("PC 幅", () => {
 
   test("/api/activity を遮断しても、すべての操作がふだんどおり保存され、エラーが出ない", async ({ page }) => {
     const blocked: string[] = [];
+    const blockedUndos: Sent[] = [];
     await page.route("**/api/activity", (route) => {
-      blocked.push(String(JSON.parse(route.request().postData() ?? "{}").type));
+      const sent: Sent = JSON.parse(route.request().postData() ?? "{}");
+      blocked.push(String(sent.type));
+      if (sent.type === "undo") blockedUndos.push(sent);
       return route.abort();
     });
     await page.route("**/api/articles/*/chat", (route) =>
@@ -336,7 +427,7 @@ test.describe("PC 幅", () => {
     await page.getByRole("main").getByRole("button", { name: "スキップ", exact: true }).click();
     await expect(toast(page)).toHaveText(/スキップしました/);
 
-    // 未読に戻す on a read article, then すべて既読 in the list.
+    // 未読に戻す on a read article, then すべて既読 in the list and its 元に戻す.
     await page.goto("/read");
     await page.getByRole("link", { name: new RegExp(`${folder} A 読了`) }).click();
     await expect(heading(page)).toHaveText(`${folder} A 読了`);
@@ -345,10 +436,14 @@ test.describe("PC 幅", () => {
     await openFeed(page, folder, `${folder} B`);
     await markAll(page).click();
     await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(column(page, `${folder} B`).getByLabel("未読 0 本")).toBeVisible();
+    await undo(page).click();
+    await expect(column(page, `${folder} B`).getByLabel("未読 2 本")).toBeVisible();
 
     for (const type of ["skip", "undo", "unsee", "chat", "original", "feed_pause", "feed_resume", "read", "restore", "seen_all"]) {
       await expect.poll(() => blocked, type).toContain(type);
     }
+    await expect.poll(() => blockedUndos.map((e) => (e.props as Sent).of)).toContain("seen_all");
     await expect(failed(page)).toHaveCount(0);
     await expect(errorPage(page)).toHaveCount(0);
   });

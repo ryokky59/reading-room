@@ -1167,7 +1167,8 @@ export function MarkAllSeenButton({
             toast.fail(FAILED);
             return;
           }
-          track("seen_all", { screen, props: target });
+          // `seenAt` pairs the undo below with this row in the log: it is the seen_at this one set.
+          track("seen_all", { screen, props: { ...target, seenAt } });
           const restore = clear(target, seenAt);
           const undo = async () => {
             try {
@@ -1177,6 +1178,8 @@ export function MarkAllSeenButton({
               toast.fail(FAILED, { undo });
               return;
             }
+            // The screen the button was on: the URL may have moved on by the time the toast is used.
+            track("undo", { screen, viewId: null, props: { of: "seen_all", ...target, seenAt } });
             restore();
             router.refresh();
           };
