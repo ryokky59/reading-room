@@ -1,0 +1,1 @@
+ALTER TABLE "articles" ADD COLUMN "digest_tried_at" timestamp with time zone;

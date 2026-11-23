@@ -38,6 +38,8 @@ export const articles = pgTable(
     // Tries so far and why the last one failed; at DIGEST_ATTEMPT_LIMIT it is not tried again.
     digestAttempts: integer("digest_attempts").notNull().default(0),
     digestError: text("digest_error"),
+    // When the digest was last tried; the next try waits DIGEST_RETRY_INTERVAL_MS (src/lib/feeds.ts).
+    digestTriedAt: timestamp("digest_tried_at", { withTimezone: true }),
     source: text("source").notNull(),
     // The feed the article came from; null for articles added by URL or whose feed was deleted.
     feedId: integer("feed_id").references(() => feeds.id, { onDelete: "set null" }),
