@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
+import { DIGEST_RETRY_INTERVAL_MS as INTERVAL } from "./env";
 import { openFeed } from "./nav";
 
 // AI digests and translations that fail. The Anthropic API is played by a stub on the port
@@ -51,18 +52,28 @@ test.describe("要約と翻訳の失敗", () => {
   let origin: string;
   // Calls the stub received, by the fixture title found in the request.
   const calls = { digest: {} as Record<string, number>, translate: {} as Record<string, number> };
+  // When the stub last received a digest call, by title.
+  const lastDigest: Record<string, number> = {};
   const titles = ["上限テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", SEEDED, SEEDED_MOBILE];
   // Each test has its own feed, empty while it is added, so its articles come in through 「今すぐ取得」.
-  const listed: Record<string, string[]> = { "/limit.xml": [], "/refused.xml": [], "/translate.xml": [] };
+  const listed: Record<string, string[]> = { "/limit.xml": [], "/other.xml": [], "/refused.xml": [], "/translate.xml": [] };
 
   /**
    * Presses 「今すぐ取得」, waits for the run to end, and opens `feed`'s list freshly loaded: the
    * Board shows titles only, and the failure is on the list's cards.
    */
   async function fetchOnce(page: Page, feed: string) {
+    await pressFetch(page);
+    await openList(page, feed);
+  }
+
+  async function pressFetch(page: Page) {
     await page.goto("/");
     await page.getByRole("button", { name: "今すぐ取得" }).click();
     await expect(page.getByText(/本の新着を追加しました/)).toBeVisible({ timeout: 60_000 });
+  }
+
+  async function openList(page: Page, feed: string) {
     await page.goto("/");
     await page.getByRole("region", { name: feed, exact: true }).getByRole("heading", { level: 3 }).getByRole("link").click();
     await expect(page).toHaveURL(/\/\?(f=\d+&)?s=\d+(&a=1)?$/);
@@ -85,6 +96,7 @@ test.describe("要約と翻訳の失敗", () => {
         const kind = body.output_config?.format ? "digest" : "translate";
         const title = titles.find((t) => raw.includes(t)) ?? "(other)";
         const n = (calls[kind][title] = (calls[kind][title] ?? 0) + 1);
+        if (kind === "digest") lastDigest[title] = Date.now();
         const stream = (events: string) => {
           res.writeHead(200, { "content-type": "text/event-stream" });
           res.end(events);
@@ -159,27 +171,56 @@ test.describe("要約と翻訳の失敗", () => {
     });
   }
 
-  test("失敗し続ける記事は上限の回数で諦めてカードに出て、それ以降は要約を呼ばない", async ({ page }) => {
-    test.setTimeout(180_000);
+  test("失敗し続ける記事は間隔を空けて上限の回数まで試し、間隔内の取得やサイトの追加では試さない", async ({ page }) => {
+    test.setTimeout(300_000);
     await addFeed(page, "/limit.xml", "上限テスト");
     listed["/limit.xml"].push("上限テストの記事", "成功テストの記事");
-
-    for (let run = 1; run <= LIMIT; run++) {
-      await fetchOnce(page, "上限テスト");
-      expect(calls.digest["上限テストの記事"]).toBe(run);
-      const failing = card(page, "上限テストの記事");
-      await expect(failing).toContainText(BODY);
-      if (run < LIMIT) await expect(failing).not.toContainText(FAILED);
-      else await expect(failing).toContainText(FAILED);
-      // A success needs no second try and shows the badge and the Japanese title as before.
+    const failing = card(page, "上限テストの記事");
+    // A success needs no second try and shows the badge and the Japanese title as before.
+    const expectSuccessOnce = async () => {
       expect(calls.digest["成功テストの記事"]).toBe(1);
       await expect(card(page, "成功テストの記事")).toContainText("成功テストの記事の要約です。");
       await expect(card(page, "成功テストの記事").getByText("AI 要約", { exact: true })).toBeVisible();
+    };
+    // Waits until the last try is more than the interval ago.
+    const waitInterval = async () => {
+      const wait = lastDigest["上限テストの記事"] + INTERVAL + 1_500 - Date.now();
+      if (wait > 0) await page.waitForTimeout(wait);
+    };
+
+    // The first try is when the article is saved.
+    await fetchOnce(page, "上限テスト");
+    expect(calls.digest["上限テストの記事"]).toBe(1);
+    await expect(failing).toContainText(BODY);
+    await expect(failing).not.toContainText(FAILED);
+    await expectSuccessOnce();
+
+    // Within the interval, neither another 「今すぐ取得」 nor adding a site tries it again.
+    const firstTry = lastDigest["上限テストの記事"];
+    await pressFetch(page);
+    await addFeed(page, "/other.xml", "間隔テスト");
+    expect(Date.now() - firstTry, "both ran within the interval").toBeLessThan(INTERVAL);
+    expect(calls.digest["上限テストの記事"]).toBe(1);
+    await openList(page, "上限テスト");
+    await expect(failing).toContainText(BODY);
+    await expect(failing).not.toContainText(FAILED);
+
+    // Each fetch after the interval tries once more, and the last try shows the failure.
+    for (let run = 2; run <= LIMIT; run++) {
+      await waitInterval();
+      await fetchOnce(page, "上限テスト");
+      expect(calls.digest["上限テストの記事"]).toBe(run);
+      await expect(failing).toContainText(BODY);
+      if (run < LIMIT) await expect(failing).not.toContainText(FAILED);
+      else await expect(failing).toContainText(FAILED);
+      await expectSuccessOnce();
     }
 
+    // After the limit it is not tried again, even once the interval has passed.
+    await waitInterval();
     await fetchOnce(page, "上限テスト");
     expect(calls.digest["上限テストの記事"]).toBe(LIMIT);
-    await expect(card(page, "上限テストの記事")).toContainText(FAILED);
+    await expect(failing).toContainText(FAILED);
     expect(calls.digest[SEEDED]).toBeUndefined();
     expect(calls.digest[SEEDED_MOBILE]).toBeUndefined();
   });

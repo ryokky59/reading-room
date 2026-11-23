@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { parseHTML } from "linkedom";
 import Parser from "rss-parser";
 import { digestArticle, type Digest } from "./ai";
@@ -135,26 +135,38 @@ async function save(input: Candidate[]): Promise<number> {
   }
 }
 
-type DigestColumns = Partial<Digest> & { digestAttempts: number; digestError: string | null };
+/**
+ * How long a failed digest waits before it is tried again. Every run (the hourly cron,
+ * 「今すぐ取得」, adding a feed) catches up on failed digests, so without a wait the attempts
+ * would count runs, not time: a few presses during an outage would use them all up in minutes.
+ * 45 minutes, not 60, so the hourly cron still retries each time when it starts a few minutes
+ * late or the clocks differ; with DIGEST_ATTEMPT_LIMIT tries that rides out at least 3 hours.
+ * E2E sets 20 seconds through the environment (e2e/env.ts).
+ */
+const DIGEST_RETRY_INTERVAL_MS = Number(process.env.DIGEST_RETRY_INTERVAL_MS) || 45 * 60_000;
+
+type DigestColumns = Partial<Digest> & { digestAttempts: number; digestError: string | null; digestTriedAt: Date };
 
 /** Returns the columns to store: the digest if it worked, and the record of this attempt. */
 async function tryDigest(a: Parameters<typeof digestArticle>[0], attempts: number): Promise<DigestColumns> {
   try {
-    return { ...(await digestArticle(a)), digestAttempts: attempts + 1, digestError: null };
+    return { ...(await digestArticle(a)), digestAttempts: attempts + 1, digestError: null, digestTriedAt: new Date() };
   } catch (err) {
     console.error("digest failed", a.title, err);
     const digestError = brief(err).slice(0, 200);
     // A refusal would only repeat, so it uses up the attempts at once.
-    return { digestAttempts: digestError === "refused" ? DIGEST_ATTEMPT_LIMIT : attempts + 1, digestError };
+    const digestAttempts = digestError === "refused" ? DIGEST_ATTEMPT_LIMIT : attempts + 1;
+    return { digestAttempts, digestError, digestTriedAt: new Date() };
   }
 }
 
 /**
  * Fills in the AI title/summary for unread articles that don't have one yet and still have
- * attempts left. Articles fetched at or after `before` were just tried by save(), so they wait
- * for the next run: a second try seconds later would use up an attempt on the same outage.
+ * attempts left. An article tried within DIGEST_RETRY_INTERVAL_MS waits, including one save()
+ * tried moments ago in the same run: another try so soon would use up an attempt on the same
+ * outage.
  */
-async function digestMissing(limit: number, before: Date): Promise<void> {
+async function digestMissing(limit: number): Promise<void> {
   const db = await getDb();
   const rows = await db
     .select({
@@ -170,7 +182,10 @@ async function digestMissing(limit: number, before: Date): Promise<void> {
         eq(articles.status, "inbox"),
         isNull(articles.summary),
         lt(articles.digestAttempts, DIGEST_ATTEMPT_LIMIT),
-        lt(articles.fetchedAt, before),
+        or(
+          isNull(articles.digestTriedAt),
+          lt(articles.digestTriedAt, new Date(Date.now() - DIGEST_RETRY_INTERVAL_MS)),
+        ),
       ),
     )
     .orderBy(desc(articles.fetchedAt))
@@ -188,7 +203,6 @@ async function digestMissing(limit: number, before: Date): Promise<void> {
 
 /** Collects from the given feeds, recording each feed's outcome. */
 async function run(list: Feed[]): Promise<FetchResult> {
-  const startedAt = new Date();
   const db = await getDb();
   const failedFeeds: string[] = [];
   const lists = await Promise.all(
@@ -210,7 +224,7 @@ async function run(list: Feed[]): Promise<FetchResult> {
   );
   const added = await save(lists.flat());
   // Catches up on articles saved before digests existed or whose digest failed.
-  await digestMissing(60, startedAt);
+  await digestMissing(60);
   return { added, failedFeeds };
 }
 

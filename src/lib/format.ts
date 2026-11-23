@@ -1,4 +1,5 @@
-// The cron runs hourly, so this rides out an API outage of a few hours.
+// Tries are at least DIGEST_RETRY_INTERVAL_MS apart (src/lib/feeds.ts), however often feeds are
+// fetched, so this rides out an API outage of a few hours.
 export const DIGEST_ATTEMPT_LIMIT = 5;
 
 // Dates are shown and grouped in Japan time regardless of the server's zone.
