@@ -32,6 +32,10 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     locale: "ja-JP",
     trace: "retain-on-failure",
+    // Once the app's Service Worker (public/sw.js) controls a page, the page's requests no longer
+    // reach page.route, and tests that cut or fail a request see the real one go through (#113).
+    // No test checks the Service Worker itself.
+    serviceWorkers: "block",
   },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] }, grepInvert: /@mobile/ },

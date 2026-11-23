@@ -25,6 +25,17 @@ test("一覧の長い要約は 2 行で切れ、スキップボタンと重な�
   expect(skip.y).toBeGreaterThanOrEqual(box.y + box.height);
 });
 
+test("E2E では Service Worker が登録されず、ページを制御しない", async ({ page }) => {
+  // playwright.config.ts blocks it: a page it controls no longer shows the tests' page.route (#113).
+  await page.goto("/");
+  await expect(page.locator(".chip-pill:not([hidden])").first()).toBeAttached(); // hydrated
+  // The app's own registration (ServiceWorker.tsx) has been asked for by now. Asking again and
+  // waiting for the answer makes the check below fail at once if the block is ever lost.
+  await page.evaluate(() => navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {}));
+  expect(await page.evaluate(() => navigator.serviceWorker.getRegistrations().then((r) => r.length))).toBe(0);
+  expect(await page.evaluate(() => navigator.serviceWorker.controller)).toBeNull();
+});
+
 test("一覧からスキップすると消える", async ({ page }) => {
   await page.goto("/?a=1");
   const card = page.getByRole("listitem").filter({ hasText: "スキップされる記事" });
