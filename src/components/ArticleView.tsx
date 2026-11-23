@@ -175,10 +175,11 @@ export function ArticleView({
   // The last 読了 / スキップ / 未読に戻す that could not be saved; shown above the buttons.
   const [failed, setFailed] = useState<LeaveKind | null>(null);
   const leftInbox = useLeftInbox();
+  /** The article next to this one in the list; none when this one is not in it. */
   function neighbor(step: 1 | -1) {
     if (!listIds) return undefined;
     const i = listIds.indexOf(article.id);
-    return i < 0 ? (step === 1 ? listIds[0] : undefined) : listIds[i + step];
+    return i < 0 ? undefined : listIds[i + step];
   }
   // Where the article is in the list or the Board column behind it, for 「n / N」.
   const place = listIds ? listIds.indexOf(article.id) : -1;
@@ -266,10 +267,11 @@ export function ArticleView({
       () => (kind === "read" ? markRead : skipArticle)(article.id),
       async () => {
         let next = planned;
-        // Past the last loaded card, the next unread may still be behind 「もっと見る」.
+        // Past the last loaded card, or for an article the list does not show (opened from a
+        // URL), the next unread after this one may still be behind 「もっと見る」.
         // If that lookup fails, the list (with its empty state beside it) is shown instead.
         if (wide && next === undefined) {
-          next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
+          next = (await nextInboxArticle(search, listIds ?? [], article.id)) ?? undefined;
           // Past the end of the list: j / k and the next 読了 go on from there.
           if (next !== undefined) addPast(next);
         }

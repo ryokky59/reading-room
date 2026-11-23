@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { openFeed } from "./nav";
 
 // Read and skipped cards leave the list (スキップ to the left, 読了 to the right), the cards
@@ -603,5 +603,115 @@ test.describe("保存中にブラウザの戻る", () => {
     await expect(heading(page)).toHaveText(`${folder} 1`);
     await expect(unsee(page, `${folder} 2`)).toBeVisible();
     await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+  });
+});
+
+// An article the list beside it does not show (#54): the 31st and later of a feed, opened from
+// its URL, as from the browser's history. 読了 / スキップ open the next unread after it, not the
+// top of the list. Each test opens its own rows of "E2E 載っていないサイト" (e2e/seed.mts).
+test.describe("一覧に載っていない記事", () => {
+  const feedName = "E2E 載っていないサイト";
+  const title = (n: number) => `載っていない記事 ${n}`;
+  const emptyPane = (page: Page) => page.getByText("一覧から記事を選ぶと、ここで読めます。");
+
+  /**
+   * The article's URL, with the feed's filter (`?f=…&s=…`) or none (すべて). Read from the feed's
+   * list grown by 「もっと見る」, as no list shows the article otherwise.
+   */
+  async function urlOf(page: Page, n: number, { filtered }: { filtered: boolean }) {
+    await openFeed(page, "E2E 載っていない記事", feedName);
+    const query = new URL(page.url()).search;
+    await page.goto(`/${query}&n=60`);
+    const href = (await card(page, title(n)).getByRole("link").getAttribute("href"))!;
+    const id = /^\/articles\/(\d+)/.exec(href)![1];
+    return { url: `/articles/${id}${filtered ? query : ""}`, query };
+  }
+
+  /** Opens the article from its URL and waits for the list beside it (30 cards, without it). */
+  async function openUnlisted(page: Page, n: number, { filtered = false } = {}) {
+    await page.setViewportSize(BESIDE);
+    const { url, query } = await urlOf(page, n, { filtered });
+    await page.goto(url);
+    await expect(heading(page)).toHaveText(title(n));
+    await expect(list(page).getByRole("listitem")).toHaveCount(30);
+    await expect(card(page, title(n))).toHaveCount(0);
+    await expect(readButton(page)).toBeEnabled();
+    return { url, query };
+  }
+
+  test("PC で URL から開いて読了すると、一覧の先頭ではなくその記事の次が開く", async ({ page }) => {
+    // Without a filter: the list beside it is すべて, whose first card used to open.
+    const { url } = await openUnlisted(page, 31);
+    const first = await list(page).getByRole("heading").first().textContent();
+    // j / k have no place in the list to go on from: nothing happens.
+    await page.keyboard.press("j");
+    await page.waitForTimeout(300);
+    await expect(heading(page)).toHaveText(title(31));
+    await readButton(page).click();
+    await expect(heading(page)).toHaveText(title(32));
+    await expect(heading(page)).not.toHaveText(first!);
+    await expect(page).toHaveURL(/\/articles\/\d+$/);
+    expect(new URL(page.url()).pathname).not.toBe(url);
+    await expect(toast(page).getByText("読了にしました")).toBeVisible();
+  });
+
+  test("PC で URL から開いてスキップしても、その記事の次が開く", async ({ page }) => {
+    await openUnlisted(page, 33);
+    await skipButton(page).click();
+    await expect(heading(page)).toHaveText(title(34));
+    await expect(toast(page).getByText("スキップしました")).toBeVisible();
+  });
+
+  test("e / s でも、その記事の次が開く", async ({ page }) => {
+    await openUnlisted(page, 35);
+    await page.keyboard.press("e");
+    await expect(heading(page)).toHaveText(title(36));
+
+    await openUnlisted(page, 37);
+    await page.keyboard.press("s");
+    await expect(heading(page)).toHaveText(title(38));
+  });
+
+  test("サイトで絞り込んで開くと、その絞り込みの中の次が開く。シートでも同じ", async ({ page }) => {
+    const { query } = await openUnlisted(page, 39, { filtered: true });
+    // From `lg` up the article is a sheet over the same list.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await readButton(page).click();
+    // Not 「載っていない別サイトの記事」, which comes next in the folder and in すべて.
+    await expect(heading(page)).toHaveText(title(40));
+    await expect(page).toHaveURL(new RegExp(`/articles/\\d+\\${query}$`));
+  });
+
+  test("後ろに未読が無ければ一覧に戻り、一覧の横に空の状態が出る", async ({ page }) => {
+    const { query } = await openUnlisted(page, 43, { filtered: true });
+    await readButton(page).click();
+    await expect(page).toHaveURL(`/${query}`);
+    await expect(heading(page)).toHaveCount(0);
+    await expect(emptyPane(page)).toBeVisible();
+    await expect(list(page).getByRole("listitem")).toHaveCount(30);
+  });
+
+  test("保存に失敗すると記事に留まってメッセージが出て、次の記事を探せなければ一覧に戻る", async ({ page }) => {
+    const { query } = await openUnlisted(page, 41, { filtered: true });
+    const failing = (route: Route) =>
+      "next-action" in route.request().headers() ? route.abort() : route.fallback();
+    await page.route("**/*", failing);
+    await readButton(page).click();
+    await expect(page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" })).toBeVisible();
+    await expect(heading(page)).toHaveText(title(41));
+    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+    await page.unroute("**/*", failing);
+
+    // Saved this time; looking for the one after it (the second action) fails.
+    let sent = 0;
+    await page.route("**/*", (route) => {
+      if (!("next-action" in route.request().headers())) return route.fallback();
+      return ++sent === 2 ? route.abort() : route.fallback();
+    });
+    await readButton(page).click();
+    await expect(page).toHaveURL(`/${query}`);
+    await expect(heading(page)).toHaveCount(0);
+    await expect(emptyPane(page)).toBeVisible();
+    expect(sent).toBe(2);
   });
 });

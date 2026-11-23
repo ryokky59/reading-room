@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, inArray, isNull, lt, max, notInArray, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, max, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { articles, feeds, folders, getDb } from "./db";
@@ -21,8 +21,10 @@ export type ActionState = { message?: string; error?: string };
 /**
  * The first unread article in the inbox filter (`query` is its search string) that the list
  * has not loaded yet, i.e. the one behind 「もっと見る」; null when nothing unread is left there.
+ * With `after`, only articles that come after that one in the list's order count: the next one
+ * for an article that is not in the list (opened from a URL, or past its end).
  */
-export async function nextInboxArticle(query: string, loaded: number[]): Promise<number | null> {
+export async function nextInboxArticle(query: string, loaded: number[], after?: number): Promise<number | null> {
   const filter = parseInboxFilter(Object.fromEntries(new URLSearchParams(query)));
   const ids = loaded.filter(Number.isInteger).slice(0, 1000);
   const db = await getDb();
@@ -30,10 +32,35 @@ export async function nextInboxArticle(query: string, loaded: number[]): Promise
     .select({ id: articles.id })
     .from(articles)
     .leftJoin(feeds, eq(feeds.id, articles.feedId))
-    .where(and(inboxWhere(filter), ids.length ? notInArray(articles.id, ids) : undefined))
+    .where(
+      and(
+        inboxWhere(filter),
+        ids.length ? notInArray(articles.id, ids) : undefined,
+        Number.isInteger(after) ? afterArticle(after!) : undefined,
+      ),
+    )
     .orderBy(...inboxOrder)
     .limit(1);
   return row?.id ?? null;
+}
+
+/**
+ * Rows after article `id` in inboxOrder (fetched_at desc, published_at desc, id desc), compared
+ * in SQL so the timestamps keep their microseconds. A descending order puts a null published_at
+ * first, so every dated row comes after an undated one. Nothing matches when `id` is gone.
+ */
+function afterArticle(id: number) {
+  // Spelled out: inside `sql`, drizzle renders ${articles.id} as a bare "id".
+  return sql`exists (
+    select 1 from articles x where x.id = ${id} and (
+      articles.fetched_at < x.fetched_at
+      or (articles.fetched_at = x.fetched_at and (
+        articles.published_at < x.published_at
+        or (x.published_at is null and articles.published_at is not null)
+        or (articles.published_at is not distinct from x.published_at and articles.id < x.id)
+      ))
+    )
+  )`;
 }
 
 export async function fetchNow(): Promise<ActionState> {
