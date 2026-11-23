@@ -40,11 +40,13 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 ```
 
 - E2E tests live in `e2e/` and run against a production build with a seeded PGlite database (`e2e/seed.mts`). They must not call the Anthropic API or the network.
-- Add or update an E2E test for each user-visible change. Add seed rows rather than relying on test order.
+- Add or update an E2E test for each user-visible change. Add seed rows rather than relying on test order, and only as many as the test needs: every unread row shows on the Board at `/`, and a heavier Board slows every test that loads it.
 - To show a timing bug is fixed, run the test several times with a fresh seed before each run. `--repeat-each` reuses one seed, so tests that open or mark rows fail from the second repeat on.
 - Read a Playwright result from its `N failed` line or `test-results/.last-run.json`, not from the last line of output: `| tail` hides the failed list above the summary and replaces Playwright's exit code.
 - When several worktrees test at once, set `E2E_PORT` at least 2 apart.
+- CI stops the job at 30 minutes, and a run stopped there shows as cancelled, not failed, and uploads no report. Before re-running, read its log for a failed test: a re-run only helps when nothing had failed. When the E2E step passes 20 minutes, say so in the PR so the suite gets split before the limit is reached again.
 - If new Tailwind classes have no effect, delete `.next` and build again.
+- `next build` stops with a notice that this Next.js has a known vulnerability (`SecurityFatalError`, exit code 1); in an agent's shell this is every other build, not CI or Vercel. Run it again within 5 minutes and it builds. Do not run the upgrade the notice suggests (`next upgrade --agent=security`): it changes dependencies, which is the owner's call (Issue #111). Tell the owner it appeared.
 
 ## Notes
 
