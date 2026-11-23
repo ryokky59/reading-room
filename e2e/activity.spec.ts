@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request } from "./test";
 import { openFeed, openTab } from "./nav";
 
 // The activity log: track() (src/lib/track.ts) sends events to /api/activity. The server's

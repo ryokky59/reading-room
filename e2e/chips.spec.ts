@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./test";
 
 // The pill behind the folder / site chips. Only reads: uses the filter rows in e2e/seed.mts.
 

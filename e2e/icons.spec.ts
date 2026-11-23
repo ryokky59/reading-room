@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 
 // MD5 of the favicon.ico that create-next-app ships (a black "N"); the tab must not show it.
 const NEXT_DEFAULT_FAVICON = "2be26fb5639bc7a24d9c816567b0de5f";

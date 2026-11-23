@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 
 // 「今すぐ取得」 and 「URL を追加」 with pages that linkedom / Readability cannot parse. The pages
 // come from a local server started here, so nothing reaches the outside network. Every other

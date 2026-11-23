@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "./test";
 import { openFeed } from "./nav";
 
 // Read and skipped cards leave the list (スキップ to the left, 読了 to the right), the cards

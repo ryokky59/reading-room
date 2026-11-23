@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 
 // Stopping a site's fetching from the article page. Each width uses its own enabled feed,
 // seeded at the end of e2e/seed.mts with two unread articles.

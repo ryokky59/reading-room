@@ -1,8 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
-import { DIGEST_RETRY_INTERVAL_MS } from "./e2e/env";
+import { DIGEST_RETRY_INTERVAL_MS, PGLITE_DIR, PORT } from "./e2e/env";
 
-// Override with E2E_PORT when several worktrees run tests at once.
-const PORT = Number(process.env.E2E_PORT ?? 3210);
 // e2e/stub.mts, which stands in for the feeds and the favicon service.
 const STUB_PORT = PORT + 1;
 // The AI digest runs when a test imports a feed; a local base URL keeps it from ever reaching the
@@ -10,7 +8,7 @@ const STUB_PORT = PORT + 1;
 // every call fails. The key is a dummy: without one the SDK fails before it sends anything.
 // The offset is large so the port stays clear of other worktrees' consecutive E2E_PORTs.
 const env = {
-  PGLITE_DIR: ".data/e2e",
+  PGLITE_DIR,
   ANTHROPIC_API_KEY: "e2e-dummy",
   ANTHROPIC_AUTH_TOKEN: "",
   ANTHROPIC_BASE_URL: `http://127.0.0.1:${PORT + 1000}`,
@@ -20,7 +18,8 @@ const env = {
   DIGEST_RETRY_INTERVAL_MS: String(DIGEST_RETRY_INTERVAL_MS),
 };
 
-// Tests share one seeded database, so they run one at a time.
+// Tests share one seeded database, so they run one at a time. After a test fails, the next one
+// (its retry, in CI) starts from the seed again: e2e/server.mts and e2e/test.ts.
 // Run `npm run build` first; the server is a production build on its own port.
 export default defineConfig({
   testDir: "e2e",
@@ -46,7 +45,7 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: `npx tsx e2e/seed.mts && npx next start -p ${PORT}`,
+      command: "npx tsx e2e/server.mts",
       url: `http://localhost:${PORT}`,
       env,
       reuseExistingServer: false,

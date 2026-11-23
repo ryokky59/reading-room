@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "./test";
 import { openFeed } from "./nav";
 
 // PCs (`lg` and up): the article is a sheet over the list or the Board, with the chat as its

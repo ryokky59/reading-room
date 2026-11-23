@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./test";
 import { openFeed, openTab } from "./nav";
 
 // Seen by scrolling past (SeenOnScroll). Each test uses its own folder from the end of

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { openFeed } from "./nav";
 
 // Phones show the list and the article one at a time on the same window scroll: coming back

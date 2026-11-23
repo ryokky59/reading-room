@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request } from "./test";
 import { openFeed, openTab } from "./nav";
 
 // The owner's actions in the activity log (read, skip, undo, ...), sent once they are saved. As

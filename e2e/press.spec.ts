@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "./test";
 import { openFeed } from "./nav";
 
 // Press feedback: what is held sinks, the pressed card stays outlined while its article loads,

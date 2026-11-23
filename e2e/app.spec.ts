@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 
 // The seeded data is in e2e/seed.mts. Each test that changes state uses its own article.
 
