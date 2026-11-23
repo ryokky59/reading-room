@@ -260,16 +260,18 @@ export function ArticleView({
     const wide = isWide();
     // Until the list has arrived after a direct load, the next article is not known.
     if (wide && listIds === null) return Promise.resolve(false);
-    const planned = wide ? neighbor(1) : undefined;
+    // An article the list does not show goes on from where it is, not from the list's top (#54).
+    const planned = wide && listIds?.includes(article.id) ? neighbor(1) : undefined;
     return run(
       kind,
       () => (kind === "read" ? markRead : skipArticle)(article.id),
       async () => {
         let next = planned;
-        // Past the last loaded card, the next unread may still be behind 「もっと見る」.
+        // Past the last loaded card, or for an article the list does not show, the next unread
+        // after this one may still be behind 「もっと見る」 (see nextInboxArticle).
         // If that lookup fails, the list (with its empty state beside it) is shown instead.
         if (wide && next === undefined) {
-          next = (await nextInboxArticle(search, listIds ?? [])) ?? undefined;
+          next = (await nextInboxArticle(search, listIds ?? [], article.id)) ?? undefined;
           // Past the end of the list: j / k and the next 読了 go on from there.
           if (next !== undefined) addPast(next);
         }

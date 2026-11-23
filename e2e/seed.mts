@@ -710,6 +710,38 @@ const sheetArticles = sheetFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(sheetArticles);
 
+// An article the list does not show, opened from its URL (e2e/leave.spec.ts): 30 rows that fill
+// the feed's list, then pairs that tests open and read. The oldest in the seed, so in すべて too
+// each row is followed by the next. A row of another feed in the folder sits between 39 and 40.
+const [unlistedFolder] = await db.insert(schema.folders).values({ name: "E2E 載っていない記事", position: 200 }).returning();
+const [unlistedFeed, unlistedOther] = await db
+  .insert(schema.feeds)
+  .values([
+    feed("unlisted", "E2E 載っていないサイト", unlistedFolder.id),
+    feed("unlisted-other", "E2E 載っていない別サイト", unlistedFolder.id),
+  ])
+  .returning();
+const unlistedArticles = [
+  ...Array.from({ length: 43 }, (_, i) =>
+    article(8000 + i, {
+      title: `載っていない記事 ${i + 1}`,
+      titleJa: `載っていない記事 ${i + 1}`,
+      source: unlistedFeed.name,
+      feedId: unlistedFeed.id,
+      // Leaves room after 39 (i = 38) for the other feed's row.
+      fetchedAt: old(8000 + i * 2),
+    }),
+  ),
+  article(8100, {
+    title: "載っていない別サイトの記事",
+    titleJa: "載っていない別サイトの記事",
+    source: unlistedOther.name,
+    feedId: unlistedOther.id,
+    fetchedAt: old(8000 + 38 * 2 + 1),
+  }),
+];
+await db.insert(schema.articles).values(unlistedArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length} articles into ${dir}`,
 );
