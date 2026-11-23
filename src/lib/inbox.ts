@@ -44,19 +44,20 @@ export function inboxQuery(filter: InboxFilter): string {
  * `a`, the seen ones too. The query must left join `feeds`.
  */
 export function inboxWhere(filter: InboxFilter) {
+  return and(eq(articles.status, "inbox"), filter.a ? undefined : isNull(articles.seenAt), placeWhere(filter));
+}
+
+/** Articles of the filter's folder or site, of any status. The query must left join `feeds`. */
+export function placeWhere(filter: InboxFilter) {
   const folderId = filter.f && filter.f !== "none" ? Number(filter.f) : null;
   const feedId = filter.s ? Number(filter.s) : null;
-  return and(
-    eq(articles.status, "inbox"),
-    filter.a ? undefined : isNull(articles.seenAt),
-    feedId !== null
-      ? eq(articles.feedId, feedId)
-      : filter.f === "none"
-        ? isNull(feeds.folderId)
-        : folderId !== null
-          ? eq(feeds.folderId, folderId)
-          : undefined,
-  );
+  return feedId !== null
+    ? eq(articles.feedId, feedId)
+    : filter.f === "none"
+      ? isNull(feeds.folderId)
+      : folderId !== null
+        ? eq(feeds.folderId, folderId)
+        : undefined;
 }
 
 /**

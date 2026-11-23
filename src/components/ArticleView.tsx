@@ -175,11 +175,10 @@ export function ArticleView({
   // The last 読了 / スキップ / 未読に戻す that could not be saved; shown above the buttons.
   const [failed, setFailed] = useState<LeaveKind | null>(null);
   const leftInbox = useLeftInbox();
-  /** The article next to this one in the list; none when this one is not in it. */
   function neighbor(step: 1 | -1) {
     if (!listIds) return undefined;
     const i = listIds.indexOf(article.id);
-    return i < 0 ? undefined : listIds[i + step];
+    return i < 0 ? (step === 1 ? listIds[0] : undefined) : listIds[i + step];
   }
   // Where the article is in the list or the Board column behind it, for 「n / N」.
   const place = listIds ? listIds.indexOf(article.id) : -1;
@@ -261,14 +260,15 @@ export function ArticleView({
     const wide = isWide();
     // Until the list has arrived after a direct load, the next article is not known.
     if (wide && listIds === null) return Promise.resolve(false);
-    const planned = wide ? neighbor(1) : undefined;
+    // An article the list does not show goes on from where it is, not from the list's top (#54).
+    const planned = wide && listIds?.includes(article.id) ? neighbor(1) : undefined;
     return run(
       kind,
       () => (kind === "read" ? markRead : skipArticle)(article.id),
       async () => {
         let next = planned;
-        // Past the last loaded card, or for an article the list does not show (opened from a
-        // URL), the next unread after this one may still be behind 「もっと見る」.
+        // Past the last loaded card, or for an article the list does not show, the next unread
+        // after this one may still be behind 「もっと見る」 (see nextInboxArticle).
         // If that lookup fails, the list (with its empty state beside it) is shown instead.
         if (wide && next === undefined) {
           next = (await nextInboxArticle(search, listIds ?? [], article.id)) ?? undefined;

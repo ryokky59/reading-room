@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { articles, feeds, folders, getDb } from "./db";
 import { addUrl, discoverFeed, fetchAllFeeds, fetchFeed } from "./feeds";
-import { inboxOrder, inboxWhere, parseInboxFilter, seenNow } from "./inbox";
+import { inboxOrder, inboxWhere, parseInboxFilter, placeWhere, seenNow } from "./inbox";
 import { dbNow } from "./opened-request";
 
 export type ActionState = { message?: string; error?: string };
@@ -21,13 +21,25 @@ export type ActionState = { message?: string; error?: string };
 /**
  * The first unread article in the inbox filter (`query` is its search string) that the list
  * has not loaded yet, i.e. the one behind 「もっと見る」; null when nothing unread is left there.
- * With `after`, only articles that come after that one in the list's order count: the next one
- * for an article that is not in the list (opened from a URL, or past its end).
+ * `after` is the article being left. When it is in the filter, only the articles after it in the
+ * list's order count: the next one for an article past the end of the list, or opened from its
+ * URL and not in the list at all. When it is not (the list was switched while it was open), the
+ * filter's first unread, the top of that list, comes next.
  */
 export async function nextInboxArticle(query: string, loaded: number[], after?: number): Promise<number | null> {
   const filter = parseInboxFilter(Object.fromEntries(new URLSearchParams(query)));
   const ids = loaded.filter(Number.isInteger).slice(0, 1000);
   const db = await getDb();
+  const from = Number.isInteger(after) ? after! : null;
+  const inFilter =
+    from === null ||
+    (
+      await db
+        .select({ id: articles.id })
+        .from(articles)
+        .leftJoin(feeds, eq(feeds.id, articles.feedId))
+        .where(and(eq(articles.id, from), placeWhere(filter)))
+    ).length > 0;
   const [row] = await db
     .select({ id: articles.id })
     .from(articles)
@@ -35,8 +47,8 @@ export async function nextInboxArticle(query: string, loaded: number[], after?: 
     .where(
       and(
         inboxWhere(filter),
-        ids.length ? notInArray(articles.id, ids) : undefined,
-        Number.isInteger(after) ? afterArticle(after!) : undefined,
+        inFilter && ids.length ? notInArray(articles.id, ids) : undefined,
+        inFilter && from !== null ? afterArticle(from) : undefined,
       ),
     )
     .orderBy(...inboxOrder)

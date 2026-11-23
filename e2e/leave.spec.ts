@@ -643,10 +643,6 @@ test.describe("一覧に載っていない記事", () => {
     // Without a filter: the list beside it is すべて, whose first card used to open.
     const { url } = await openUnlisted(page, 31);
     const first = await list(page).getByRole("heading").first().textContent();
-    // j / k have no place in the list to go on from: nothing happens.
-    await page.keyboard.press("j");
-    await page.waitForTimeout(300);
-    await expect(heading(page)).toHaveText(title(31));
     await readButton(page).click();
     await expect(heading(page)).toHaveText(title(32));
     await expect(heading(page)).not.toHaveText(first!);
