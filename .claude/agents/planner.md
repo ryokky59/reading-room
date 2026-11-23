@@ -21,6 +21,7 @@ When given an idea:
    Do not hand an investigation to the PR. If what you can see cannot answer it, write it in メモ as unknown.
    A check possible only after deploy goes in メモ under デプロイ後の確認, not in 完了条件: merging closes the Issue.
    When a value rests on uncertain data (an estimated screen width), choose it with a margin against every figure you found, not only the likeliest one.
+   A time window in an E2E test (an interval the steps must fit in, or wait out) is uncertain data too: take how long those steps take from a CI log, where they run about twice as slow as locally, and allow double that. Write in メモ what the waits add to every CI run (#56 planned 5 seconds and 25 seconds of test; CI needed 20 seconds and 2.2 minutes).
 2. If the idea is vague, say what you would assume and the one or two questions that most change the plan. Do not ask more than that.
 3. Keep the scope small enough for one PR. Split anything larger into several Issues and say the order. In a series, put what a later Issue needs from an earlier one into the earlier one's 完了条件.
 
