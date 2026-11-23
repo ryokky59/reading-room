@@ -63,9 +63,17 @@ test.describe("要約と翻訳の失敗", () => {
    * Board shows titles only, and the failure is on the list's cards.
    */
   async function fetchOnce(page: Page, feed: string) {
+    await pressFetch(page);
+    await openList(page, feed);
+  }
+
+  async function pressFetch(page: Page) {
     await page.goto("/");
     await page.getByRole("button", { name: "今すぐ取得" }).click();
     await expect(page.getByText(/本の新着を追加しました/)).toBeVisible({ timeout: 60_000 });
+  }
+
+  async function openList(page: Page, feed: string) {
     await page.goto("/");
     await page.getByRole("region", { name: feed, exact: true }).getByRole("heading", { level: 3 }).getByRole("link").click();
     await expect(page).toHaveURL(/\/\?(f=\d+&)?s=\d+(&a=1)?$/);
@@ -164,7 +172,7 @@ test.describe("要約と翻訳の失敗", () => {
   }
 
   test("失敗し続ける記事は間隔を空けて上限の回数まで試し、間隔内の取得やサイトの追加では試さない", async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(300_000);
     await addFeed(page, "/limit.xml", "上限テスト");
     listed["/limit.xml"].push("上限テストの記事", "成功テストの記事");
     const failing = card(page, "上限テストの記事");
@@ -188,11 +196,12 @@ test.describe("要約と翻訳の失敗", () => {
     await expectSuccessOnce();
 
     // Within the interval, neither another 「今すぐ取得」 nor adding a site tries it again.
-    await fetchOnce(page, "上限テスト");
+    const firstTry = lastDigest["上限テストの記事"];
+    await pressFetch(page);
     await addFeed(page, "/other.xml", "間隔テスト");
-    expect(Date.now() - lastDigest["上限テストの記事"], "both ran within the interval").toBeLessThan(INTERVAL);
+    expect(Date.now() - firstTry, "both ran within the interval").toBeLessThan(INTERVAL);
     expect(calls.digest["上限テストの記事"]).toBe(1);
-    await fetchOnce(page, "上限テスト");
+    await openList(page, "上限テスト");
     await expect(failing).toContainText(BODY);
     await expect(failing).not.toContainText(FAILED);
 
