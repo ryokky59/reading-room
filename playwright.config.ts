@@ -16,7 +16,7 @@ const env = {
   ANTHROPIC_BASE_URL: `http://127.0.0.1:${PORT + 1000}`,
   E2E_STUB_PORT: String(STUB_PORT),
   FAVICON_SERVICE: `http://localhost:${STUB_PORT}/favicons`,
-  // Longer than one 「今すぐ取得」 run takes, so e2e/digest.spec.ts can fetch twice within it.
+  // Long enough for e2e/digest.spec.ts to press 「今すぐ取得」 once and add a site within it.
   DIGEST_RETRY_INTERVAL_MS: String(DIGEST_RETRY_INTERVAL_MS),
 };
 

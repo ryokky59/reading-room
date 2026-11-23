@@ -141,7 +141,7 @@ async function save(input: Candidate[]): Promise<number> {
  * would count runs, not time: a few presses during an outage would use them all up in minutes.
  * 45 minutes, not 60, so the hourly cron still retries each time when it starts a few minutes
  * late or the clocks differ; with DIGEST_ATTEMPT_LIMIT tries that rides out at least 3 hours.
- * E2E sets a few seconds through the environment.
+ * E2E sets 20 seconds through the environment (e2e/env.ts).
  */
 const DIGEST_RETRY_INTERVAL_MS = Number(process.env.DIGEST_RETRY_INTERVAL_MS) || 45 * 60_000;
 
