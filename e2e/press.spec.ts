@@ -193,7 +193,9 @@ test("読了・スキップ・未読に戻すが保存できないと、記事�
   // The article's own buttons, not the cards' スキップ in the list beside it.
   const read = page.getByRole("main").getByRole("button", { name: "読了にする" });
   const skip = page.getByRole("main").getByRole("button", { name: "スキップ" });
-  const width = async (el: Locator) => (await el.boundingBox())!.width;
+  // The layout width, not the box on screen: the article's sheet is still sliding in (a transform),
+  // and a box read through it can be off by a float rounding (378.00003 against 378 in CI).
+  const width = (el: Locator) => el.evaluate((e) => parseFloat(getComputedStyle(e).width));
   const skipWidth = await width(skip);
   const readWidth = await width(read);
   await skip.click();

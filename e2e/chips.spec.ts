@@ -13,6 +13,22 @@ const style = (el: Locator, prop: string) =>
   el.evaluate((e, p) => getComputedStyle(e).getPropertyValue(p), prop);
 /** Running CSS transitions on the element (the pill sliding). */
 const sliding = (el: Locator) => el.evaluate((e) => e.getAnimations().length);
+/**
+ * Starts noting whether the pill begins to slide, and returns a check that waits for it. Polling
+ * `sliding` for this can miss the whole 0.3s slide on a slow runner: in CI one poll answered 0
+ * just before it began and the next, 350ms later, just after it ended.
+ */
+async function watchSlide(nav: Locator) {
+  await pill(nav).evaluate((e) => {
+    const w = window as unknown as { pillSlideRan: boolean };
+    w.pillSlideRan = false;
+    e.addEventListener("transitionrun", () => (w.pillSlideRan = true));
+  });
+  return () =>
+    expect
+      .poll(() => nav.page().evaluate(() => (window as unknown as { pillSlideRan: boolean }).pillSlideRan))
+      .toBe(true);
+}
 const ACCENT = "rgb(181, 83, 44)";
 const MUTED = "rgb(107, 102, 94)";
 
@@ -50,9 +66,10 @@ test("押したチップへ、一覧が届く前から背景がすべって移�
   await expect(business).toHaveCSS("color", MUTED);
 
   const start = (await pill(nav).boundingBox())!.x;
+  const slid = await watchSlide(nav);
   await business.click();
   // Moving towards the pressed chip right away, before the list changes.
-  await expect.poll(() => sliding(pill(nav))).toBeGreaterThan(0);
+  await slid();
   await expect.poll(async () => (await pill(nav).boundingBox())?.x ?? -Infinity).toBeGreaterThan(start);
   await expect(business).toHaveCSS("color", ACCENT);
   await expect(all).toHaveCSS("color", MUTED);
@@ -78,8 +95,9 @@ test("サイトの行は「このフォルダすべて」に背景がある状�
   expect(await gap(pill(nav), chip(nav, "このフォルダすべて"))).toBeLessThanOrEqual(1);
 
   const site = chip(nav, "E2E ビジネス週報");
+  const slid = await watchSlide(nav);
   await site.click();
-  await expect.poll(() => sliding(pill(nav))).toBeGreaterThan(0);
+  await slid();
   await expect(page).toHaveURL(/\/\?f=\d+&s=\d+&a=1$/);
   await expect(page.getByRole("link", { name: "‹ ボード" })).toBeVisible();
 });

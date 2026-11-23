@@ -28,6 +28,12 @@ test("移行後、既存の Tech / Business のフィードが同名のフォル
 });
 
 test("フォルダを作成・名前変更・並べ替え・削除できる", async ({ page }) => {
+  // Longer than the 30s default, and why: /feeds offers every folder in every feed's folder menu,
+  // and the seed gives each test its own folder and sites, so here the page holds about 27,000
+  // <option>s (2.3 MB of HTML; the owner's has a few hundred). Each of this test's seven saves and
+  // its reload redraws that page, and the trace snapshots it at every step. That takes 4s here
+  // untraced on a laptop, 6.5s traced, and 21–33s on a CI runner, so 30s was missed now and then.
+  test.setTimeout(60_000);
   await page.goto("/feeds");
   await page.getByRole("textbox", { name: "新しいフォルダ名" }).fill("E2E 新フォルダ");
   await page.getByRole("button", { name: "フォルダを作成" }).click();
