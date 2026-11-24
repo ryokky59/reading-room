@@ -10,7 +10,9 @@
 // - `cut`: per feed ("none" is the articles without one), the time of its 「すべて既読」. What that
 //   feed had seen by then leaves, while the other feeds keep their faded rows.
 //
-// A full load of the list starts again: a new `since`, and nothing else.
+// A full load of the list starts again: a new `since`, and nothing else. A full load of another
+// page (an article's URL, /feeds, /read) does too, keeping only `open` (ListedOnFullLoad in
+// InboxShell); only the list beside an article, when the router loads it as a document, keeps all.
 
 export const LISTED_COOKIE = "listed";
 

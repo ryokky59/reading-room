@@ -147,6 +147,25 @@ export function ListedSince({ since }: { since: number }) {
   return null;
 }
 
+/**
+ * A full load of any other page (an article's URL, /feeds, /read) starts again too, as a full
+ * load of the list does (lib/opened.ts): the cookie keeps only `open`, so the list's next request
+ * is rendered from the server's now, and ListedSince writes that down. Left alone are the list
+ * itself, which the server has rendered from a new `since` already, and the list beside an
+ * article, which the router loads as a document when it cannot fetch it. Mounted once per
+ * document, in the root layout; a layout effect, so the cookie is cleared before
+ * ListAfterFullLoad's effect asks for the list.
+ */
+export function ListedOnFullLoad() {
+  useLayoutEffect(() => {
+    const path = window.location.pathname;
+    if (path === "/" || /^\/articles\/[^/]+\/list$/.test(path)) return;
+    const { since, open, cut } = readListed();
+    if (since !== null || Object.keys(cut).length > 0) writeListed({ since: null, open, cut: {} });
+  }, []);
+  return null;
+}
+
 /** A row that SeenOnScroll marked as seen, or is about to. */
 export type Scrolled = {
   /** Its feed and folder, as the cookie and the filter name them ("none" for neither). */
@@ -208,7 +227,8 @@ export function useScrolledSeen() {
  * Keeps what the list needs to hold seen rows in place (see lib/opened.ts): the open article goes
  * in the cookie, on phones too, and 「すべて既読」 moves `cut` or `since`. A full load of the list
  * starts again: the server ignores the cookie for it (lib/opened-request.ts) and ListedSince
- * writes the new one. Beside an article, a reload keeps the cookie.
+ * writes the new one. So does a full load of an article's URL (ListedOnFullLoad), where only the
+ * open article stays.
  */
 function useOpened(openId: number | null): Opened {
   const [opened, setOpened] = useState<ReadonlySet<number>>(() => new Set(openId === null ? [] : [openId]));
