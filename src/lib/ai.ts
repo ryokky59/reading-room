@@ -122,6 +122,9 @@ export function streamReview(month: string, items: ReviewItem[], onDone: (text: 
     })
     .join("\n\n");
   const encoder = new TextEncoder();
+  // Both notes end with 「作り直してください)」, which tells a failed look-back from a kept one.
+  const failure = "\n\n(この月の振り返りは作れませんでした。作り直してください)";
+  const cutOff = "\n\n(振り返りが長くなり、ここまでで切れました。作り直してください)";
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       let full = "";
@@ -154,12 +157,11 @@ ${list}
           }
         }
         const final = await stream.finalMessage();
-        // A month has one look-back, so a failed one is shown but not kept.
-        if (final.stop_reason === "refusal" || !full.trim()) {
-          controller.enqueue(encoder.encode("\n\n(この月の振り返りは作れませんでした。作り直してください)"));
-        } else {
-          await onDone(full);
-        }
+        // A month has one look-back, so a failed or cut-off one is shown but not kept: saving it
+        // would replace a complete one.
+        if (final.stop_reason === "refusal" || !full.trim()) controller.enqueue(encoder.encode(failure));
+        else if (final.stop_reason === "max_tokens") controller.enqueue(encoder.encode(cutOff));
+        else await onDone(full);
       } catch (err) {
         console.error("review stream failed", err);
         controller.enqueue(encoder.encode("\n\n(エラーが発生しました。もう一度試してください)"));

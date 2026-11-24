@@ -16,6 +16,7 @@ const BODY = "要約テストの本文です。"; // Also what the card shows as
 const TRANSLATION_FAILED = "(日本語にまとめられませんでした。やり直してください)";
 const TRANSLATION_CUT = "(記事が長く、ここまでで切れました。やり直してください)";
 const REVIEW_FAILED = "(この月の振り返りは作れませんでした。作り直してください)";
+const REVIEW_CUT = "(振り返りが長くなり、ここまでで切れました。作り直してください)";
 // The widths the owner reads on: a phone upright and on its side, and a PC.
 const VIEWPORTS = [
   { width: 390, height: 844 },
@@ -76,6 +77,8 @@ test.describe("要約と翻訳の失敗", () => {
     translate: {} as Record<string, number>,
     review: {} as Record<string, number>,
   };
+  // The stub's next look-back replies, oldest first.
+  const reviewReplies: string[] = [];
   // When the stub last received a digest call, by title.
   const lastDigest: Record<string, number> = {};
   const titles = ["上限テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", "Translation cut-off test", SEEDED, SEEDED_MOBILE];
@@ -133,8 +136,10 @@ test.describe("要約と翻訳の失敗", () => {
         const digest = (lang: string, titleJa: string) =>
           stream(sse("end_turn", JSON.stringify({ lang, title_ja: titleJa, summary: `${titleJa}の要約です。` })));
         if (kind === "review") {
-          // Refused first, then ended with nothing written.
-          stream(n === 1 ? sse("refusal") : sse("end_turn"));
+          // A test that queues its own replies does not depend on the calls earlier tests made;
+          // otherwise refused first, then ended with nothing written.
+          const reply = reviewReplies.shift();
+          stream(reply ?? (n === 1 ? sse("refusal") : sse("end_turn")));
         } else if (kind === "translate" && title === "Translation cut-off test") {
           // Empty, then cut off by the length limit twice (the reload in between), then complete.
           if (n === 1) stream(sse("end_turn"));
@@ -370,5 +375,71 @@ test.describe("要約と翻訳の失敗", () => {
     await expect(month.getByRole("button", { name: "この月を振り返る" })).toBeVisible();
     await expect(month.getByRole("button", { name: "振り返りを見る" })).toHaveCount(0);
     await expect(month).not.toContainText(REVIEW_FAILED);
+  });
+
+  test("振り返りが長さの上限で切れると切れた旨の文が出て保存されず、最後まで書けた振り返りも上書きしない", async ({
+    page,
+  }) => {
+    const PARTIAL = "途中までの振り返りです。";
+    const COMPLETE = "最後まで書けた振り返りです。";
+    const PARTIAL_AGAIN = "二度目は切れた振り返りです。";
+    reviewReplies.splice(
+      0,
+      reviewReplies.length,
+      sse("max_tokens", PARTIAL),
+      sse("max_tokens", PARTIAL),
+      sse("end_turn", COMPLETE),
+      sse("max_tokens", PARTIAL_AGAIN),
+    );
+    const before = calls.review["(month)"] ?? 0;
+    // The seed has articles read this month, and its section comes first.
+    await page.goto("/read");
+    const month = page.getByRole("main").locator("section").first();
+    const start = month.getByRole("button", { name: "この月を振り返る" });
+    const again = month.getByRole("button", { name: "作り直す" });
+    const view = month.getByRole("button", { name: "振り返りを見る" });
+
+    // Cut off: what came, the note under it, no 「考えています…」, and 「作り直す」.
+    await start.click();
+    await expect(month).toContainText(REVIEW_CUT);
+    await expect(month).toContainText(PARTIAL);
+    await expect(month).not.toContainText(REVIEW_FAILED);
+    await expect(month.getByText("考えています…")).toHaveCount(0);
+    await expect(again).toBeVisible();
+    const partial = await month.getByText(PARTIAL).boundingBox();
+    const note = await month.getByText(REVIEW_CUT).boundingBox();
+    expect(note!.y).toBeGreaterThan(partial!.y);
+    await expectFits(page, REVIEW_CUT);
+
+    // It was not kept.
+    await page.reload();
+    await expect(start).toBeVisible();
+    await expect(view).toHaveCount(0);
+    await expect(month).not.toContainText(PARTIAL);
+
+    // Cut off again, then complete through 「作り直す」: the note goes, and it is kept.
+    await start.click();
+    await expect(month).toContainText(REVIEW_CUT);
+    await again.click();
+    await expect(month).toContainText(COMPLETE);
+    await expect(again).toBeVisible();
+    await expect(month).not.toContainText(REVIEW_CUT);
+    await expect(month).not.toContainText(PARTIAL);
+    await page.reload();
+    await view.click();
+    await expect(month).toContainText(COMPLETE);
+
+    // Cut off over a complete one: after a reload the complete one is still there.
+    await again.click();
+    await expect(month).toContainText(PARTIAL_AGAIN);
+    await expect(month).toContainText(REVIEW_CUT);
+    await expect(again).toBeVisible();
+    await page.reload();
+    await view.click();
+    await expect(month).toContainText(COMPLETE);
+    await expect(month).not.toContainText(PARTIAL_AGAIN);
+    await expect(month).not.toContainText(REVIEW_CUT);
+    expect(calls.review["(month)"] - before).toBe(4);
+    expect(reviewReplies).toHaveLength(0);
   });
 });
