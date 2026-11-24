@@ -142,7 +142,10 @@ export function ListedSince({ since }: { since: number }) {
   });
   useLayoutEffect(() => {
     const listed = readListed();
-    if (listed.since === null || listed.since < since) writeListed({ since, open: openIdRef.current, cut: listed.cut });
+    if (listed.since === null || listed.since < since) {
+      // A newer `since` is a full load, which drops `kept`; none yet, a direct load, which did so.
+      writeListed({ since, open: openIdRef.current, cut: listed.cut, kept: listed.since === null ? listed.kept : [] });
+    }
   }, [since]);
   return null;
 }
@@ -160,8 +163,8 @@ export function ListedOnFullLoad() {
   useLayoutEffect(() => {
     const path = window.location.pathname;
     if (path === "/" || /^\/articles\/[^/]+\/list$/.test(path)) return;
-    const { since, open, cut } = readListed();
-    if (since !== null || Object.keys(cut).length > 0) writeListed({ since: null, open, cut: {} });
+    const { since, open, cut, kept } = readListed();
+    if (since !== null || Object.keys(cut).length > 0 || kept.length > 0) writeListed({ since: null, open, cut: {}, kept: [] });
   }, []);
   return null;
 }
@@ -308,8 +311,8 @@ function useOpened(openId: number | null): Opened {
         };
       }
       const unlined = lined(() => true);
-      // One past it: `since` keeps what was seen at it or later.
-      writeListed({ ...before, since: seenAt + 1 });
+      // One past it: `since` keeps what was seen at it or later. What 「元に戻す」 kept goes too.
+      writeListed({ ...before, since: seenAt + 1, kept: [] });
       setOpened((s) => new Set([...s].filter((id) => id === openIdRef.current)));
       setSaved(false, () => true);
       return () => {
@@ -317,7 +320,12 @@ function useOpened(openId: number | null): Opened {
         // The cuts that `since` made redundant were dropped from the cookie (serializeListed):
         // they come back too, and a cut written since the press wins over the one before it.
         if (listed.since === seenAt + 1) {
-          writeListed({ ...listed, since: before.since, cut: { ...before.cut, ...listed.cut } });
+          writeListed({
+            ...listed,
+            since: before.since,
+            cut: { ...before.cut, ...listed.cut },
+            kept: [...before.kept, ...listed.kept],
+          });
         }
         setSaved(true, (id) => unlined.has(id));
       };
@@ -441,11 +449,11 @@ export function useLeftInbox() {
       // puts it where the list has it.
       const undo = async () => {
         setLeaving(id, null);
-        let seenAt: number | null;
+        let seen: boolean;
         try {
           // The restore must not reach the server before the read / skip does.
           await done.catch(() => {});
-          seenAt = await undoLeave(id);
+          seen = await undoLeave(id);
         } catch (e) {
           console.error(e);
           setLeaving(id, { dir });
@@ -454,11 +462,11 @@ export function useLeftInbox() {
         }
         // The screen it was pressed on; not a step of the view the article may have open.
         track("undo", { articleId: id, viewId: null, props: { of: kind } });
-        if (seenAt !== null) {
-          // An article opened from its URL was seen before the list's `since` (ListedOnFullLoad),
-          // and once it is no longer open the list would leave it out: `since` goes back to it.
+        if (seen) {
+          // It may have been seen before `since` (opened from its URL, or under 既読を含む): the
+          // cookie keeps it listed by its id, and no other row comes back (lib/opened.ts).
           const listed = readListed();
-          if (listed.since === null || listed.since > seenAt) writeListed({ ...listed, since: seenAt });
+          if (!listed.kept.includes(id)) writeListed({ ...listed, kept: [...listed.kept, id] });
           keep(id);
         } else forget(id);
         router.refresh();

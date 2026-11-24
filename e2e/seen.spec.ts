@@ -581,6 +581,93 @@ test("PC で記事 URL を直接開くと、前に開いた記事は横の一覧
   await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
 });
 
+// 「元に戻す」 keeps the article it put back by its id (`kept`), whenever it was seen: moving
+// `since` back to it would bring back every row seen after it, the faded rows #112 removes.
+test("PC で前に開いた記事を URL から開いて読了し「元に戻す」と、その記事だけが一覧に戻り、あとの既読は戻らない", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const name = "E2E 直接開いて戻す";
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name);
+  await openColumn(page, `${name} A`);
+  for (const title of [`${name} A1`, `${name} A2`]) {
+    await card(page, title).getByRole("link").click();
+    await expect(heading(page)).toHaveText(title);
+    await closeBeside(page);
+    await expect(heading(page)).toHaveCount(0);
+    await expect(card(page, title)).toHaveAttribute("data-seen", "");
+  }
+  const a1 = await card(page, `${name} A1`).getByRole("link").getAttribute("href");
+
+  await page.goto(a1!);
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("aria-current", "true");
+  await expect(card(page, `${name} A3`)).toBeVisible();
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+  // Another window's 「すべて既読」 of the articles without a site, which the undo must keep.
+  const value = (await context.cookies()).find((c) => c.name === "listed")?.value ?? "";
+  expect(value).toMatch(/^\d+~\d+~$/);
+  const cut = `none-${Number(value.split("~")[0]) + 1}`;
+  await context.addCookies([{ name: "listed", value: `${value}${cut}`, url: baseURL! }]);
+
+  // 読了 opens A3 beside the list, and the undo puts A1 back with A3 still open.
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(heading(page)).toHaveText(`${name} A3`);
+  await expect(card(page, `${name} A1`)).toHaveCount(0);
+  await undo(page).click();
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} A3`)).toHaveAttribute("aria-current", "true");
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+
+  // The next requests of the list agree, and the other window's cut is still there.
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/&a=1$/);
+  await includeSeen(page).click();
+  await expect(page).not.toHaveURL(/&a=1$/);
+  await expect(heading(page)).toHaveText(`${name} A3`);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+  expect((await context.cookies()).find((c) => c.name === "listed")?.value).toContain(cut);
+});
+
+test("PC で「既読を含む」から前の既読を開いて読了し「元に戻す」と、その記事だけがボードに戻り、あとの既読は戻らない", async ({
+  page,
+}) => {
+  const name = "E2E 既読を含むで戻す";
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name, 2);
+  await openColumn(page, `${name} A`);
+  // A2 first: it is the one put back, and A1 is seen after it.
+  for (const title of [`${name} A2`, `${name} A1`]) {
+    await card(page, title).getByRole("link").click();
+    await expect(heading(page)).toHaveText(title);
+    await closeBeside(page);
+    await expect(heading(page)).toHaveCount(0);
+    await expect(card(page, title)).toHaveAttribute("data-seen", "");
+  }
+
+  // A full load starts again: the site has nothing left, so the folder's Board shows.
+  await page.reload();
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
+  await card(page, `${name} A2`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(heading(page)).toHaveCount(0);
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+  await undo(page).click();
+  await expect(card(page, `${name} A2`)).toHaveAttribute("data-seen", "");
+
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(columnRow(page, `${name} A`, `${name} A2`)).toHaveAttribute("data-seen", "");
+  await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
+});
+
 test("PC で何日も前の since が Cookie にあっても、記事 URL を直接開くと前の既読は一覧に無く、since が新しくなる", async ({
   page,
   context,

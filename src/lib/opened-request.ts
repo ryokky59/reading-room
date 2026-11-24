@@ -28,10 +28,11 @@ export async function dbNow() {
  */
 export async function requestListed({ besideArticle = false } = {}): Promise<ListedRows> {
   const fullLoad = !besideArticle && ((await headers()).get("accept") ?? "").includes("text/html");
-  const { since, open, cut } = parseListed(fullLoad ? undefined : (await cookies()).get(LISTED_COOKIE)?.value);
+  const { since, open, cut, kept } = parseListed(fullLoad ? undefined : (await cookies()).get(LISTED_COOKIE)?.value);
   return {
     since: new Date(since ?? (await dbNow())),
     open,
     cut: Object.entries(cut).map(([feed, at]) => ({ feedId: feed === "none" ? null : Number(feed), at: new Date(at) })),
+    kept: [...kept],
   };
 }

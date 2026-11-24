@@ -109,17 +109,16 @@ export async function restoreArticle(id: number) {
 
 /**
  * The toast's 「元に戻す」 after 読了 / スキップ: back in the inbox as it was before, so an
- * article that was seen (既読) stays seen. Answers when it was seen (ms, as in lib/opened.ts), or
- * null when it was not.
+ * article that was seen (既読) stays seen. Answers whether it is.
  */
-export async function undoLeave(id: number): Promise<number | null> {
+export async function undoLeave(id: number): Promise<boolean> {
   const db = await getDb();
   const [row] = await db
     .update(articles)
     .set({ status: "inbox", readAt: null })
     .where(eq(articles.id, id))
     .returning({ seenAt: articles.seenAt });
-  return row?.seenAt ? row.seenAt.getTime() : null;
+  return !!row?.seenAt;
 }
 
 /** What 「すべて既読」 wrote: the seen_at every row got (in ms, for the cookie in lib/opened.ts) and how many rows. */
