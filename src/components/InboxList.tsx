@@ -21,7 +21,7 @@ import { SeenOnScroll } from "@/components/SeenOnScroll";
 import { feedColor, folderList, unreadBuckets, type Bucket } from "@/lib/board";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { faviconUrl } from "@/lib/favicon";
-import { DIGEST_ATTEMPT_LIMIT, formatAgo, formatDate, hostname, isForeign, readingMinutes } from "@/lib/format";
+import { DIGEST_ATTEMPT_LIMIT, DIGEST_FAILED, formatAgo, formatDate, hostname, isForeign, readingMinutes } from "@/lib/format";
 import { inboxOrder, inboxQuery, listedWhere, parseInboxFilter, type InboxFilter, type ListedRows } from "@/lib/inbox";
 import { cutKey } from "@/lib/opened";
 import { requestListed } from "@/lib/opened-request";
@@ -255,7 +255,7 @@ async function List({
                 ) : (
                   <>
                     {a.digestAttempts >= DIGEST_ATTEMPT_LIMIT && (
-                      <p className="mt-1 text-xs text-muted">AI 要約できませんでした</p>
+                      <p className="mt-1 text-xs text-muted">{DIGEST_FAILED}</p>
                     )}
                     {a.excerpt && <p className="mt-1 line-clamp-2 text-sm leading-snug text-muted">{a.excerpt}</p>}
                   </>

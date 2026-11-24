@@ -118,6 +118,10 @@ const [flash, weekly, readOnly, bulk, backFeed, lastFeed, stayFeed, readBackFeed
 // Articles the AI refused to summarize (e2e/digest.spec.ts).
 const [refusedFolder] = await db.insert(schema.folders).values({ name: "E2E 要約できない", position: 65 }).returning();
 const [refusedFeed] = await db.insert(schema.feeds).values(feed("refused", "E2E 要約できないサイト", refusedFolder.id)).returning();
+// A first row on the Board with its digest still to come (e2e/board.spec.ts): in a folder of its
+// own, as openFeed takes the refused folder's only column.
+const [pendingFolder] = await db.insert(schema.folders).values({ name: "E2E 要約まだ", position: 66 }).returning();
+const [pendingFeed] = await db.insert(schema.feeds).values(feed("pending", "E2E 要約まだのサイト", pendingFolder.id)).returning();
 const biz = inserted.find((a) => a.title === "ビジネスの記事")!;
 await db.update(schema.articles).set({ source: flash.name, feedId: flash.id }).where(eq(schema.articles.id, biz.id));
 // Older than the articles above so they stay out of the first page of すべて.
@@ -145,6 +149,29 @@ const filterArticles = [
     source: refusedFeed.name,
     feedId: refusedFeed.id,
     fetchedAt: old(91),
+  }),
+  // The Board's: newest of the column, so its first row whichever of the above was opened.
+  article(12, {
+    title: "ボードで断られた記事",
+    lang: null,
+    summary: null,
+    excerpt: "ボードで断られた記事の RSS の概要です。",
+    digestAttempts: DIGEST_ATTEMPT_LIMIT,
+    digestError: "refused",
+    source: refusedFeed.name,
+    feedId: refusedFeed.id,
+    fetchedAt: old(89),
+  }),
+  // One try short of giving up: still to come.
+  article(13, {
+    title: "ボードで要約まだの記事",
+    lang: null,
+    summary: null,
+    excerpt: "ボードで要約まだの記事の RSS の概要です。",
+    digestAttempts: DIGEST_ATTEMPT_LIMIT - 1,
+    source: pendingFeed.name,
+    feedId: pendingFeed.id,
+    fetchedAt: old(92),
   }),
   article(7, { title: "速報の2本目", titleJa: "速報の2本目", source: flash.name, feedId: flash.id }),
   article(8, { title: "週報の記事", titleJa: "週報の記事", source: weekly.name, feedId: weekly.id }),

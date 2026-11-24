@@ -36,6 +36,30 @@ const mostSentRows = (page: Page) =>
 const layoutCookie = async (page: Page) =>
   (await page.context().cookies()).find((c) => c.name === "layout")?.value;
 const PHONE = { width: 390, height: 844 };
+const FAILED = "AI 要約できませんでした";
+
+/**
+ * A first row whose digest was given up on says so where the summary goes, without the badge or
+ * the excerpt; the rows after it, refused too, say nothing (#68). One still to come says nothing.
+ */
+async function expectDigestStates(page: Page) {
+  await openTab(page, "E2E 要約できない");
+  const refused = column(page, "E2E 要約できないサイト");
+  const first = rows(page, "E2E 要約できないサイト").first();
+  await expect(first).toContainText("ボードで断られた記事");
+  await expect(first.getByText(FAILED, { exact: true })).toBeVisible();
+  await expect(refused.getByText(FAILED, { exact: true })).toHaveCount(1);
+  await expect(refused.getByText("AI 要約", { exact: true })).toHaveCount(0);
+  await expect(refused).not.toContainText("RSS の概要です。");
+  expect(await overflowsX(page)).toBe(false);
+
+  await openTab(page, "E2E 要約まだ");
+  const pending = rows(page, "E2E 要約まだのサイト").first();
+  await expect(pending).toContainText("ボードで要約まだの記事");
+  await expect(pending).not.toContainText(FAILED);
+  await expect(pending.getByText("AI 要約", { exact: true })).toHaveCount(0);
+  await expect(pending).not.toContainText("RSS の概要です。");
+}
 
 // A slow CPU (heavy PC, iPad, phone on its side): effects run late, after a quick back / forward.
 async function slowCpu(page: Page) {
@@ -75,6 +99,7 @@ test.describe("PC 幅", () => {
     // The AI summary shows on the first row only.
     await expect(rows(page, "E2E 列 たくさん").first()).toContainText("AI 要約");
     await expect(many.getByText("AI 要約", { exact: true })).toHaveCount(1);
+    await expect(many).not.toContainText(FAILED);
     // The 3 rows of a phone's section are not the limit here: 50, then a link to the list.
     await expect(rows(page, "E2E 列 たくさん")).toHaveCount(50);
     await expect(rows(page, "E2E 列 たくさん").nth(49)).toBeAttached();
@@ -99,6 +124,15 @@ test.describe("PC 幅", () => {
     await column(page, "E2E 列 未読なし").getByRole("link", { name: "E2E 列 未読なし", exact: true }).click();
     await expect(page).toHaveURL(/\/\?f=\d+&s=\d+&a=1$/);
     await expect(card(page, "E2E 列 未読なし 1")).toHaveAttribute("data-seen", "");
+  });
+
+  test("要約を諦めた先頭行には「AI 要約できませんでした」が出てバッジは出ず、要約がまだの先頭行には何も出ない", async ({ page }) => {
+    await expectDigestStates(page);
+    // The column scrolls inside, as the page does not grow either way.
+    expect(await scrollY(page)).toBe(0);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight),
+    ).toBe(false);
   });
 
   test("列を 1 本スクロールしても先読みが増えない。先頭 3 本は先読みする", async ({ page }) => {
@@ -702,6 +736,12 @@ test.describe("スマホ @mobile", () => {
     await boardLink(page).click();
     await expect(page).toHaveURL(/\/\?f=\d+$/);
     await expect(column(page, "E2E スマホの列")).toBeVisible();
+  });
+
+  test("要約を諦めた先頭行には「AI 要約できませんでした」が出てバッジは出ず、要約がまだの先頭行には何も出ない @mobile", async ({
+    page,
+  }) => {
+    await expectDigestStates(page);
   });
 
   test("未読のないフィードは出ず、止まっているフィードは一番下に畳まれる @mobile", async ({ page }) => {
