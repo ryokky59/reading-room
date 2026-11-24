@@ -15,6 +15,7 @@ import {
   useTransition,
 } from "react";
 import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen, unmarkSeenAt } from "@/lib/actions";
+import { LAYOUT_COOKIE, type BoardLayout } from "@/lib/board-layout";
 import { lastNavPath } from "@/lib/last-nav";
 import { cutKey, LISTED_COOKIE, parseListed, serializeListed, type Listed } from "@/lib/opened";
 import { track } from "@/lib/track";
@@ -545,10 +546,13 @@ export function BoardLink({ className, children }: { className?: string; childre
  * from before the feed list arrives; with no article open every row counts as listed.
  */
 export function BoardPane({
+  layout,
   columns,
   unseen,
   children,
 }: {
+  /** The layout the server sent rows for (lib/board-layout.ts). */
+  layout: BoardLayout;
   columns: number[][];
   /** The rows that came as unread. */
   unseen: number[];
@@ -562,6 +566,7 @@ export function BoardPane({
   const [kept, setKept] = useState<number[]>([]);
   if (found && found.join() !== kept.join()) setKept(found);
   const ids = open ? (found ?? kept) : columns.flat();
+  useBoardLayout(layout, open);
   return (
     <>
       <InboxNavSync ids={ids} unseen={unseen} />
@@ -573,6 +578,49 @@ export function BoardPane({
       </div>
     </>
   );
+}
+
+/**
+ * Keeps the layout cookie (lib/board-layout.ts) to the screen, and the Board to the cookie. The
+ * cookie is written each time the Board mounts, comes back from the server or the screen turns
+ * across BOARD: rewriting an unchanged value renews it, which Safari otherwise drops after 7 days.
+ * Then the Board is fetched again when what came is not the screen's layout:
+ *
+ * - Columns sent PHONE_ROWS rows, at once: whatever sent them (a router cache entry from before a
+ *   turn, another window of the browser that wrote `stack` before this one's refresh).
+ * - A phone sent every row, only once the screen turned or another refresh brought them (another
+ *   window wrote `cols`). On mount they are a phone's first visit or a broken cookie: hidden,
+ *   so kept rather than fetched twice.
+ *
+ * Not while an article is open: closing it refreshes anyway (useRefreshOnLeavingArticle), and a
+ * refresh now would race ListAfterFullLoad's navigation; nor on the closing, for the same reason.
+ * A refresh that brings back the same layout again (another window rewrote the cookie meanwhile)
+ * is not asked for again until something else changes, so two windows cannot keep refreshing.
+ */
+function useBoardLayout(rendered: BoardLayout, open: boolean) {
+  const router = useRouter();
+  // Counts the turns across BOARD, so that one runs the effect below.
+  const [turns, setTurns] = useState(0);
+  useEffect(() => {
+    const media = window.matchMedia(BOARD);
+    const onChange = () => setTurns((n) => n + 1);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  const last = useRef<{ rendered: BoardLayout; open: boolean; turns: number; asked: boolean } | null>(null);
+  useEffect(() => {
+    const want: BoardLayout = isBoard() ? "cols" : "stack";
+    document.cookie = `${LAYOUT_COOKIE}=${want}; path=/; max-age=31536000; samesite=lax`;
+    const before = last.current;
+    const changed = before !== null && (before.rendered !== rendered || before.turns !== turns);
+    // A refresh for this same mismatch is already on its way, or came back with it.
+    const asked = before !== null && before.asked && before.turns === turns && rendered !== want;
+    const closing = before !== null && before.open && !open;
+    const refresh =
+      !open && !closing && !asked && rendered !== want && (rendered === "stack" || changed);
+    if (refresh) router.refresh();
+    last.current = { rendered, open, turns, asked: asked || refresh };
+  }, [rendered, open, turns, router]);
 }
 
 /** A row of a Board column, faded once it is seen, like a list card (see useFaded). */
