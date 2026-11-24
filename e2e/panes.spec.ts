@@ -575,6 +575,41 @@ test.describe("PC 幅のシート", () => {
     await expect(column(page, many)).toBeVisible();
   });
 
+  test("列を読み込んだあとに未読になった、列のどの行よりも新しい記事は、列の末尾の j で開かない", async ({ page }) => {
+    const site = "E2E シート 新着";
+    await page.goto("/");
+    await folderNav(page).getByRole("link", { name: /^E2E シートで j\s*\d+$/ }).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(unreadIn(page, site)).toHaveText("2");
+    await expect(row(page, site, `${site} 1`)).toHaveCount(0);
+
+    // Another tab makes the feed's newest article unread again, as an hourly fetch would bring one.
+    const other = await page.context().newPage();
+    await other.goto("/read");
+    await other.getByRole("link", { name: new RegExp(`${site} 1`) }).click();
+    await expect(other.getByRole("heading", { level: 1 })).toHaveText(`${site} 1`);
+    await other.getByRole("button", { name: "未読に戻す" }).click();
+    await expect(other).not.toHaveURL(/\/articles\//);
+    await other.close();
+
+    await row(page, site, `${site} 3`).getByRole("link").click();
+    await expect(heading(page)).toHaveText(`${site} 3`);
+    await expect(place(page)).toHaveText("2 / 2");
+    const url = page.url();
+    let sent = 0;
+    await page.route("**/*", (route) => {
+      if ("next-action" in route.request().headers()) sent++;
+      return route.fallback();
+    });
+    await page.keyboard.press("j");
+    await expect.poll(() => sent).toBeGreaterThan(0);
+    // Long enough for the article it found, had there been one, to have opened.
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(`${site} 3`);
+    await expect(page).toHaveURL(url);
+    await expect(place(page)).toHaveText("2 / 2");
+  });
+
   test("読了 / スキップで同じフィードの次が開き、最後の 1 本でシートが閉じてボードに戻る。保存に失敗すればもう一度押せる", async ({ page }) => {
     const site = "E2E シート 読了";
     await page.goto("/");
