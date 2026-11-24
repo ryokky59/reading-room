@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { FeedBadge } from "@/components/FeedBadge";
 import { FolderTabs } from "@/components/FolderTabs";
@@ -5,6 +6,7 @@ import { BoardPane, BoardRow, ColumnUnread, ListedSince, ListLink, MarkAllSeenBu
 import { LinkPending } from "@/components/NavPending";
 import { SeenOnScroll } from "@/components/SeenOnScroll";
 import { COLUMN_ROWS, loadBoard, PHONE_ROWS, type BoardColumn, type StoppedFeed } from "@/lib/board";
+import { LAYOUT_COOKIE, parseLayout } from "@/lib/board-layout";
 import { formatAgo, formatDate, isForeign, readingMinutes } from "@/lib/format";
 import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
 import { cutKey } from "@/lib/opened";
@@ -14,8 +16,9 @@ import { requestListed } from "@/lib/opened-request";
  * The inbox with no site chosen: a column per feed, grouped by folder. With the `board` variant
  * (globals.css) the columns scroll sideways and each scrolls on its own; phones stack the feeds as
  * sections with a few headlines. Both come from one markup, so the server need not know the
- * screen and a rotated phone just changes layout. A column shows while it has rows, so that
- * coming back from its last unread article does not pull the page up.
+ * screen and a rotated phone just changes layout. Only, a phone gets just the rows it shows: the
+ * client tells the layout in a cookie (lib/board-layout.ts). A column shows while it has rows, so
+ * that coming back from its last unread article does not pull the page up.
  */
 export async function Board({
   searchParams,
@@ -24,7 +27,12 @@ export async function Board({
 }) {
   const filter = parseInboxFilter(await searchParams);
   const listed = await requestListed();
-  const { groups, stopped, folders, buckets, upTo } = await loadBoard(filter, listed);
+  const layout = parseLayout((await cookies()).get(LAYOUT_COOKIE)?.value);
+  const { groups, stopped, folders, buckets, upTo } = await loadBoard(
+    filter,
+    listed,
+    layout === "stack" ? PHONE_ROWS : COLUMN_ROWS,
+  );
   const selected = filter.f === "none" ? null : filter.f ? Number(filter.f) : "all";
   const total = buckets
     .filter((b) => selected === "all" || b.folderId === selected)
@@ -35,6 +43,7 @@ export async function Board({
   const columns = groups.flatMap((g) => g.columns);
   return (
     <BoardPane
+      layout={layout}
       columns={columns.map((c) => c.rows.map((r) => r.id))}
       unseen={columns.flatMap((c) => c.rows.filter((r) => r.seenAt === null).map((r) => r.id))}
     >
@@ -88,9 +97,23 @@ export async function Board({
   );
 }
 
-/** The unread that the first `limit` rows leave out; a seen row kept in place takes up a row. */
+/**
+ * The unread that the first `limit` rows leave out; a seen row kept in place takes up a row. It
+ * counts from `unread`, so it is the same whether the column came with PHONE_ROWS rows or all.
+ */
 function unreadLeft(column: BoardColumn, limit: number) {
   return Math.max(0, column.unread - column.rows.slice(0, limit).filter((r) => r.seenAt === null).length);
+}
+
+/**
+ * A line under each row but the last one shown. On phones that is the last of the first
+ * PHONE_ROWS, whether or not the column came with more (they are hidden): the line stays where
+ * it was when the rows after it stop being sent, and 「もっと見る」 below draws its own.
+ */
+function rowLines(i: number) {
+  if (i < PHONE_ROWS - 1) return "border-b last:border-b-0";
+  if (i === PHONE_ROWS - 1) return "board:border-b board:last:border-b-0";
+  return "hidden board:block border-b last:border-b-0";
 }
 
 function Column({ column }: { column: BoardColumn }) {
@@ -138,9 +161,15 @@ function Column({ column }: { column: BoardColumn }) {
             key={row.id}
             id={row.id}
             seen={row.seenAt !== null}
-            className={`${i < PHONE_ROWS ? "" : "hidden board:block"} border-b border-line last:border-b-0`}
+            className={`${rowLines(i)} border-line`}
           >
-            <Link href={`/articles/${row.id}${articleQuery}`} className="pressable flex gap-2 px-3 py-2">
+            {/* A PC prefetches only the first rows, the likeliest to be opened, rather than every
+                row a column scrolls past; on phones the rest are hidden and never prefetched. */}
+            <Link
+              href={`/articles/${row.id}${articleQuery}`}
+              prefetch={i < PHONE_ROWS ? null : false}
+              className="pressable flex gap-2 px-3 py-2"
+            >
               <LinkPending />
               <span aria-hidden="true" style={{ backgroundColor: color }} className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">

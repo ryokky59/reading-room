@@ -25,6 +25,17 @@ const failed = (page: Page) => page.getByRole("alert").filter({ hasText: "保存
 const scrollY = (page: Page) => page.evaluate(() => window.scrollY);
 const overflowsX = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+// The rows the server sent, hidden ones too (a phone hides all but the first 3 of a section).
+const sentRows = (page: Page, name: string) => column(page, name).locator("li[data-row]");
+// The most rows any column of the page was sent.
+const mostSentRows = (page: Page) =>
+  page.evaluate(() =>
+    Math.max(0, ...[...document.querySelectorAll("section[data-feed]")].map((s) => s.querySelectorAll("li[data-row]").length)),
+  );
+// How the Board told the server it lays out (lib/board-layout.ts).
+const layoutCookie = async (page: Page) =>
+  (await page.context().cookies()).find((c) => c.name === "layout")?.value;
+const PHONE = { width: 390, height: 844 };
 
 // A slow CPU (heavy PC, iPad, phone on its side): effects run late, after a quick back / forward.
 async function slowCpu(page: Page) {
@@ -88,6 +99,45 @@ test.describe("PC 幅", () => {
     await column(page, "E2E 列 未読なし").getByRole("link", { name: "E2E 列 未読なし", exact: true }).click();
     await expect(page).toHaveURL(/\/\?f=\d+&s=\d+&a=1$/);
     await expect(card(page, "E2E 列 未読なし 1")).toHaveAttribute("data-seen", "");
+  });
+
+  test("列を 1 本スクロールしても先読みが増えない。先頭 3 本は先読みする", async ({ page }) => {
+    const prefetches: string[] = [];
+    page.on("request", (r) => {
+      if ("next-router-prefetch" in r.headers()) prefetches.push(r.url());
+    });
+    await page.goto("/");
+    await expect.poll(() => layoutCookie(page)).toBe("cols");
+    // Lets the prefetches of the links in view reach the server.
+    await page.waitForTimeout(1500);
+    console.log(`prefetches after loading / at 1440×900: ${prefetches.length}`);
+    // A folder's tab, whose column is in view. Scrolling it marks rows as seen: its own folder.
+    await tab(page, "E2E 列の先読み").click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(sentRows(page, "E2E 先読みの列")).toHaveCount(20);
+    await page.waitForTimeout(1500);
+    const before = prefetches.length;
+    console.log(`prefetches after opening a folder's tab: ${before}`);
+    const many = column(page, "E2E 先読みの列");
+    const articleUrl = (n: number) =>
+      sentRows(page, "E2E 先読みの列").nth(n).getByRole("link").evaluate((a: HTMLAnchorElement) => a.pathname);
+    // The first rows are prefetched; the 4th, though in view, is not.
+    const [first, fourth] = [await articleUrl(0), await articleUrl(3)];
+    expect(prefetches.some((u) => new URL(u).pathname === first)).toBe(true);
+    expect(prefetches.some((u) => new URL(u).pathname === fourth)).toBe(false);
+
+    await many.getByRole("list").evaluate((el) => el.scrollBy(0, el.clientHeight));
+    await expect(rows(page, "E2E 先読みの列").nth(19)).toBeInViewport();
+    await page.waitForTimeout(1500);
+    expect(prefetches.length).toBe(before);
+  });
+
+  test("スマホの Cookie が残っていても、PC では列に 50 本まで出る", async ({ page, baseURL }) => {
+    await page.context().addCookies([{ name: "layout", value: "stack", url: baseURL! }]);
+    await page.goto("/");
+    await expect(sentRows(page, "E2E 列 たくさん")).toHaveCount(50);
+    await expect.poll(() => layoutCookie(page)).toBe("cols");
+    await expect(column(page, "E2E 列 たくさん").getByRole("link", { name: /^あと \d+ 件 ›$/ })).toBeVisible();
   });
 
   test("止めたフィードと取得エラーのフィードは「止まっているフィード」に状態つきで出て、列には出ない", async ({ page }) => {
@@ -438,8 +488,61 @@ for (const viewport of [
   });
 }
 
+test("スマホの幅で開いてから広げると、リロードなしで列が横に並び 50 本まで出る。狭めると 3 本に戻る", async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await page.goto("/");
+  await expect.poll(() => layoutCookie(page)).toBe("stack");
+  await openTab(page, "E2E ボード");
+  await expect(sentRows(page, "E2E 列 たくさん")).toHaveCount(3);
+  // Gone after a reload.
+  await page.evaluate(() => ((window as unknown as { stayed: boolean }).stayed = true));
+  const stayed = () => page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed === true);
+
+  await page.setViewportSize({ width: 951, height: 543 });
+  await expect(sentRows(page, "E2E 列 たくさん")).toHaveCount(50);
+  await expect.poll(() => layoutCookie(page)).toBe("cols");
+  const few = (await column(page, "E2E 列 少ない").boundingBox())!;
+  expect(few.y).toBe((await column(page, "E2E 列 たくさん").boundingBox())!.y);
+  await expect(column(page, "E2E 列 たくさん").getByRole("link", { name: /^あと \d+ 件 ›$/ })).toBeVisible();
+  expect(await stayed()).toBe(true);
+
+  await page.setViewportSize(PHONE);
+  await expect(sentRows(page, "E2E 列 たくさん")).toHaveCount(3);
+  await expect.poll(() => layoutCookie(page)).toBe("stack");
+  const stacked = (await column(page, "E2E 列 少ない").boundingBox())!;
+  expect(stacked.x).toBe((await column(page, "E2E 列 たくさん").boundingBox())!.x);
+  await expect(column(page, "E2E 列 たくさん").getByRole("link", { name: /^もっと見る\(あと \d+ 件\)›$/ })).toBeVisible();
+  expect(await stayed()).toBe(true);
+  expect(await mostSentRows(page)).toBeLessThanOrEqual(3);
+});
+
 test.describe("横向きのスマホ 844×390", () => {
   test.use({ viewport: { width: 844, height: 390 } });
+
+  test("2 回目からは列に 3 本だけ届き、3 本目を読了すると同じフィードの 4 本目が開く", async ({ page }) => {
+    await page.goto("/");
+    await expect.poll(() => layoutCookie(page)).toBe("stack");
+    await openTab(page, "E2E 横向きで四本目");
+    await expect(sentRows(page, "E2E 四本目の列")).toHaveCount(3);
+    await page.reload();
+    expect(await mostSentRows(page)).toBeLessThanOrEqual(3);
+    await expect(column(page, "E2E 四本目の列").getByRole("link", { name: "もっと見る(あと 2 件)›" })).toBeVisible();
+
+    // Holds the feed list back, so that 読了 has only the column's 3 rows to go on from.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(/\/articles\/\d+\/list/, async (route) => {
+      await held;
+      await route.fallback().catch(() => {});
+    });
+    await row(page, "E2E 四本目の列", "E2E 四本目の列 3").getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 四本目の列 3");
+    // As in 「一覧が届く前に」 above: the lookup waits for the list's navigation in the router's queue.
+    await page.getByRole("main").getByRole("button", { name: "読了にする" }).click();
+    release();
+    await expect(heading(page)).toHaveText("E2E 四本目の列 4");
+    await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
+  });
 
   test("縦積みになり、「URL を追加」を開いても読める高さが残る", async ({ page }) => {
     await openTab(page, "E2E ボード");
@@ -632,5 +735,69 @@ test.describe("スマホ @mobile", () => {
     await page.getByRole("link", { name: "戻る", exact: true }).click();
     await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
     await expect(card(page, "E2E 読了の列 1")).toBeVisible();
+  });
+});
+
+test.describe("スマホ 390×844 @mobile", () => {
+  test.use({ viewport: PHONE });
+
+  test("2 回目の表示から列には 3 本だけ届き、見出しと「もっと見る」の件数は変わらない @mobile", async ({ page }) => {
+    // The first visit has no cookie: every row comes, hidden past the 3rd.
+    await page.goto("/");
+    await expect(sentRows(page, "E2E 列 たくさん")).toHaveCount(50);
+    const shown = rows(page, "E2E 列 たくさん");
+    await expect(shown).toHaveCount(3);
+    const titles = await shown.allTextContents();
+    // Other tests may have read some of this feed: the count is taken, not assumed.
+    const more = column(page, "E2E 列 たくさん").getByRole("link", { name: /^もっと見る\(あと \d+ 件\)›$/ });
+    const label = (await more.textContent())!;
+    await expect.poll(() => layoutCookie(page)).toBe("stack");
+
+    await page.reload();
+    await expect(sentRows(page, "E2E 列 たくさん")).toHaveCount(3);
+    expect(await mostSentRows(page)).toBeLessThanOrEqual(3);
+    await expect(shown).toHaveText(titles);
+    await expect(more).toHaveText(label);
+    await expect(column(page, "E2E 列 たくさん").getByText("AI 要約", { exact: true })).toHaveCount(1);
+    expect(await overflowsX(page)).toBe(false);
+  });
+
+  test("記事を開いて ← で戻っても、ブラウザの戻るでも、列は 3 本のまま @mobile", async ({ page }) => {
+    await page.goto("/");
+    await openTab(page, "E2E 三本だけ");
+    await expect(sentRows(page, "E2E 三本の列")).toHaveCount(3);
+    const more = (n: number) => column(page, "E2E 三本の列").getByRole("link", { name: `もっと見る(あと ${n} 件)›` });
+    await expect(more(3)).toBeVisible();
+
+    await row(page, "E2E 三本の列", "E2E 三本の列 1").getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 三本の列 1");
+    await page.getByRole("link", { name: "戻る", exact: true }).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(unreadIn(page, "E2E 三本の列")).toHaveText("5");
+    // The opened row stays, faded, and takes up one of the 3.
+    await expect(row(page, "E2E 三本の列", "E2E 三本の列 1")).toHaveAttribute("data-seen", "");
+    await expect(sentRows(page, "E2E 三本の列")).toHaveCount(3);
+    await expect(more(3)).toBeVisible();
+    expect(await mostSentRows(page)).toBeLessThanOrEqual(3);
+
+    await row(page, "E2E 三本の列", "E2E 三本の列 2").getByRole("link").click();
+    await expect(heading(page)).toHaveText("E2E 三本の列 2");
+    await page.goBack();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(unreadIn(page, "E2E 三本の列")).toHaveText("4");
+    await expect(sentRows(page, "E2E 三本の列")).toHaveCount(3);
+    expect(await mostSentRows(page)).toBeLessThanOrEqual(3);
+  });
+
+  test("Cookie を壊しても、ボードは今までどおり出る(全部届く) @mobile", async ({ page, baseURL }) => {
+    await page.context().addCookies([{ name: "layout", value: "%E5%A3%8A", url: baseURL! }]);
+    await page.goto("/");
+    await expect(sentRows(page, "E2E 列 たくさん")).toHaveCount(50);
+    await expect(rows(page, "E2E 列 たくさん")).toHaveCount(3);
+    await expect(column(page, "E2E 列 たくさん").getByRole("link", { name: /^もっと見る\(あと \d+ 件\)›$/ })).toBeVisible();
+    // Written over with the screen's layout.
+    await expect.poll(() => layoutCookie(page)).toBe("stack");
+    await page.reload();
+    await expect(sentRows(page, "E2E 列 たくさん")).toHaveCount(3);
   });
 });

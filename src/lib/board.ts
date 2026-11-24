@@ -101,9 +101,10 @@ export type StoppedFeed = {
 
 /**
  * What the Board shows for the folder tab in `filter.f`. The seen articles of `listed` stay in
- * their columns, as they do in a list (lib/opened.ts).
+ * their columns, as they do in a list (lib/opened.ts). A column has at most `columnRows` rows:
+ * phones show PHONE_ROWS (lib/board-layout.ts).
  */
-export async function loadBoard(filter: InboxFilter, listed: ListedRows) {
+export async function loadBoard(filter: InboxFilter, listed: ListedRows, columnRows = COLUMN_ROWS) {
   const db = await getDb();
   const running = or(isNull(articles.feedId), and(eq(feeds.enabled, true), isNull(feeds.lastError)));
   const ranked = db
@@ -130,7 +131,7 @@ export async function loadBoard(filter: InboxFilter, listed: ListedRows) {
     .where(and(listedWhere({ f: filter.f }, listed), running))
     .as("ranked");
   const [rows, feedRows, latest, folderRows, buckets] = await Promise.all([
-    db.select().from(ranked).where(lte(ranked.place, COLUMN_ROWS)).orderBy(ranked.place),
+    db.select().from(ranked).where(lte(ranked.place, columnRows)).orderBy(ranked.place),
     db
       .select({
         id: feeds.id,

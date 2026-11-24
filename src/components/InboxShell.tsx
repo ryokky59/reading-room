@@ -15,6 +15,7 @@ import {
   useTransition,
 } from "react";
 import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen, unmarkSeenAt } from "@/lib/actions";
+import { LAYOUT_COOKIE, type BoardLayout } from "@/lib/board-layout";
 import { lastNavPath } from "@/lib/last-nav";
 import { cutKey, LISTED_COOKIE, parseListed, serializeListed, type Listed } from "@/lib/opened";
 import { track } from "@/lib/track";
@@ -545,10 +546,13 @@ export function BoardLink({ className, children }: { className?: string; childre
  * from before the feed list arrives; with no article open every row counts as listed.
  */
 export function BoardPane({
+  layout,
   columns,
   unseen,
   children,
 }: {
+  /** The layout the server sent rows for (lib/board-layout.ts). */
+  layout: BoardLayout;
   columns: number[][];
   /** The rows that came as unread. */
   unseen: number[];
@@ -562,6 +566,7 @@ export function BoardPane({
   const [kept, setKept] = useState<number[]>([]);
   if (found && found.join() !== kept.join()) setKept(found);
   const ids = open ? (found ?? kept) : columns.flat();
+  useBoardLayout(layout, open);
   return (
     <>
       <InboxNavSync ids={ids} unseen={unseen} />
@@ -573,6 +578,41 @@ export function BoardPane({
       </div>
     </>
   );
+}
+
+function readLayout() {
+  return new RegExp(`(?:^|; )${LAYOUT_COOKIE}=([^;]*)`).exec(document.cookie)?.[1];
+}
+
+/**
+ * Keeps the layout cookie (lib/board-layout.ts) to the screen: written when the Board mounts, and
+ * again when the screen turns or is resized across BOARD. Columns sent PHONE_ROWS rows are filled
+ * at once. After a change the Board is fetched again for its new layout, so a phone stops holding
+ * 50 rows per section too. An open article over the Board leaves that to its closing, which
+ * refreshes anyway (useRefreshOnLeavingArticle). A Board that came with every row on a phone (the
+ * first visit, or a broken cookie) keeps them: they are hidden.
+ */
+function useBoardLayout(rendered: BoardLayout, open: boolean) {
+  const router = useRouter();
+  const now = useRef({ rendered, open });
+  useLayoutEffect(() => {
+    now.current = { rendered, open };
+  });
+  useEffect(() => {
+    const media = window.matchMedia(BOARD);
+    const sync = (changed: boolean) => {
+      const want: BoardLayout = media.matches ? "cols" : "stack";
+      // A malformed one is written over, too.
+      if (readLayout() !== want) document.cookie = `${LAYOUT_COOKIE}=${want}; path=/; max-age=31536000; samesite=lax`;
+      const { rendered, open } = now.current;
+      const short = rendered === "stack" && want === "cols";
+      if (!open && rendered !== want && (short || changed)) router.refresh();
+    };
+    sync(false);
+    const onChange = () => sync(true);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [router]);
 }
 
 /** A row of a Board column, faded once it is seen, like a list card (see useFaded). */
