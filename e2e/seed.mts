@@ -162,13 +162,15 @@ const filterArticles = [
     feedId: refusedFeed.id,
     fetchedAt: old(89),
   }),
-  // One try short of giving up: still to come.
+  // One try short of giving up: still to come. Tried "later", so that no run of the suite (a
+  // fetch digests what is missing, and the stub of digest.spec.ts fails) uses up the last try.
   article(13, {
     title: "ボードで要約まだの記事",
     lang: null,
     summary: null,
     excerpt: "ボードで要約まだの記事の RSS の概要です。",
     digestAttempts: DIGEST_ATTEMPT_LIMIT - 1,
+    digestTriedAt: new Date(now + 7 * 86_400_000),
     source: pendingFeed.name,
     feedId: pendingFeed.id,
     fetchedAt: old(92),
