@@ -250,3 +250,8 @@ test("読了は保存できて次の記事を探せなかったときは、一�
   await expect(card(page, "次が取れない記事")).toHaveCount(0);
   await expect(failure(page)).toHaveCount(0);
 });
+
+// TEMPORARY (#114): a test that always fails, to show only e2e 1 fails. Reverted in the next commit.
+test("TEMPORARY: always fails", () => {
+  expect(1).toBe(2);
+});
