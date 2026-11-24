@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page, type Route } from "./test";
+import { expect, test, type BrowserContext, type Locator, type Page, type Route } from "./test";
 import { openFeed } from "./nav";
 
 // Read and skipped cards leave the list (スキップ to the left, 読了 to the right), the cards
@@ -488,6 +488,30 @@ test.describe("オフラインで記事を読み込み直す", () => {
     return loads;
   }
 
+  /**
+   * Goes offline and reloads the open article. The worker's cache has the article, the worker's
+   * own fetch of it fails for want of a network, and the worker answers 200: so the article came
+   * from the cache, and setOffline cut the worker's network too (#142).
+   */
+  async function reloadOffline(page: Page, context: BrowserContext) {
+    const url = page.url();
+    const [worker] = context.serviceWorkers();
+    expect(worker, "the Service Worker is running").toBeDefined();
+    expect(await worker.evaluate((u) => caches.match(u).then((r) => !!r), url)).toBe(true);
+
+    await context.setOffline(true);
+    const workerFetchFailed = context.waitForEvent("requestfailed", {
+      predicate: (r) =>
+        r.serviceWorker() !== null &&
+        r.url() === url &&
+        r.failure()?.errorText === "net::ERR_INTERNET_DISCONNECTED",
+    });
+    const response = await page.reload();
+    await workerFetchFailed;
+    expect(response?.fromServiceWorker()).toBe(true);
+    expect(response?.status()).toBe(200);
+  }
+
   const offlineNote = (page: Page) => page.getByText("オフラインです。通信が戻ると一覧が出ます");
 
   test("PC では記事が出たまま一覧の場所に「オフラインです」が出て、通信が戻ると一覧が届いて押せる", async ({
@@ -502,8 +526,7 @@ test.describe("オフラインで記事を読み込み直す", () => {
     await expect(page).toHaveURL(href);
 
     const listLoads = countListDocuments(page);
-    await context.setOffline(true);
-    await page.reload();
+    await reloadOffline(page, context);
     await expect(heading(page)).toHaveText(`${folder} 2`);
     await expect(offlineNote(page)).toBeVisible();
     await expect(readButton(page)).toBeDisabled();
@@ -525,8 +548,7 @@ test.describe("オフラインで記事を読み込み直す", () => {
     await openWithWorker(page, folder, 2);
 
     const listLoads = countListDocuments(page);
-    await context.setOffline(true);
-    await page.reload();
+    await reloadOffline(page, context);
     await expect(heading(page)).toHaveText(`${folder} 2`);
     await expect(readButton(page)).toBeEnabled();
     await expect(page).not.toHaveTitle("オフライン | Reading Room");
