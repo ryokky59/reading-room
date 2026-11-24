@@ -61,4 +61,5 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 - The production database is Neon project `round-feather-65545481`. Give the id in any `neonctl` command (`npx neonctl connection-string main --project-id round-feather-65545481`); without it the CLI asks which org to use and hangs inside `$(...)`.
 - Vercel has one `DATABASE_URL` entry for Production and Preview, so a preview may be using the production database. A PR with a migration or a new write says so in what the owner should check.
 - Models are set in `src/lib/ai.ts`.
+- A Cookie the client writes to tell the server what to send (`listed`, `layout`) is shared by every window and tab of the browser, and they can differ in size and in what is open. Code that depends on one must cope with another window having rewritten it since this one last wrote it; test that by setting the Cookie from the test while the page is open (#65).
 - On phones the list stays mounted under `display: none` while an article is open (see `InboxShell.tsx`). Code that measures or animates the list must cope with zero sizes while it is hidden.
