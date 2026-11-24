@@ -570,6 +570,15 @@ test("PC で記事 URL を直接開くと、前に開いた記事は横の一覧
   await expect(card(page, `${name} A2`)).toHaveAttribute("aria-current", "true");
   await expect(list(page).getByRole("listitem")).toHaveCount(1);
   await expect(card(page, `${name} A1`)).toHaveCount(0);
+
+  // 読了 and its 「元に戻す」: A2 was seen before this list's `since`, and comes back all the same.
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(toast(page).getByText("読了にしました")).toBeVisible();
+  // The site has nothing unread left, so the Board is shown.
+  await expect(page.getByText(`${name} A2`, { exact: true })).toHaveCount(0);
+  await undo(page).click();
+  await expect(columnRow(page, `${name} A`, `${name} A2`)).toHaveAttribute("data-seen", "");
+  await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
 });
 
 test("PC で何日も前の since が Cookie にあっても、記事 URL を直接開くと前の既読は一覧に無く、since が新しくなる", async ({

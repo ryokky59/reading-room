@@ -441,11 +441,11 @@ export function useLeftInbox() {
       // puts it where the list has it.
       const undo = async () => {
         setLeaving(id, null);
-        let seen: boolean;
+        let seenAt: number | null;
         try {
           // The restore must not reach the server before the read / skip does.
           await done.catch(() => {});
-          seen = await undoLeave(id);
+          seenAt = await undoLeave(id);
         } catch (e) {
           console.error(e);
           setLeaving(id, { dir });
@@ -454,8 +454,13 @@ export function useLeftInbox() {
         }
         // The screen it was pressed on; not a step of the view the article may have open.
         track("undo", { articleId: id, viewId: null, props: { of: kind } });
-        if (seen) keep(id);
-        else forget(id);
+        if (seenAt !== null) {
+          // An article opened from its URL was seen before the list's `since` (ListedOnFullLoad),
+          // and once it is no longer open the list would leave it out: `since` goes back to it.
+          const listed = readListed();
+          if (listed.since === null || listed.since > seenAt) writeListed({ ...listed, since: seenAt });
+          keep(id);
+        } else forget(id);
         router.refresh();
       };
       toast.show(kind === "read" ? "読了にしました" : "スキップしました", { owner: id, undo });
