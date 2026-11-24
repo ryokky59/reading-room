@@ -165,31 +165,47 @@ async function tryDigest(a: Parameters<typeof digestArticle>[0], attempts: numbe
  * attempts left. An article tried within DIGEST_RETRY_INTERVAL_MS waits, including one save()
  * tried moments ago in the same run: another try so soon would use up an attempt on the same
  * outage.
+ *
+ * Runs can overlap (the cron still going when 「今すぐ取得」 is pressed), so each article is
+ * claimed by writing digestTriedAt before the AI is called: the other run then sees it as tried
+ * within the interval and leaves it. An article whose run dies after the claim is tried again
+ * after the interval, its attempts unchanged.
  */
 async function digestMissing(limit: number): Promise<void> {
   const db = await getDb();
+  const due = and(
+    eq(articles.status, "inbox"),
+    isNull(articles.summary),
+    lt(articles.digestAttempts, DIGEST_ATTEMPT_LIMIT),
+    or(isNull(articles.digestTriedAt), lt(articles.digestTriedAt, new Date(Date.now() - DIGEST_RETRY_INTERVAL_MS))),
+  );
   const rows = await db
-    .select({
+    .update(articles)
+    .set({ digestTriedAt: new Date() })
+    // `due` again outside the subquery: a run that waited on another's lock checks the row
+    // again as the other left it, and drops it. SKIP LOCKED takes the next ones instead of waiting.
+    .where(
+      and(
+        due,
+        inArray(
+          articles.id,
+          db
+            .select({ id: articles.id })
+            .from(articles)
+            .where(due)
+            .orderBy(desc(articles.fetchedAt))
+            .limit(limit)
+            .for("update", { skipLocked: true }),
+        ),
+      ),
+    )
+    .returning({
       id: articles.id,
       title: articles.title,
       text: articles.contentText,
       excerpt: articles.excerpt,
       attempts: articles.digestAttempts,
-    })
-    .from(articles)
-    .where(
-      and(
-        eq(articles.status, "inbox"),
-        isNull(articles.summary),
-        lt(articles.digestAttempts, DIGEST_ATTEMPT_LIMIT),
-        or(
-          isNull(articles.digestTriedAt),
-          lt(articles.digestTriedAt, new Date(Date.now() - DIGEST_RETRY_INTERVAL_MS)),
-        ),
-      ),
-    )
-    .orderBy(desc(articles.fetchedAt))
-    .limit(limit);
+    });
   await mapLimit(rows, 6, async (r) => {
     const digest = await tryDigest(r, r.attempts);
     // Not worth failing the run: the article is simply tried again next time.
