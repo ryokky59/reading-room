@@ -24,14 +24,53 @@ const VIEWPORTS = [
   { width: 1440, height: 900 },
 ];
 
-/** Checks at each width that `text` is shown and nothing makes the page scroll sideways. */
-async function expectFits(page: Page, text: string) {
+const pageOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+
+/**
+ * How far the characters of `text` reach past the right edge of the nearest ancestor that
+ * clips or scrolls sideways (the article pane from 600px up), or of the window when there is
+ * none. The element's own box does not grow when its characters overflow, so the characters
+ * are measured through a Range.
+ */
+const textOverflow = (page: Page, text: string) =>
+  page.getByText(text).evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const right = Math.max(...Array.from(range.getClientRects(), (r) => r.right));
+    let frame = el.parentElement;
+    while (frame && getComputedStyle(frame).overflowX === "visible") frame = frame.parentElement;
+    const edge = frame ? frame.getBoundingClientRect().left + frame.clientLeft + frame.clientWidth : window.innerWidth;
+    return right - edge;
+  });
+
+/**
+ * Checks at each width that `text` is shown, nothing makes the page scroll sideways, and the
+ * text's characters stay inside the pane it scrolls in. With `control`, it also checks at the
+ * widths where the article has its own pane that a line kept from wrapping is caught, though
+ * the page itself does not scroll sideways.
+ */
+async function expectFits(page: Page, text: string, { control = false } = {}) {
   const size = page.viewportSize();
   for (const viewport of VIEWPORTS) {
+    const at = `${viewport.width}×${viewport.height}`;
     await page.setViewportSize(viewport);
     await expect(page.getByText(text)).toBeVisible();
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    expect(overflow, `${viewport.width}×${viewport.height}`).toBeLessThanOrEqual(0);
+    expect(await pageOverflow(page), at).toBeLessThanOrEqual(0);
+    // 1px for fractional widths.
+    expect(await textOverflow(page, text), at).toBeLessThanOrEqual(1);
+    if (control && viewport.width >= 600) {
+      const element = page.getByText(text);
+      await element.evaluate((el) => {
+        el.style.whiteSpace = "nowrap";
+        el.style.paddingLeft = "4000px";
+      });
+      expect(await textOverflow(page, text), `${at}, kept from wrapping`).toBeGreaterThan(1);
+      expect(await pageOverflow(page), `${at}, kept from wrapping`).toBeLessThanOrEqual(0);
+      await element.evaluate((el) => {
+        el.style.whiteSpace = "";
+        el.style.paddingLeft = "";
+      });
+    }
   }
   if (size) await page.setViewportSize(size);
 }
@@ -318,7 +357,7 @@ test.describe("要約と翻訳の失敗", () => {
     await expect(main).toContainText(TRANSLATION_FAILED);
     await expect(retry).toBeVisible();
     expect(calls.translate["Translation cut-off test"]).toBe(1);
-    await expectFits(page, TRANSLATION_FAILED);
+    await expectFits(page, TRANSLATION_FAILED, { control: true });
 
     // Cut off: what came, then the note under it, and 「やり直す」.
     await retry.click();
