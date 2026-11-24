@@ -11,13 +11,14 @@ Orca starts this every 15 minutes in a fresh worktree from `origin/main`, only w
 ## Steps
 
 1. **Pick**: from `gh issue list --repo ryokky59/reading-room --state open --label auto`, take the lowest-numbered one without `auto:blocked` or `in-progress`. Only one. Read its body and all comments. If none is left, go to step 8.
+   First look at `main`'s latest finished CI run (`gh run list --repo ryokky59/reading-room --branch main --status completed --limit 1`). If it failed, a PR from this run cannot pass its checks either: pick the `auto` Issue about the failing test instead of the lowest-numbered one. If there is none, have the `planner` draft it (step 6), write the failing test on it, and go to step 8 without developing.
 2. **Develop**: start one `developer` agent (Agent tool, subagent_type `developer`, no worktree isolation: this worktree is already yours) with the Issue number and `E2E_PORT=3401`. Tell it the owner is away: where it would stop and report, it should report to you instead. If an open PR for the Issue already exists (an earlier run stopped partway; `gh pr list --repo ryokky59/reading-room --search "Closes #<n>"`), do not start a new branch: tell the developer to continue that PR, or go straight to step 3 when its comments say only the review is left. A run that has to stop before step 8 for a reason other than step 4 writes on the Issue what is done and what is left, and removes `in-progress` so a later run picks it up.
 3. **Review**: when it reports a PR, start a `reviewer` agent with the PR number and `E2E_PORT=3403`. If the reviewer asks for changes, send them back to the same developer (SendMessage), then review again. At most two rounds.
 4. **Stop for the owner** when any of these holds:
    - The Issue is vague or contradicts the code, or the developer or reviewer found something the owner must decide.
    - It needs production data, the production database, secrets, or Vercel settings.
    - It needs a new dependency in `package.json`.
-   - The reviewer still says 直してほしい after two rounds, or the checks cannot be made to pass.
+   - The reviewer still says 直してほしい after two rounds, or the checks cannot be made to pass. A check that fails on a test the PR did not touch is re-run once at most: a second failure means `main` is flaky, and more runs only spend CI time (#126: three runs, three different unrelated failures).
 
    Write a comment on the Issue (and on the PR, if there is one): what you found, and what the owner should decide, with options and your recommendation. Then `gh issue edit <n> --add-label auto:blocked --remove-label in-progress` and go to step 8. Leave an open PR open.
 5. **Merge** only when all of these hold. If one does not, stop as in step 4: the PR stays open for the owner.

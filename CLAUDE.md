@@ -40,11 +40,15 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 ```
 
 - E2E tests live in `e2e/` and run against a production build with a seeded PGlite database (`e2e/seed.mts`). They must not call the Anthropic API or the network.
+- E2E blocks the Service Worker (`serviceWorkers: "block"` in `playwright.config.ts`): `page.route` does not reach the requests of a page a Service Worker controls. So no E2E test covers offline reading or cached pages; a change to those is checked in a real browser, and the PR says so.
+- Specs import `test` from `./test`, not from `@playwright/test`: after a failed test it puts the database back to the seed, so a retry and the tests after it start clean.
 - Add or update an E2E test for each user-visible change. Add seed rows rather than relying on test order, and only as many as the test needs: every unread row shows on the Board at `/`, and a heavier Board slows every test that loads it.
 - To show a timing bug is fixed, run the test several times with a fresh seed before each run. `--repeat-each` reuses one seed, so tests that open or mark rows fail from the second repeat on.
+- A passing full run does not show a test is stable alone. After a change to what every test shares (`playwright.config.ts`, `e2e/test.ts`, `e2e/server.mts`, the seed), also run alone, with a fresh seed each, the tests that use what changed (#127: blocking the Service Worker made one `page.route` test fail 4 of 5 alone while every full run passed).
+- `test.fixme` or `test.skip` on an existing test is the owner's call: report what the test shows, and when they choose it, the comment above the test names the Issue that brings it back.
 - An undo must put the screen back as it was before the action, not only the rows it changed. Test it after a different action has left state of its own (another button's `cut` in the listed Cookie, an open article): an action that rewrites shared state can drop what was there, and an undo that restores only its own part loses it.
 - Read a Playwright result from its `N failed` line or `test-results/.last-run.json`, not from the last line of output: `| tail` hides the failed list above the summary and replaces Playwright's exit code.
-- When several worktrees test at once, set `E2E_PORT` at least 2 apart.
+- When several worktrees test at once, set `E2E_PORT` at least 2 apart and not 1000 apart (`E2E_PORT + 1` and `E2E_PORT + 1000` are used too).
 - CI stops the job at 30 minutes, and a run stopped there shows as cancelled, not failed, and uploads no report. Before re-running, read its log for a failed test: a re-run only helps when nothing had failed. When the E2E step passes 20 minutes, say so in the PR so the suite gets split before the limit is reached again.
 - Before `npm ci`, a build or an E2E run, look at the free disk (`df -h /`). Under 2 GB, do not start: write on the Issue or PR what is done and what is left, and report. A full disk stops the shell mid-run, and what the run had found is lost with it (#56: twice, with the review not yet posted).
 - If new Tailwind classes have no effect, delete `.next` and build again.
