@@ -7,7 +7,7 @@ import { LinkPending } from "@/components/NavPending";
 import { SeenOnScroll } from "@/components/SeenOnScroll";
 import { COLUMN_ROWS, loadBoard, PHONE_ROWS, type BoardColumn, type StoppedFeed } from "@/lib/board";
 import { LAYOUT_COOKIE, parseLayout } from "@/lib/board-layout";
-import { formatAgo, formatDate, isForeign, readingMinutes } from "@/lib/format";
+import { DIGEST_ATTEMPT_LIMIT, DIGEST_FAILED, formatAgo, formatDate, isForeign, readingMinutes } from "@/lib/format";
 import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
 import { cutKey } from "@/lib/opened";
 import { requestListed } from "@/lib/opened-request";
@@ -174,12 +174,19 @@ function Column({ column }: { column: BoardColumn }) {
               <span aria-hidden="true" style={{ backgroundColor: color }} className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">
                 <span className="line-clamp-2 text-sm font-medium leading-snug">{row.titleJa ?? row.title}</span>
-                {i === 0 && row.summary && (
-                  <span className="mt-1 line-clamp-3 text-xs leading-snug text-muted">
-                    <span className="mr-1 rounded bg-accent-soft px-1 py-0.5 text-[10px] font-medium text-accent">AI 要約</span>
-                    {row.summary}
-                  </span>
-                )}
+                {i === 0 &&
+                  (row.summary ? (
+                    <span className="mt-1 line-clamp-3 text-xs leading-snug text-muted">
+                      <span className="mr-1 rounded bg-accent-soft px-1 py-0.5 text-[10px] font-medium text-accent">AI 要約</span>
+                      {row.summary}
+                    </span>
+                  ) : (
+                    // Given up on, rather than still to come. No excerpt in its place: it would
+                    // make the first row several lines taller.
+                    row.digestAttempts >= DIGEST_ATTEMPT_LIMIT && (
+                      <span className="mt-1 block text-xs leading-snug text-muted">{DIGEST_FAILED}</span>
+                    )
+                  ))}
                 <span className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted">
                   <span>{formatDate(row.publishedAt ?? row.fetchedAt)}</span>
                   {row.charCount > 0 && <span>{readingMinutes(row.charCount)}分</span>}

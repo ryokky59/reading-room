@@ -64,6 +64,7 @@ export type BoardRowData = {
   title: string;
   titleJa: string | null;
   summary: string | null;
+  digestAttempts: number;
   lang: string | null;
   charCount: number;
   publishedAt: Date | null;
@@ -114,6 +115,7 @@ export async function loadBoard(filter: InboxFilter, listed: ListedRows, columnR
       title: articles.title,
       titleJa: articles.titleJa,
       summary: articles.summary,
+      digestAttempts: articles.digestAttempts,
       lang: articles.lang,
       charCount: articles.charCount,
       publishedAt: articles.publishedAt,

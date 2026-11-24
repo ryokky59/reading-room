@@ -1,6 +1,8 @@
 // Tries are at least DIGEST_RETRY_INTERVAL_MS apart (src/lib/feeds.ts), however often feeds are
 // fetched, so this rides out an API outage of a few hours.
 export const DIGEST_ATTEMPT_LIMIT = 5;
+/** What a list card and a Board column's first row say once the digest is given up on. */
+export const DIGEST_FAILED = "AI 要約できませんでした";
 
 // Dates are shown and grouped in Japan time regardless of the server's zone.
 const JST_OFFSET_MS = 9 * 3600_000;
