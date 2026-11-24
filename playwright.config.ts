@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { DIGEST_RETRY_INTERVAL_MS, PGLITE_DIR, PORT } from "./e2e/env";
+import { CRON_SECRET, DIGEST_RETRY_INTERVAL_MS, PGLITE_DIR, PORT } from "./e2e/env";
 
 // e2e/stub.mts, which stands in for the feeds and the favicon service.
 const STUB_PORT = PORT + 1;
@@ -16,6 +16,8 @@ const env = {
   FAVICON_SERVICE: `http://localhost:${STUB_PORT}/favicons`,
   // Long enough for e2e/digest.spec.ts to press 「今すぐ取得」 once and add a site within it.
   DIGEST_RETRY_INTERVAL_MS: String(DIGEST_RETRY_INTERVAL_MS),
+  // e2e/picks.spec.ts calls /api/cron with it.
+  CRON_SECRET,
 };
 
 // Tests share one seeded database, so they run one at a time. After a test fails, the next one

@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 export type ArticleStatus = "inbox" | "read" | "skipped";
 
@@ -112,6 +112,23 @@ export const events = pgTable(
     props: jsonb("props").$type<Record<string, unknown>>(),
   },
   (t) => [index("events_created_idx").on(t.createdAt), index("events_article_idx").on(t.articleId)],
+);
+
+// 「今朝の N 本」: the articles chosen for the top of the Board each morning (lib/picks.ts). `day` is
+// the pick day (pickDay in lib/format.ts); one set a day, so a second run adds nothing.
+export const picks = pgTable(
+  "picks",
+  {
+    id: serial("id").primaryKey(),
+    day: text("day").notNull(), // YYYY-MM-DD
+    position: integer("position").notNull(), // 0-4
+    articleId: integer("article_id")
+      .notNull()
+      .references(() => articles.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(), // why this one today, in one line
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("picks_day_position_unique").on(t.day, t.position)],
 );
 
 export type Article = typeof articles.$inferSelect;

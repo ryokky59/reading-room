@@ -42,6 +42,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 - フィードは画面の「フィード」タブで管理する。初期セットは `drizzle/0002_seed_feeds.sql`。1回に取る件数 (`item_limit`) と対象日数 (`days`) は DB の列で持つ。
 - スキーマを変えたら `npx drizzle-kit generate` でマイグレーションを作り、`drizzle-kit migrate` で Neon に適用する。
 - モデルは環境変数で変えられる。読書メモと月の振り返りは `ANTHROPIC_MODEL`(既定 `claude-opus-5-5`)、記事との対話は `ANTHROPIC_CHAT_MODEL`(既定 `claude-sonnet-5-5`)、一覧の要約と日本語まとめは `ANTHROPIC_FAST_MODEL`(既定 `claude-haiku-5-5`)。
+- 今朝の 5 本: 毎時の cron が、その日(JST 6:00 で切り替わる)の分がまだなければ、直近 24 時間の未読から `ANTHROPIC_FAST_MODEL` で最大 5 本を選んで `picks` に保存し、ボードの先頭に出す(1 日 1 回。失敗した回は次の回にやり直す)。選べなかった日に手で作るには `curl -H "Authorization: Bearer $CRON_SECRET" "<URL>/api/cron?only=picks&day=YYYY-MM-DD"`(その日の行があれば何もせず、その行を返す)。
 - 行動ログ: 下の「行動ログ」を参照。
 
 ## 行動ログ
@@ -74,13 +75,14 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 | `source` | 開き方 |
 | --- | --- |
 | `board` | ボードの行から |
+| `picks` | ボードの先頭の「今朝の N 本」の行から(ピックの行から開いたものは `board` ではなく `picks`) |
 | `list` | フィード一覧のカードから(PC で記事の横の一覧から選んだ場合も) |
 | `next` | 読了・スキップの後に自動で開いた次の記事(自分で選んだ記事ではない) |
 | `key` | j / k で移った |
 | `read` | 読了一覧から |
 | `direct` | URL を直接開いた、再読み込み |
 
-`next` と `key` 以外は直前の画面で決まる。ブラウザの戻る・進むで記事に入った場合も同じで、別の記事からなら `list` になる。「URL を追加」から開いた記事は `board` か `list` になる(`articles.feed_id IS NULL` で見分ける)。
+`next`・`key`・`picks` 以外は直前の画面で決まる。ブラウザの戻る・進むで記事に入った場合も同じで、別の記事からなら `list` になる。「URL を追加」から開いた記事は `board` か `list` になる(`articles.feed_id IS NULL` で見分ける)。
 
 `leave` は記事を離れた時(別の記事へ、一覧へ、読了・スキップ、ブラウザの戻る)と、タブが隠れた時(`visibilitychange`)、ページが閉じられる時(`pagehide`)に、その閲覧の `open` と同じ `view_id` で送る。値は開いてからの累積なので、**同じ `view_id` の `leave` が何行かあれば最後の行を使う(`created_at` が最も新しい行。ほぼ同時に届いた行は `dwell_ms` が大きい方)**。iPhone でアプリを終了した時などは届かないことがあり、その閲覧は `open` だけが残る。
 
