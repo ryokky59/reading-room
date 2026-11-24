@@ -16,7 +16,7 @@ import {
 } from "react";
 import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen, unmarkSeenAt } from "@/lib/actions";
 import { LAYOUT_COOKIE, type BoardLayout } from "@/lib/board-layout";
-import { lastNavPath } from "@/lib/last-nav";
+import { lastNavPath, stillOn } from "@/lib/last-nav";
 import { cutKey, LISTED_COOKIE, parseListed, serializeListed, type Listed } from "@/lib/opened";
 import { track } from "@/lib/track";
 import { BusyButton } from "./BusyButton";
@@ -1164,7 +1164,11 @@ function CardUnseeButton({ id }: { id: number }) {
   const router = useRouter();
   const openId = useOpenId();
   const search = useSearchParams().toString();
-  const [pending, startTransition] = useTransition();
+  // As in ArticleView's run(): the save is awaited outside the transition, which would hold back
+  // browser back or a card pressed meanwhile, and only what follows it is one (#77).
+  const [saving, setSaving] = useState(false);
+  const [refreshing, startTransition] = useTransition();
+  const pending = saving || refreshing;
   useNavPending(pending);
   const forget = useForgetOpened();
   const toast = useToast();
@@ -1174,26 +1178,27 @@ function CardUnseeButton({ id }: { id: number }) {
       type="button"
       disabled={pending}
       aria-busy={pending || undefined}
-      onClick={() =>
-        startTransition(async () => {
-          try {
-            await unmarkSeen([id]);
-          } catch (e) {
-            console.error(e);
-            toast.fail(FAILED, { owner: id });
-            return;
-          }
-          // A list card, also beside the article (whose URL says `article`).
-          track("unsee", { screen: "list", articleId: id, viewId: null });
-          forget(id);
-          // Browser back (or forward) during the save has already moved to another page; pushing
-          // now would replace it (#76). Refreshing there still shows the card as unread.
-          const here = `/articles/${id}`;
-          const stillOpen = window.location.pathname === here || window.location.pathname === `${here}/list`;
-          if (openId === id && stillOpen) router.push(leaveHref);
+      onClick={async () => {
+        setSaving(true);
+        try {
+          await unmarkSeen([id]);
+        } catch (e) {
+          console.error(e);
+          toast.fail(FAILED, { owner: id });
+          return;
+        } finally {
+          setSaving(false);
+        }
+        // A list card, also beside the article (whose URL says `article`).
+        track("unsee", { screen: "list", articleId: id, viewId: null });
+        forget(id);
+        startTransition(() => {
+          // Browser back, a card or j / k during the save has already moved on, or is on its way;
+          // pushing now would replace it (#76, #77). Refreshing there still shows the card as unread.
+          if (openId === id && stillOn(`/articles/${id}`)) router.push(leaveHref);
           else router.refresh();
-        })
-      }
+        });
+      }}
       className="pressable px-2 py-1 text-xs text-accent disabled:opacity-50"
     >
       未読に戻す

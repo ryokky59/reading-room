@@ -13,6 +13,7 @@ import {
 } from "@/lib/actions";
 import type { ArticleStatus } from "@/lib/db/schema";
 import { hostname, isForeign, readingMinutes } from "@/lib/format";
+import { stillOn } from "@/lib/last-nav";
 import { currentViewId, markOpenSource, track } from "@/lib/track";
 import { BusyButton } from "./BusyButton";
 import { FeedBadge } from "./FeedBadge";
@@ -170,7 +171,13 @@ export function ArticleView({
   const addPast = useAddPast();
   // Which button is leaving the article; both are held back until the next screen shows.
   const [leavingBy, setLeavingBy] = useState<LeaveKind | null>(null);
-  const [leaving, startLeaving] = useTransition();
+  // The save is awaited outside any transition, and only the navigation after it is one: while
+  // an async transition is pending, React holds back every other transition (browser back, a
+  // card, j / k) until it is done (#77). The ref stops a second press before `saving` renders.
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [navigating, startLeaving] = useTransition();
+  const leaving = saving || navigating;
   useNavPending(leaving);
   // The last 読了 / スキップ / 未読に戻す that could not be saved; shown above the buttons.
   const [failed, setFailed] = useState<LeaveKind | null>(null);
@@ -204,55 +211,61 @@ export function ArticleView({
     }
   }
   /**
-   * Saves with `save` and then opens `whereTo()`, as one transition: `leaving` stays true until
-   * the next screen shows, so a second press (or e / s) does nothing meanwhile. Resolves to
-   * whether it was saved (false also when another one is already running). A failed save keeps
-   * the article, shows a message above the buttons and lets them be pressed again. Once saved,
-   * the action goes to the activity log with `via` (read / skip only).
+   * Saves with `save` and then opens `whereTo()`: `leaving` stays true until the next screen
+   * shows, so a second press (or e / s) does nothing meanwhile. Resolves to whether it was saved
+   * (false also when another one is already running). A failed save keeps the article, shows a
+   * message above the buttons and lets them be pressed again. Once saved, the action goes to the
+   * activity log with `via` (read / skip only). Browser back, a card or j / k pressed during the
+   * save open what was pressed, and the save goes on without moving the screen afterwards.
    */
-  function run(
+  async function run(
     kind: LeaveKind,
     save: () => Promise<void>,
     whereTo: () => Promise<string>,
     via?: Via,
   ): Promise<boolean> {
-    if (leaving) return Promise.resolve(false);
+    if (savingRef.current || leaving) return false;
+    savingRef.current = true;
+    setSaving(true);
     setLeavingBy(kind);
     setFailed(null);
     const wide = isWide();
     // Taken at the press: browser back during the save ends the view before the event is sent.
     const viewId = currentViewId(article.id);
-    return new Promise((resolve) =>
-      startLeaving(async () => {
-        try {
-          await save();
-        } catch (e) {
-          console.error(e);
-          setFailed(kind);
-          resolve(false);
-          return;
-        }
-        track(kind, { screen: "article", articleId: article.id, viewId, props: via ? { via } : null });
-        // Read cards leave the list to the right, skipped ones to the left, with a toast to undo.
-        // Phones fetch the list again on the way back, without the card: a copy of it leaves there.
-        if (kind !== "restore") leftInbox(article.id, kind, { refetched: !wide });
-        // Saved: from here on the screen must move on, so it matches the database.
-        const href = await whereTo().catch(() => leaveHref);
-        // Browser back (or forward) during the save has already moved to another page; pushing now
-        // would replace it. `/list` is the URL while the list arrives after a full load (#66).
-        const here = `/articles/${article.id}`;
-        if (window.location.pathname === here || window.location.pathname === `${here}/list`) {
-          // The next article beside the list was not chosen by the owner (see lib/track.ts).
-          if (href.startsWith("/articles/")) markOpenSource("next");
-          router.push(href);
-        }
-        // Drops the card from the list beside the article (see the note in lib/actions.ts), once
-        // it has left there.
-        if (wide && kind !== "restore") refreshAfterLeave(router);
-        else router.refresh();
-        resolve(true);
-      }),
-    );
+    let href: string;
+    try {
+      try {
+        await save();
+      } catch (e) {
+        console.error(e);
+        setFailed(kind);
+        return false;
+      }
+      track(kind, { screen: "article", articleId: article.id, viewId, props: via ? { via } : null });
+      // Read cards leave the list to the right, skipped ones to the left, with a toast to undo.
+      // Phones fetch the list again on the way back, without the card: a copy of it leaves there.
+      if (kind !== "restore") leftInbox(article.id, kind, { refetched: !wide });
+      // Saved: from here on the screen must move on, so it matches the database.
+      href = await whereTo().catch(() => leaveHref);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+    // In the same render as `saving` going false, so the buttons stay held until the next screen.
+    startLeaving(() => {
+      // Browser back, a card or j / k during the save has already moved on, or is on its way;
+      // pushing now would replace it.
+      if (stillOn(`/articles/${article.id}`)) {
+        // The next article beside the list was not chosen by the owner (see lib/track.ts).
+        if (href.startsWith("/articles/")) markOpenSource("next");
+        router.push(href);
+      }
+      // Drops the card from the list beside the article (see the note in lib/actions.ts), once
+      // it has left there.
+      if (wide && kind !== "restore") refreshAfterLeave(router);
+      else router.refresh();
+    });
+    return true;
   }
 
   /** 読了 / スキップ, then the next article beside the list (`split` and up) or the list. */

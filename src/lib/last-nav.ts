@@ -11,3 +11,15 @@ export function noteNavStart(url: string) {
 export function lastNavPath() {
   return last;
 }
+
+/**
+ * Whether the screen is still at `path` (or at `${path}/list`, the URL while the list arrives
+ * after a full load, #66) and no navigation elsewhere has started: for a push after something
+ * awaited, which would replace what the owner opened meanwhile. Browser back changes the URL at
+ * once; a <Link>, router.push or j / k changes it only once its page has arrived, but is noted
+ * as it starts.
+ */
+export function stillOn(path: string) {
+  const at = (p: string) => p === path || p === `${path}/list`;
+  return at(window.location.pathname) && (last === null || at(last));
+}
