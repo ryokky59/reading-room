@@ -350,11 +350,12 @@ const pressArticles = [
 ];
 await db.insert(schema.articles).values(pressArticles);
 
-// Cards leaving the list, and 「元に戻す」 (e2e/leave.spec.ts): one folder per test.
+// Cards leaving the list, and 「元に戻す」 (e2e/leave.spec.ts): one folder per test. At most 30
+// folders: their ids (1400 + i * 10 + j) end before the 既読 block at 1700.
 const leaveFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける", "E2E スキップに失敗", "E2E 読了して履歴を遡る", "E2E 直接開いて読了", "E2E 元に戻すに失敗", "E2E 続けてスキップ", "E2E 一覧待ちで読了", "E2E 一覧待ちでスキップ", "E2E 一覧待ちのキー", "E2E 一覧待ちで失敗", "E2E 一覧待ちの横向き", "E2E 一覧が届かない", "E2E 読了の保存中に戻る", "E2E スキップの保存中に戻る", "E2E 保存に失敗して戻る", "E2E 未読に戻すの保存中に戻る", "E2E 未読に戻すに失敗して戻る", "E2E スマホでオフラインのまま開き直す"].map(
+    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける", "E2E スキップに失敗", "E2E 読了して履歴を遡る", "E2E 直接開いて読了", "E2E 元に戻すに失敗", "E2E 続けてスキップ", "E2E 一覧待ちで読了", "E2E 一覧待ちでスキップ", "E2E 一覧待ちのキー", "E2E 一覧待ちで失敗", "E2E 一覧待ちの横向き", "E2E 一覧が届かない", "E2E 読了の保存中に戻る", "E2E スキップの保存中に戻る", "E2E 保存に失敗して戻る", "E2E 未読に戻すの保存中に戻る", "E2E 未読に戻すに失敗して戻る", "E2E スマホでオフラインのまま開き直す", "E2E スマホで戻るとすぐ一覧", "E2E 読了の保存中にカードを押す", "E2E スキップの保存中にカードを押す", "E2E 読了に失敗してカードを押す", "E2E 未読に戻すの保存中にカードを押す", "E2E 未読に戻すに失敗してカードを押す", "E2E 読了の保存中に k", "E2E 押したカードが遅れて届く"].map(
       (name, i) => ({ name, position: 70 + i }),
     ),
   )
