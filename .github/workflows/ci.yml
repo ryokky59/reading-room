@@ -12,7 +12,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -23,13 +23,65 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      # Every spec in e2e/ must be in exactly one group of the e2e job below.
+      - run: bash .github/scripts/check-e2e-groups.sh
+
+  # The E2E suite runs in three jobs, each on its own runner with its own seeded database and
+  # server. The groups are balanced by hand from the time each spec took in CI (both projects,
+  # desktop and @mobile, run in the group of their file). From main's run 45475398926 (249 tests,
+  # 1236 s): group 1 about 424 s, group 2 about 414 s, group 3 about 400 s. A new spec goes in the
+  # group that is shortest then; the check job fails while a spec is in no group or in two.
+  e2e:
+    name: e2e ${{ matrix.group }}
+    runs-on: ubuntu-latest
+    # playwright.config.ts stops the tests at 15 minutes in CI (globalTimeout), so a slow run shows
+    # as failed and keeps its report; this limit is only for a job stuck outside Playwright.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: 1
+            specs: >-
+              e2e/chips.spec.ts
+              e2e/digest.spec.ts
+              e2e/fetch.spec.ts
+              e2e/folders.spec.ts
+              e2e/press.spec.ts
+          - group: 2
+            specs: >-
+              e2e/actions.spec.ts
+              e2e/app.spec.ts
+              e2e/board.spec.ts
+              e2e/leave.spec.ts
+              e2e/reading.spec.ts
+          - group: 3
+            specs: >-
+              e2e/activity.spec.ts
+              e2e/cursor.spec.ts
+              e2e/export.spec.ts
+              e2e/icons.spec.ts
+              e2e/inbox.spec.ts
+              e2e/mobile-scroll.spec.ts
+              e2e/panes.spec.ts
+              e2e/pause-feed.spec.ts
+              e2e/scroll-seen.spec.ts
+              e2e/seen.spec.ts
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
       - run: npx playwright install --with-deps chromium
       # The E2E server uses a seeded local database; no API keys are needed.
-      - run: npm run test:e2e
+      - run: npm run test:e2e -- ${{ matrix.specs }}
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.group }}
           path: |
             playwright-report/
             test-results/

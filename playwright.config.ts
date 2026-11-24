@@ -27,6 +27,10 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  // In CI, stop before the job's 20-minute limit (.github/workflows/ci.yml) so a slow run ends as
+  // failed, with its report and test-results/.last-run.json, rather than cancelled with nothing.
+  // The time counts from the seed and the server starting; the job's setup before it is about 3 min.
+  globalTimeout: process.env.CI ? 15 * 60_000 : undefined,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: `http://localhost:${PORT}`,
