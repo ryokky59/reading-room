@@ -856,18 +856,19 @@ test.describe("保存中にブラウザの戻る", () => {
 });
 
 // An article the list beside it does not show (#54): the 31st and later of a feed, opened from
-// its URL, as from the browser's history. 読了 / スキップ open the next unread after it, not the
-// top of the list. Each test opens its own rows of "E2E 載っていないサイト" (e2e/seed.mts).
+// its URL, as from the browser's history. 読了 / スキップ and j open the next unread after it, not
+// the top of the list (#120). Each test opens its own rows of "E2E 載っていないサイト" (e2e/seed.mts).
 test.describe("一覧に載っていない記事", () => {
   const feedName = "E2E 載っていないサイト";
-  const title = (n: number) => `載っていない記事 ${n}`;
+  const title = (n: number | string) => `載っていない記事 ${n}`;
+  const SHEET = { width: 1440, height: 900 };
   const emptyPane = (page: Page) => page.getByText("一覧から記事を選ぶと、ここで読めます。");
 
   /**
    * The article's URL, with the feed's filter (`?f=…&s=…`) or none (すべて). Read from the feed's
    * list grown by 「もっと見る」, as no list shows the article otherwise.
    */
-  async function urlOf(page: Page, n: number, { filtered }: { filtered: boolean }) {
+  async function urlOf(page: Page, n: number | string, { filtered }: { filtered: boolean }) {
     await openFeed(page, "E2E 載っていない記事", feedName);
     const query = new URL(page.url()).search;
     await page.goto(`/${query}&n=60`);
@@ -877,9 +878,10 @@ test.describe("一覧に載っていない記事", () => {
   }
 
   /** Opens the article from its URL and waits for the list beside it (30 cards, without it). */
-  async function openUnlisted(page: Page, n: number, { filtered = false } = {}) {
+  async function openUnlisted(page: Page, n: number | string, { filtered = false, viewport = BESIDE } = {}) {
     await page.setViewportSize(BESIDE);
     const { url, query } = await urlOf(page, n, { filtered });
+    await page.setViewportSize(viewport);
     await page.goto(url);
     await expect(heading(page)).toHaveText(title(n));
     await expect(list(page).getByRole("listitem")).toHaveCount(30);
@@ -927,8 +929,15 @@ test.describe("一覧に載っていない記事", () => {
     await expect(page).toHaveURL(new RegExp(`/articles/\\d+\\${query}$`));
   });
 
-  test("後ろに未読が無ければ一覧に戻り、一覧の横に空の状態が出る", async ({ page }) => {
-    const { query } = await openUnlisted(page, 43, { filtered: true });
+  test("後ろに未読が無ければ j / k では記事のまま、読了では一覧に戻り、一覧の横に空の状態が出る", async ({ page }) => {
+    const { url, query } = await openUnlisted(page, 43, { filtered: true });
+    for (const key of ["j", "k"]) {
+      await page.keyboard.press(key);
+      // Long enough for the lookup j sends to have come back.
+      await page.waitForTimeout(500);
+      await expect(heading(page)).toHaveText(title(43));
+      await expect(page).toHaveURL(url);
+    }
     await readButton(page).click();
     await expect(page).toHaveURL(`/${query}`);
     await expect(heading(page)).toHaveCount(0);
@@ -958,5 +967,65 @@ test.describe("一覧に載っていない記事", () => {
     await expect(heading(page)).toHaveCount(0);
     await expect(emptyPane(page)).toBeVisible();
     expect(sent).toBe(2);
+  });
+
+  test("PC で URL から開いて j を押すと、一覧の先頭ではなくその記事の次が開き、k で戻る。k だけでは動かない", async ({
+    page,
+  }) => {
+    // Without a filter: the list beside it is すべて, whose first card used to open.
+    const { url } = await openUnlisted(page, "j 1");
+    const first = await list(page).getByRole("heading").first().textContent();
+    // Nothing before it is known.
+    await page.keyboard.press("k");
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(title("j 1"));
+    await expect(page).toHaveURL(url);
+
+    // Looking for the next one fails (the action is aborted, as offline): the article stays.
+    let sent = 0;
+    const failing = (route: Route) => {
+      if (!("next-action" in route.request().headers())) return route.fallback();
+      sent++;
+      return route.abort();
+    };
+    await page.route("**/*", failing);
+    await page.keyboard.press("j");
+    await expect.poll(() => sent).toBeGreaterThan(0);
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(title("j 1"));
+    await expect(page).toHaveURL(url);
+    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+    await page.unroute("**/*", failing);
+
+    // Back online, j goes on.
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText(title("j 2"));
+    await expect(heading(page)).not.toHaveText(first!);
+    await expect(page).toHaveURL(/\/articles\/\d+$/);
+    const next = page.url();
+    expect(new URL(next).pathname).not.toBe(url);
+    // k comes back to where it was, and j opens the same one again.
+    await page.keyboard.press("k");
+    await expect(heading(page)).toHaveText(title("j 1"));
+    await expect(page).toHaveURL(url);
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText(title("j 2"));
+    expect(page.url()).toBe(next);
+  });
+
+  test("サイトで絞り込んで開いて j を押すと、その絞り込みの中の次が開く", async ({ page }) => {
+    const { query } = await openUnlisted(page, "j 3", { filtered: true });
+    await page.keyboard.press("j");
+    // Not 「載っていない記事 j と j の間 1」, which comes next in the folder and in すべて.
+    await expect(heading(page)).toHaveText(title("j 4"));
+    await expect(page).toHaveURL(new RegExp(`/articles/\\d+\\${query}$`));
+  });
+
+  test("シートの幅で開いて j を押しても、その絞り込みの中の次が開く", async ({ page }) => {
+    const { query } = await openUnlisted(page, "j 5", { filtered: true, viewport: SHEET });
+    await expect(page.getByRole("dialog", { name: "記事" })).toBeVisible();
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText(title("j 6"));
+    await expect(page).toHaveURL(new RegExp(`/articles/\\d+\\${query}$`));
   });
 });
