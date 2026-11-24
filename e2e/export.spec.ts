@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { PGlite } from "@electric-sql/pglite";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "../src/lib/db/schema";

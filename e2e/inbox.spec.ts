@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./test";
 import { openFeed } from "./nav";
 
 // Folder / site filter rows are seeded at the end of e2e/seed.mts.

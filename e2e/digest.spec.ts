@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { DIGEST_RETRY_INTERVAL_MS as INTERVAL } from "./env";
 import { openFeed } from "./nav";
 
