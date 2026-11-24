@@ -330,16 +330,15 @@ test("スマホで記事の URL を直接開いて読了すると、一覧がす
 
 /**
  * Opens article `n` of `folder` by its URL with the list held back, as on a reload. The returned
- * function lets the list through. Other server requests pass unless `blockAll`.
+ * function lets the list through. Other server requests pass.
  */
-async function openBeforeList(page: Page, folder: string, n: number, { blockAll = false } = {}) {
+async function openBeforeList(page: Page, folder: string, n: number) {
   await openFeed(page, folder);
   await expect(card(page, `${folder} ${n}`)).toBeVisible();
   const href = await card(page, `${folder} ${n}`).getByRole("link").getAttribute("href");
 
   let release = () => {};
   const released = new Promise<void>((r) => (release = r));
-  let failing = blockAll;
   const saves: string[] = [];
   page.on("request", (r) => {
     if ("next-action" in r.headers()) saves.push(r.url());
@@ -347,20 +346,13 @@ async function openBeforeList(page: Page, folder: string, n: number, { blockAll 
   await page.route("**/*", async (route) => {
     const headers = route.request().headers();
     if (!("rsc" in headers) || "next-router-prefetch" in headers) return route.fallback();
-    if (failing) return route.abort();
     if (!/\/articles\/\d+\/list/.test(route.request().url())) return route.fallback();
     await released;
     await route.fallback().catch(() => {});
   });
   await page.goto(href!);
   await expect(heading(page)).toHaveText(`${folder} ${n}`);
-  return {
-    saves,
-    release: () => {
-      failing = false;
-      release();
-    },
-  };
+  return { saves, release };
 }
 
 const readButton = (page: Page) => page.getByRole("button", { name: "読了にする" });
@@ -443,28 +435,6 @@ test.describe("記事を直接開いて一覧が届く前", () => {
     await expect(heading(page)).toHaveText(`${folder} 3`);
   });
 
-  // Off until https://github.com/ryokky59/reading-room/issues/128. Until the Service Worker was
-  // blocked (#113) this page.route never reached the list request, so the failure was never
-  // exercised. Now it does, and its network (RSC fetches fail, documents load) makes the page
-  // reload between /articles/<id>/list and /articles/<id> without end; in a real outage the open
-  // article is replaced by the offline page. #128 fixes the app and brings this back as a real outage.
-  test.fixme("一覧の取得が失敗しても、通信が戻れば押せるようになる", async ({ page }) => {
-    const folder = "E2E 一覧が届かない";
-    const { release } = await openBeforeList(page, folder, 2, { blockAll: true });
-    await expect(readButton(page)).toBeDisabled();
-    // The router falls back to loading the page again, and again the list does not come.
-    await page.waitForTimeout(500);
-    await expect(heading(page)).toHaveText(`${folder} 2`);
-    await expect(readButton(page)).toBeDisabled();
-    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
-
-    release();
-    await expect(list(page).getByRole("listitem")).toHaveCount(3);
-    await expect(readButton(page)).toBeEnabled();
-    await readButton(page).click();
-    await expect(heading(page)).toHaveText(`${folder} 3`);
-  });
-
   test("スマホの縦向きは一覧を待たずに押せる @mobile", async ({ page }) => {
     const folder = "E2E 一覧待ちの横向き";
     const { saves } = await openBeforeList(page, folder, 1);
@@ -488,6 +458,81 @@ test.describe("記事を直接開いて一覧が届く前", () => {
       await readButton(page).click();
       await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 2000 });
     });
+  });
+});
+
+// Reloading an article while the device is offline: the Service Worker serves the article it kept,
+// and the list beside it waits for the network instead of the page being replaced by the offline
+// page (#128). The network is cut with setOffline, not page.route: page.route does not reach the
+// requests of a page the Service Worker controls (#113).
+test.describe("オフラインで記事を読み込み直す", () => {
+  test.use({ serviceWorkers: "allow" });
+
+  /** Opens article `n` of `folder` by its URL once the Service Worker controls the page, so it keeps the article. */
+  async function openWithWorker(page: Page, folder: string, n: number) {
+    await page.goto("/");
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+    await openFeed(page, folder);
+    const href = await card(page, `${folder} ${n}`).getByRole("link").getAttribute("href");
+    await page.goto(href!);
+    await expect(heading(page)).toHaveText(`${folder} ${n}`);
+    return href!;
+  }
+
+  /** Counts the document loads of `/articles/<id>/list`, which offline would be the offline page. */
+  function countListDocuments(page: Page) {
+    const loads: string[] = [];
+    page.on("request", (r) => {
+      if (r.resourceType() === "document" && /\/articles\/\d+\/list/.test(r.url())) loads.push(r.url());
+    });
+    return loads;
+  }
+
+  const offlineNote = (page: Page) => page.getByText("オフラインです。通信が戻ると一覧が出ます");
+
+  test("PC では記事が出たまま一覧の場所に「オフラインです」が出て、通信が戻ると一覧が届いて押せる", async ({
+    page,
+    context,
+  }) => {
+    const folder = "E2E 一覧が届かない";
+    const href = await openWithWorker(page, folder, 2);
+    await expect(list(page).getByRole("listitem")).toHaveCount(3);
+    await expect(readButton(page)).toBeEnabled();
+    // Back on the article's URL from /articles/<id>/list, so the reload is the article the worker kept.
+    await expect(page).toHaveURL(href);
+
+    const listLoads = countListDocuments(page);
+    await context.setOffline(true);
+    await page.reload();
+    await expect(heading(page)).toHaveText(`${folder} 2`);
+    await expect(offlineNote(page)).toBeVisible();
+    await expect(readButton(page)).toBeDisabled();
+    await expect(page).not.toHaveTitle("オフライン | Reading Room");
+    await expect(heading(page)).toHaveText(`${folder} 2`);
+
+    await context.setOffline(false);
+    // The open article is read now, and its row stays.
+    await expect(list(page).getByRole("listitem")).toHaveCount(3);
+    await expect(offlineNote(page)).toHaveCount(0);
+    await expect(readButton(page)).toBeEnabled();
+    await readButton(page).click();
+    await expect(heading(page)).toHaveText(`${folder} 3`);
+    expect(listLoads).toEqual([]);
+  });
+
+  test("スマホの縦向きでは記事が出たままで、「オフラインです」は出ない @mobile", async ({ page, context }) => {
+    const folder = "E2E スマホでオフラインのまま開き直す";
+    await openWithWorker(page, folder, 2);
+
+    const listLoads = countListDocuments(page);
+    await context.setOffline(true);
+    await page.reload();
+    await expect(heading(page)).toHaveText(`${folder} 2`);
+    await expect(readButton(page)).toBeEnabled();
+    await expect(page).not.toHaveTitle("オフライン | Reading Room");
+    await expect(offlineNote(page)).toBeHidden();
+    await expect(list(page)).toBeHidden();
+    expect(listLoads).toEqual([]);
   });
 });
 

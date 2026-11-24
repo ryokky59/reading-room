@@ -962,31 +962,56 @@ function useArticleUrlAfterListChange() {
   }, [pathname, search, router]);
 }
 
+function watchOnline(onChange: () => void) {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
+}
+
+/** Whether the browser knows it is offline, kept up to date; false on the server and before hydration. */
+function useKnownOffline() {
+  return useSyncExternalStore(
+    watchOnline,
+    () => !navigator.onLine,
+    () => false,
+  );
+}
+
 /**
  * The list pane after an article URL is loaded directly (see @list/default.tsx). Phones show
  * no list beside the article, so the article does not wait for one. On PCs (or once the screen
  * becomes wide) this goes to `/articles/<id>/list` like a chip does: the list page fills the
  * pane, the article stays, and useArticleUrlAfterListChange puts the article URL back. `media`
  * narrows the screens it does this on (BoardPane: only where the Board cannot stay behind).
+ *
+ * While the browser knows it is offline this waits for the `online` event instead: the router
+ * would fail to fetch the list and load `/articles/<id>/list` as a document, which offline is the
+ * offline page in place of the article the Service Worker had shown (#128).
  */
 export function ListAfterFullLoad({ media: query = WIDE }: { media?: string }) {
   const router = useRouter();
   const openId = useOpenId();
   const search = useSearchParams().toString();
+  const offline = useKnownOffline();
   useEffect(() => {
-    if (openId === null) return;
+    if (openId === null || offline) return;
     const media = window.matchMedia(query);
     const load = () => {
       // As in useArticleUrlAfterListChange: skip once the browser has left this article's URL.
-      if (media.matches && window.location.pathname === `/articles/${openId}`)
+      // navigator.onLine is read again: `offline` may not have caught up with an `offline` event yet.
+      if (media.matches && navigator.onLine && window.location.pathname === `/articles/${openId}`)
         router.replace(`/articles/${openId}/list${search ? `?${search}` : ""}`, { scroll: false });
     };
     load();
     media.addEventListener("change", load);
     return () => media.removeEventListener("change", load);
-  }, [openId, search, router, query]);
+  }, [openId, search, router, query, offline]);
   return (
     <div className={`hidden px-4 pt-4 split:block ${query === BESIDE ? "lg:hidden" : ""}`} aria-busy="true">
+      {offline && <p className="mb-3 text-sm text-muted">オフラインです。通信が戻ると一覧が出ます</p>}
       <ul className="grid gap-3">
         {Array.from({ length: 4 }, (_, i) => (
           <li key={i} className="animate-pulse rounded-xl border border-line bg-surface p-4">
