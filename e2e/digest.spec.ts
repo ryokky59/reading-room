@@ -14,6 +14,26 @@ const SEEDED = "要約を断られた記事";
 const SEEDED_MOBILE = "スマホで開く断られた記事";
 const BODY = "要約テストの本文です。"; // Also what the card shows as the excerpt.
 const TRANSLATION_FAILED = "(日本語にまとめられませんでした。やり直してください)";
+const TRANSLATION_CUT = "(記事が長く、ここまでで切れました。やり直してください)";
+const REVIEW_FAILED = "(この月の振り返りは作れませんでした。作り直してください)";
+// The widths the owner reads on: a phone upright and on its side, and a PC.
+const VIEWPORTS = [
+  { width: 390, height: 844 },
+  { width: 844, height: 390 },
+  { width: 1440, height: 900 },
+];
+
+/** Checks at each width that `text` is shown and nothing makes the page scroll sideways. */
+async function expectFits(page: Page, text: string) {
+  const size = page.viewportSize();
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport);
+    await expect(page.getByText(text)).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, `${viewport.width}×${viewport.height}`).toBeLessThanOrEqual(0);
+  }
+  if (size) await page.setViewportSize(size);
+}
 
 const cards = (page: Page) => page.getByRole("list", { name: "記事" }).getByRole("listitem");
 const card = (page: Page, title: string) => cards(page).filter({ hasText: title });
@@ -51,12 +71,16 @@ test.describe("要約と翻訳の失敗", () => {
   let site: Server;
   let origin: string;
   // Calls the stub received, by the fixture title found in the request.
-  const calls = { digest: {} as Record<string, number>, translate: {} as Record<string, number> };
+  const calls = {
+    digest: {} as Record<string, number>,
+    translate: {} as Record<string, number>,
+    review: {} as Record<string, number>,
+  };
   // When the stub last received a digest call, by title.
   const lastDigest: Record<string, number> = {};
-  const titles = ["上限テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", SEEDED, SEEDED_MOBILE];
+  const titles = ["上限テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", "Translation cut-off test", SEEDED, SEEDED_MOBILE];
   // Each test has its own feed, empty while it is added, so its articles come in through 「今すぐ取得」.
-  const listed: Record<string, string[]> = { "/limit.xml": [], "/other.xml": [], "/refused.xml": [], "/translate.xml": [] };
+  const listed: Record<string, string[]> = { "/limit.xml": [], "/other.xml": [], "/refused.xml": [], "/translate.xml": [], "/cut.xml": [] };
 
   /**
    * Presses 「今すぐ取得」, waits for the run to end, and opens `feed`'s list freshly loaded: the
@@ -93,8 +117,13 @@ test.describe("要約と翻訳の失敗", () => {
       req.on("data", (chunk) => (raw += chunk));
       req.on("end", () => {
         const body = JSON.parse(raw) as { output_config?: { format?: unknown } };
-        const kind = body.output_config?.format ? "digest" : "translate";
-        const title = titles.find((t) => raw.includes(t)) ?? "(other)";
+        // The look-back lists every article read that month, so it is told apart before the titles.
+        const kind = raw.includes("振り返りを書いてください")
+          ? "review"
+          : body.output_config?.format
+            ? "digest"
+            : "translate";
+        const title = kind === "review" ? "(month)" : (titles.find((t) => raw.includes(t)) ?? "(other)");
         const n = (calls[kind][title] = (calls[kind][title] ?? 0) + 1);
         if (kind === "digest") lastDigest[title] = Date.now();
         const stream = (events: string) => {
@@ -103,14 +132,27 @@ test.describe("要約と翻訳の失敗", () => {
         };
         const digest = (lang: string, titleJa: string) =>
           stream(sse("end_turn", JSON.stringify({ lang, title_ja: titleJa, summary: `${titleJa}の要約です。` })));
-        if (kind === "translate") {
+        if (kind === "review") {
+          // Refused first, then ended with nothing written.
+          stream(n === 1 ? sse("refusal") : sse("end_turn"));
+        } else if (kind === "translate" && title === "Translation cut-off test") {
+          // Empty, then cut off by the length limit twice (the reload in between), then complete.
+          if (n === 1) stream(sse("end_turn"));
+          else if (n <= 3) stream(sse("max_tokens", `## 前半\n\n途中までの翻訳です(${n} 回目)。`));
+          else stream(sse("end_turn", "最後まで翻訳できました。"));
+        } else if (kind === "translate") {
           stream(n === 1 ? sse("refusal") : sse("end_turn", "二度目の翻訳は成功しました。"));
+        } else if (title === "上限テストの記事" && n % 2 === 0) {
+          // Every other try comes back with an empty summary, which counts as a failure like a 400.
+          stream(sse("end_turn", JSON.stringify({ lang: "ja", title_ja: "上限テストの記事", summary: "" })));
         } else if (title === "拒否テストの記事") {
           stream(sse("refusal"));
         } else if (title === "成功テストの記事") {
           digest("ja", "成功テストの記事");
         } else if (title === "Translation refusal test") {
           digest("other", "翻訳を断られる記事");
+        } else if (title === "Translation cut-off test") {
+          digest("other", "翻訳が切れる記事");
         } else {
           // 400 rather than 500: the SDK does not retry it, so the test stays quick.
           res.writeHead(400, { "content-type": "application/json" });
@@ -171,7 +213,7 @@ test.describe("要約と翻訳の失敗", () => {
     });
   }
 
-  test("失敗し続ける記事は間隔を空けて上限の回数まで試し、間隔内の取得やサイトの追加では試さない", async ({ page }) => {
+  test("失敗し続ける記事(400 と空の要約)は間隔を空けて上限の回数まで試し、間隔内の取得やサイトの追加では試さない", async ({ page }) => {
     test.setTimeout(300_000);
     await addFeed(page, "/limit.xml", "上限テスト");
     listed["/limit.xml"].push("上限テストの記事", "成功テストの記事");
@@ -254,5 +296,79 @@ test.describe("要約と翻訳の失敗", () => {
     await expect(page.getByRole("main")).not.toContainText(TRANSLATION_FAILED);
     await expect(retry).toHaveCount(0);
     expect(calls.translate["Translation refusal test"]).toBe(2);
+  });
+
+  test("翻訳が空で返ると失敗の文、途中で切れると切れた旨の文と「やり直す」が出て、切れた翻訳は保存されない", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await addFeed(page, "/cut.xml", "翻訳切れテスト");
+    listed["/cut.xml"].push("Translation cut-off test");
+    await fetchOnce(page, "翻訳切れテスト");
+    await card(page, "翻訳が切れる記事").getByRole("link").first().click();
+    const main = page.getByRole("main");
+    const retry = page.getByRole("button", { name: "やり直す" });
+
+    // Empty: the failure and 「やり直す」.
+    await expect(main).toContainText(TRANSLATION_FAILED);
+    await expect(retry).toBeVisible();
+    expect(calls.translate["Translation cut-off test"]).toBe(1);
+    await expectFits(page, TRANSLATION_FAILED);
+
+    // Cut off: what came, then the note under it, and 「やり直す」.
+    await retry.click();
+    await expect(main).toContainText("途中までの翻訳です(2 回目)。");
+    await expect(main).toContainText(TRANSLATION_CUT);
+    await expect(main).not.toContainText(TRANSLATION_FAILED);
+    await expect(retry).toBeVisible();
+    expect(calls.translate["Translation cut-off test"]).toBe(2);
+    const partial = await main.getByText("途中までの翻訳です(2 回目)。").boundingBox();
+    const note = await main.getByText(TRANSLATION_CUT).boundingBox();
+    expect(note!.y).toBeGreaterThan(partial!.y);
+    await expectFits(page, TRANSLATION_CUT);
+
+    // The cut-off translation was not kept, so opening the article again translates it again.
+    await page.reload();
+    await expect(main).toContainText("途中までの翻訳です(3 回目)。");
+    await expect(main).toContainText(TRANSLATION_CUT);
+    expect(calls.translate["Translation cut-off test"]).toBe(3);
+
+    // A complete one clears the note and 「やり直す」, and is kept.
+    await retry.click();
+    await expect(main).toContainText("最後まで翻訳できました。");
+    await expect(main).not.toContainText(TRANSLATION_CUT);
+    await expect(retry).toHaveCount(0);
+    expect(calls.translate["Translation cut-off test"]).toBe(4);
+    await page.reload();
+    await expect(main).toContainText("最後まで翻訳できました。");
+    expect(calls.translate["Translation cut-off test"]).toBe(4);
+  });
+
+  test("振り返りが拒否されたり空で終わったりすると失敗の文が出て、作り直せて、保存されない", async ({ page }) => {
+    // The seed has articles read this month, and its section comes first.
+    await page.goto("/read");
+    const month = page.getByRole("main").locator("section").first();
+    await month.getByRole("button", { name: "この月を振り返る" }).click();
+
+    // Refused: the failure instead of 「考えています…」, and 「作り直す」.
+    await expect(month).toContainText(REVIEW_FAILED);
+    await expect(month.getByText("考えています…")).toHaveCount(0);
+    const again = month.getByRole("button", { name: "作り直す" });
+    await expect(again).toBeVisible();
+    expect(calls.review["(month)"]).toBe(1);
+    await expectFits(page, REVIEW_FAILED);
+
+    // Ended with nothing written: the same.
+    await again.click();
+    await expect.poll(() => calls.review["(month)"]).toBe(2);
+    await expect(again).toBeVisible();
+    await expect(month).toContainText(REVIEW_FAILED);
+    await expect(month.getByText("考えています…")).toHaveCount(0);
+
+    // Nothing was kept for the month.
+    await page.reload();
+    await expect(month.getByRole("button", { name: "この月を振り返る" })).toBeVisible();
+    await expect(month.getByRole("button", { name: "振り返りを見る" })).toHaveCount(0);
+    await expect(month).not.toContainText(REVIEW_FAILED);
   });
 });

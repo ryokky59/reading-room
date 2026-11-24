@@ -670,7 +670,8 @@ function Translation({ articleId, initial }: { articleId: number; initial: strin
           full += decoder.decode(value, { stream: true });
           setText(full);
         }
-        setState(full.includes("(日本語にまとめられませんでした") ? "error" : "done");
+        // Both failure notes from streamTranslation end like this: empty or refused, and cut off.
+        setState(full.endsWith("。やり直してください)") ? "error" : "done");
       } catch {
         setState("error");
       }

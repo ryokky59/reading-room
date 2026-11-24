@@ -153,7 +153,13 @@ ${list}
             controller.enqueue(encoder.encode(event.delta.text));
           }
         }
-        if (full.trim()) await onDone(full);
+        const final = await stream.finalMessage();
+        // A month has one look-back, so a failed one is shown but not kept.
+        if (final.stop_reason === "refusal" || !full.trim()) {
+          controller.enqueue(encoder.encode("\n\n(この月の振り返りは作れませんでした。作り直してください)"));
+        } else {
+          await onDone(full);
+        }
       } catch (err) {
         console.error("review stream failed", err);
         controller.enqueue(encoder.encode("\n\n(エラーが発生しました。もう一度試してください)"));
@@ -219,8 +225,9 @@ ${body || "(本文なし)"}
  */
 export function streamTranslation(a: { title: string; markdown: string }, onDone: (text: string) => Promise<void>) {
   const encoder = new TextEncoder();
-  // ArticleView's Translation shows 「やり直す」 when it sees this text.
+  // ArticleView's Translation shows 「やり直す」 when the text ends with 「やり直してください)」.
   const failure = "\n\n(日本語にまとめられませんでした。やり直してください)";
+  const cutOff = "\n\n(記事が長く、ここまでで切れました。やり直してください)";
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       let full = "";
@@ -245,7 +252,8 @@ export function streamTranslation(a: { title: string; markdown: string }, onDone
         const final = await stream.finalMessage();
         // Only a complete translation is kept, so a cut-off one is retried next time.
         if (final.stop_reason === "end_turn" && full.trim()) await onDone(full);
-        else if (final.stop_reason === "refusal" || !full.trim()) controller.enqueue(encoder.encode(failure));
+        else if (final.stop_reason === "max_tokens" && full.trim()) controller.enqueue(encoder.encode(cutOff));
+        else controller.enqueue(encoder.encode(failure));
       } catch (err) {
         console.error("translation failed", err);
         controller.enqueue(encoder.encode(failure));
