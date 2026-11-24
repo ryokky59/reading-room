@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 
 // The seeded data is in e2e/seed.mts. Each test that changes state uses its own article.
 
@@ -23,6 +23,17 @@ test("一覧の長い要約は 2 行で切れ、スキップボタンと重な�
   // 未読に戻す stands in its place once another test has opened the article.
   const skip = (await card.getByRole("button", { name: /^(スキップ|未読に戻す)$/ }).boundingBox())!;
   expect(skip.y).toBeGreaterThanOrEqual(box.y + box.height);
+});
+
+test("E2E では Service Worker が登録されず、ページを制御しない", async ({ page }) => {
+  // playwright.config.ts blocks it: a page it controls no longer shows the tests' page.route (#113).
+  await page.goto("/");
+  await expect(page.locator(".chip-pill:not([hidden])").first()).toBeAttached(); // hydrated
+  // The app's own registration (ServiceWorker.tsx) has been asked for by now. Asking again and
+  // waiting for the answer makes the check below fail at once if the block is ever lost.
+  await page.evaluate(() => navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {}));
+  expect(await page.evaluate(() => navigator.serviceWorker.getRegistrations().then((r) => r.length))).toBe(0);
+  expect(await page.evaluate(() => navigator.serviceWorker.controller)).toBeNull();
 });
 
 test("一覧からスキップすると消える", async ({ page }) => {

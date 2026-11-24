@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request } from "./test";
 import { openFeed } from "./nav";
 
 // `leave` in the activity log (src/components/useReadingLog.ts): the time spent on an article and

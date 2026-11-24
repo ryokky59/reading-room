@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./test";
 
 // 既読 (seen) apart from 読了 (read). Each test uses its own folder from the end of e2e/seed.mts:
 // sites A (2 unread) and B (1 unread, 1 seen, 1 skipped, 1 read).

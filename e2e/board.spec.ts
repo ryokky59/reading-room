@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 
 // The Board at `/`: a column per feed, grouped by folder. Rows are at the end of e2e/seed.mts,
 // one folder per test that changes state.

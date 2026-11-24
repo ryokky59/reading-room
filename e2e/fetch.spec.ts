@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 
 // 「今すぐ取得」 and 「URL を追加」 with pages that linkedom / Readability cannot parse. The pages
 // come from a local server started here, so nothing reaches the outside network. Every other
@@ -10,11 +10,10 @@ const cards = (page: Page) => page.getByRole("list", { name: "記事" }).getByRo
 const card = (page: Page, title: string) => cards(page).filter({ hasText: title });
 const fetchButton = (page: Page) => page.getByRole("button", { name: "今すぐ取得" });
 /**
- * Presses 「今すぐ取得」 once the page is hydrated. `goto` returns at `load`, and in CI the Board
- * at `/` takes about a second more to hydrate. A press in between is replayed afterwards, and
- * the fetch then really runs instead of meeting the routes the test set (CI traces: the press
- * at 1.0s, the first prefetch at 1.9s, and 「N 本の新着を追加しました」 on screen at the end).
- * The sign is the folder tabs' pill, which an effect of ChipRow shows: React has committed by then.
+ * Presses 「今すぐ取得」 once the page is hydrated. `goto` returns at `load` and hydration comes
+ * after it, so this waits for something an effect draws: the folder tabs' pill, which ChipRow
+ * shows once React has committed. (When the tests' routes were once passed by and the real fetch
+ * ran, the cause was the app's Service Worker, which playwright.config.ts now blocks: #113.)
  */
 async function pressFetch(page: Page) {
   await expect(page.locator(".chip-pill:not([hidden])").first()).toBeAttached({ timeout: 30_000 });
