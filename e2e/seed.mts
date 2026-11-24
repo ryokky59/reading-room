@@ -350,11 +350,12 @@ const pressArticles = [
 ];
 await db.insert(schema.articles).values(pressArticles);
 
-// Cards leaving the list, and 「元に戻す」 (e2e/leave.spec.ts): one folder per test.
+// Cards leaving the list, and 「元に戻す」 (e2e/leave.spec.ts): one folder per test. At most 30
+// folders: their ids (1400 + i * 10 + j) end before the 既読 block at 1700.
 const leaveFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける", "E2E スキップに失敗", "E2E 読了して履歴を遡る", "E2E 直接開いて読了", "E2E 元に戻すに失敗", "E2E 続けてスキップ", "E2E 一覧待ちで読了", "E2E 一覧待ちでスキップ", "E2E 一覧待ちのキー", "E2E 一覧待ちで失敗", "E2E 一覧待ちの横向き", "E2E 一覧が届かない", "E2E 読了の保存中に戻る", "E2E スキップの保存中に戻る", "E2E 保存に失敗して戻る", "E2E 未読に戻すの保存中に戻る", "E2E 未読に戻すに失敗して戻る", "E2E スマホでオフラインのまま開き直す"].map(
+    ["E2E 一覧でスキップ", "E2E スマホで読了して戻す", "E2E スマホでスキップして戻す", "E2E PC で読了して戻す", "E2E 動きを減らして抜ける", "E2E スキップに失敗", "E2E 読了して履歴を遡る", "E2E 直接開いて読了", "E2E 元に戻すに失敗", "E2E 続けてスキップ", "E2E 一覧待ちで読了", "E2E 一覧待ちでスキップ", "E2E 一覧待ちのキー", "E2E 一覧待ちで失敗", "E2E 一覧待ちの横向き", "E2E 一覧が届かない", "E2E 読了の保存中に戻る", "E2E スキップの保存中に戻る", "E2E 保存に失敗して戻る", "E2E 未読に戻すの保存中に戻る", "E2E 未読に戻すに失敗して戻る", "E2E スマホでオフラインのまま開き直す", "E2E スマホで戻るとすぐ一覧", "E2E 読了の保存中にカードを押す", "E2E スキップの保存中にカードを押す", "E2E 読了に失敗してカードを押す", "E2E 未読に戻すの保存中にカードを押す", "E2E 未読に戻すに失敗してカードを押す", "E2E 読了の保存中に k", "E2E 押したカードが遅れて届く"].map(
       (name, i) => ({ name, position: 70 + i }),
     ),
   )
@@ -466,6 +467,30 @@ const undoSeenArticles = undoSeenFeeds.flatMap((f, i) =>
   }),
 );
 await db.insert(schema.articles).values(undoSeenArticles);
+
+// A full load of a page other than the list starts the faded rows again (e2e/seen.spec.ts, #112):
+// one folder per test with site A of two unread articles; 直接開いて戻す has a third, opened
+// next after 読了.
+const freshFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E 記事を直接開く", "E2E 古い since で直接開く", "E2E 直接開いてから開く", "E2E スマホで直接開く", "E2E フィードを挟む", "E2E 一覧の URL を開く", "E2E 直接開いて戻す", "E2E 既読を含むで戻す"].map(
+      (name, i) => ({ name, position: 162 + i }),
+    ),
+  )
+  .returning();
+const freshFeeds = await db
+  .insert(schema.feeds)
+  .values(freshFolders.map((f, i) => feed(`fresh-${i}-a`, `${f.name} A`, f.id)))
+  .returning();
+const freshArticles = freshFeeds.flatMap((f, i) =>
+  (freshFolders[i].name === "E2E 直接開いて戻す" ? ["A1", "A2", "A3"] : ["A1", "A2"]).map((t, j) => {
+    const n = 2800 + i * 10 + j;
+    const title = `${freshFolders[i].name} ${t}`;
+    return article(n, { title, titleJa: title, source: f.name, feedId: f.id, fetchedAt: old(n) });
+  }),
+);
+await db.insert(schema.articles).values(freshArticles);
 
 // The Board (e2e/board.spec.ts): one folder per test that changes state.
 const boardFolders = await db
@@ -828,5 +853,5 @@ const candidateArticles = ["選ぶ候補 A", "選ぶ候補 B"].map((title, j) =>
 await db.insert(schema.articles).values(candidateArticles);
 
 console.log(
-  `seeded ${pickArticles.length + candidateArticles.length + inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length} articles into ${dir}`,
+  `seeded ${pickArticles.length + candidateArticles.length + inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + freshArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length} articles into ${dir}`,
 );

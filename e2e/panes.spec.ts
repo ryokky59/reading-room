@@ -190,9 +190,11 @@ test.describe("PC 幅(一覧の上のシート)", () => {
     await expect(heading(page)).toHaveText("E2E 直接開く 2");
     await expect(card(page, "E2E 直接開く 2")).toHaveAttribute("aria-current", "true");
 
+    // A reload starts the faded rows again (#112): 3, seen before it and not open, is gone.
     await page.reload();
     await expect(heading(page)).toHaveText("E2E 直接開く 2");
-    await expect(list(page).getByRole("listitem")).toHaveCount(3);
+    await expect(list(page).getByRole("listitem")).toHaveCount(2);
+    await expect(card(page, "E2E 直接開く 3")).toHaveCount(0);
   });
 
   test("j / k で移動、e で読了、s でスキップ。入力中は効かない", async ({ page }) => {

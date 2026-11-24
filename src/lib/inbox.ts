@@ -1,7 +1,7 @@
 // The inbox filter lives in the URL: `f` is a folder id or "none" (未分類), `s` a feed id,
 // `n` how many cards are shown (grown by 「もっと見る」), `a=1` also shows seen (既読) articles.
 
-import { and, desc, eq, gt, gte, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { articles, feeds } from "./db/schema";
 
 export type InboxFilter = { f?: string; s?: string; n?: string; a?: string };
@@ -68,13 +68,13 @@ export function placeWhere(filter: InboxFilter) {
 export const seenNow = sql<Date>`date_trunc('milliseconds', now())`;
 
 /** The seen articles that stay listed (lib/opened.ts), as the query takes them. */
-export type ListedRows = { since: Date; open: number | null; cut: { feedId: number | null; at: Date }[] };
+export type ListedRows = { since: Date; open: number | null; cut: { feedId: number | null; at: Date }[]; kept: number[] };
 
 /**
  * What a list or the Board shows of the filter: unread, plus the seen articles that stay in place
  * until the next full load (`listed`). The query must left join `feeds`.
  */
-export function listedWhere(filter: InboxFilter, { since, open, cut }: ListedRows) {
+export function listedWhere(filter: InboxFilter, { since, open, cut, kept }: ListedRows) {
   if (filter.a) return inboxWhere(filter);
   // "Another feed, or seen after the cut". Not `NOT (feed_id = X AND ...)`, which is null, and
   // so drops the row, for an article without a feed.
@@ -89,6 +89,8 @@ export function listedWhere(filter: InboxFilter, { since, open, cut }: ListedRow
       isNull(articles.seenAt),
       open === null ? undefined : eq(articles.id, open),
       and(gte(articles.seenAt, since), ...afterCuts),
+      // Put back by 「元に戻す」, but a 「すべて既読」 of its feed since takes it out.
+      kept.length === 0 ? undefined : and(inArray(articles.id, kept), ...afterCuts),
     ),
   );
 }

@@ -536,9 +536,10 @@ test.describe("オフラインで記事を読み込み直す", () => {
   });
 });
 
-// Browser back pressed while 読了 / スキップ is still being saved: the list it went back to stays,
-// without the card, instead of the next article opening over it once the save is done. The same
-// for the open article's card's 「未読に戻す」, which would otherwise close the page gone back to.
+// Browser back pressed while 読了 / スキップ is still being saved: the list it went back to shows
+// at once and stays, without the card once the save is done, instead of the next article opening
+// over it then. The same for the open article's card's 「未読に戻す」, which would otherwise close
+// the page gone back to.
 test.describe("保存中にブラウザの戻る", () => {
   /** Opens the first article of `folder` from its list, and holds server actions back 1.5 s. */
   async function openFirstSlowly(page: Page, folder: string, fail = false) {
@@ -568,6 +569,10 @@ test.describe("保存中にブラウザの戻る", () => {
       await button(page).click();
       await page.waitForTimeout(200);
       await page.goBack();
+      // The list shows at once, not once the save is back (#77): the card is still there.
+      await expect(heading(page)).toHaveCount(0, { timeout: 300 });
+      expect(page.url()).toBe(folderUrl);
+      await expect(list(page).getByRole("listitem")).toHaveCount(3);
       await answered;
 
       await expect(card(page, `${folder} 1`)).toHaveCount(0);
@@ -588,16 +593,39 @@ test.describe("保存中にブラウザの戻る", () => {
     await readButton(page).click();
     await page.waitForTimeout(200);
     await page.goBack();
+    await expect(heading(page)).toHaveCount(0, { timeout: 300 });
     await answered;
 
     await page.waitForTimeout(1000);
     expect(page.url()).toBe(folderUrl);
     await expect(heading(page)).toHaveCount(0);
     await expect(card(page, `${folder} 1`)).toBeVisible();
+    // The article it was saved from has closed, so no message is shown.
+    await expect(page.getByRole("alert").filter({ hasText: "保存できませんでした" })).toHaveCount(0);
     await expect(list(page).getByRole("listitem")).toHaveCount(3);
     // Opening the article marked it seen (既読), so the unread count is one less than the cards.
     await expect(count(page)).toHaveText(/^2 本/);
     await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+  });
+
+  test("スマホで読了の保存中に戻ると、すぐ一覧が出て、保存のあとカードが抜ける @mobile", async ({ page }) => {
+    const folder = "E2E スマホで戻るとすぐ一覧";
+    const { folderUrl, answered } = await openFirstSlowly(page, folder);
+
+    await readButton(page).click();
+    await page.waitForTimeout(200);
+    await page.goBack();
+    await expect(heading(page)).toHaveCount(0, { timeout: 300 });
+    await expect(list(page).getByRole("listitem")).toHaveCount(3, { timeout: 300 });
+    expect(page.url()).toBe(folderUrl);
+    await answered;
+
+    await expect(card(page, `${folder} 1`)).toHaveCount(0);
+    await expect(count(page)).toHaveText(/^2 本/);
+    await expect(toast(page).getByText("読了にしました")).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(page.url()).toBe(folderUrl);
+    await expect(heading(page)).toHaveCount(0);
   });
 
   /**
@@ -626,6 +654,8 @@ test.describe("保存中にブラウザの戻る", () => {
     await unsee(page, `${folder} 2`).click();
     await page.waitForTimeout(200);
     await page.goBack();
+    // The article gone back to shows at once, not once the save is back (#77).
+    await expect(heading(page)).toHaveText(`${folder} 1`, { timeout: 300 });
     await answered;
 
     // Long enough for a late push to the list to have landed.
@@ -653,6 +683,175 @@ test.describe("保存中にブラウザの戻る", () => {
     await expect(heading(page)).toHaveText(`${folder} 1`);
     await expect(unsee(page, `${folder} 2`)).toBeVisible();
     await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+  });
+
+  // Another card, or j / k, pressed beside the article during the save opens what was pressed;
+  // the save goes on, and the next article (or the list) it would have opened does not (#77).
+  test.describe("一覧の別の記事を開く", () => {
+    test.use({ viewport: BESIDE });
+
+    /** The URL card `title`'s link opens. */
+    async function urlOf(page: Page, title: string) {
+      return new URL((await card(page, title).getByRole("link").getAttribute("href"))!, page.url()).href;
+    }
+
+    for (const [kind, button, message] of [
+      ["読了", readButton, "読了にしました"],
+      ["スキップ", skipButton, "スキップしました"],
+    ] as const) {
+      test(`PC で${kind}の保存中に別のカードを押すと、その記事が開いたままでカードが抜ける`, async ({ page }) => {
+        const folder = `E2E ${kind}の保存中にカードを押す`;
+        const { answered } = await openFirstSlowly(page, folder);
+        const third = await urlOf(page, `${folder} 3`);
+
+        await button(page).click();
+        await page.waitForTimeout(200);
+        await card(page, `${folder} 3`).getByRole("link").click();
+        // Opens during the save, not once it is back, and its own buttons can be pressed.
+        await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 800 });
+        await expect(button(page)).toBeEnabled({ timeout: 300 });
+        await answered;
+
+        await expect(card(page, `${folder} 1`)).toHaveCount(0);
+        await expect(toast(page).getByText(message)).toBeVisible();
+        // Long enough for a late push to the next article to have landed.
+        await page.waitForTimeout(1000);
+        await expect(heading(page)).toHaveText(`${folder} 3`);
+        expect(page.url()).toBe(third);
+        await expect(card(page, `${folder} 3`)).toHaveAttribute("aria-current", "true");
+      });
+    }
+
+    test("PC で読了の保存中に k を押すと、前の記事が開いたままになる", async ({ page }) => {
+      const folder = "E2E 読了の保存中に k";
+      const { answered } = await openSecondSlowly(page, folder);
+      await expect(page).toHaveURL(await urlOf(page, `${folder} 2`));
+      const first = await urlOf(page, `${folder} 1`);
+
+      await readButton(page).click();
+      await page.waitForTimeout(200);
+      await page.keyboard.press("k");
+      await expect(heading(page)).toHaveText(`${folder} 1`, { timeout: 800 });
+      await answered;
+
+      await expect(card(page, `${folder} 2`)).toHaveCount(0);
+      await expect(toast(page).getByText("読了にしました")).toBeVisible();
+      await page.waitForTimeout(1000);
+      await expect(heading(page)).toHaveText(`${folder} 1`);
+      expect(page.url()).toBe(first);
+    });
+
+    test("PC で読了の保存が返るまで押したカードの記事が届かなくても、届いたその記事が開く", async ({ page }) => {
+      const folder = "E2E 押したカードが遅れて届く";
+      // Articles are not prefetched, so the card pressed below shows (and changes the URL) only
+      // once its page arrives; that is held until well after the save is back.
+      let holdPath: string | null = null;
+      let held = 0;
+      let release = () => {};
+      const released = new Promise<void>((r) => (release = r));
+      await page.route("**/*", async (route) => {
+        const headers = route.request().headers();
+        const path = new URL(route.request().url()).pathname;
+        if (!("rsc" in headers) || !/^\/articles\/\d+$/.test(path)) return route.fallback();
+        if ("next-router-prefetch" in headers) return route.abort();
+        if (path !== holdPath) return route.fallback();
+        held++;
+        await released;
+        await route.fallback().catch(() => {});
+      });
+      const { answered } = await openFirstSlowly(page, folder);
+      const third = await urlOf(page, `${folder} 3`);
+      holdPath = new URL(third).pathname;
+
+      await readButton(page).click();
+      await page.waitForTimeout(200);
+      await card(page, `${folder} 3`).getByRole("link").click();
+      await answered;
+      // Past the save's push, had there been one: the third article has not arrived yet.
+      await page.waitForTimeout(500);
+      expect(held).toBe(1);
+      await expect(heading(page)).toHaveText(`${folder} 1`);
+
+      release();
+      await expect(heading(page)).toHaveText(`${folder} 3`);
+      await page.waitForTimeout(1000);
+      await expect(heading(page)).toHaveText(`${folder} 3`);
+      expect(page.url()).toBe(third);
+      await expect(card(page, `${folder} 1`)).toHaveCount(0);
+    });
+
+    test("PC で読了の保存に失敗する前に別のカードを押すと、その記事が開いたままでメッセージは出ない", async ({
+      page,
+    }) => {
+      const folder = "E2E 読了に失敗してカードを押す";
+      const { answered } = await openFirstSlowly(page, folder, true);
+      const third = await urlOf(page, `${folder} 3`);
+
+      await readButton(page).click();
+      await page.waitForTimeout(200);
+      await card(page, `${folder} 3`).getByRole("link").click();
+      await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 800 });
+      await answered;
+
+      await page.waitForTimeout(1000);
+      await expect(heading(page)).toHaveText(`${folder} 3`);
+      expect(page.url()).toBe(third);
+      await expect(card(page, `${folder} 1`)).toBeVisible();
+      // The article it was saved from has closed (as after browser back), so nothing says so.
+      await expect(page.getByRole("alert").filter({ hasText: "保存できませんでした" })).toHaveCount(0);
+      await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+      // The third article's own buttons work.
+      await expect(readButton(page)).toBeEnabled();
+    });
+
+    test("PC で開いている記事のカードの「未読に戻す」の保存中に別のカードを押すと、その記事が開いたままになる", async ({
+      page,
+    }) => {
+      const folder = "E2E 未読に戻すの保存中にカードを押す";
+      const { answered } = await openSecondSlowly(page, folder);
+      const third = await urlOf(page, `${folder} 3`);
+
+      await unsee(page, `${folder} 2`).click();
+      await page.waitForTimeout(200);
+      await card(page, `${folder} 3`).getByRole("link").click();
+      await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 800 });
+      await answered;
+
+      // Long enough for a late push to the list to have landed.
+      await page.waitForTimeout(1000);
+      await expect(heading(page)).toHaveText(`${folder} 3`);
+      expect(page.url()).toBe(third);
+      // Unread again: it offers スキップ, not 「未読に戻す」.
+      await expect(unsee(page, `${folder} 2`)).toHaveCount(0);
+      await expect(card(page, `${folder} 2`).getByRole("button", { name: "スキップ" })).toBeVisible();
+    });
+
+    test("PC で開いている記事のカードの「未読に戻す」に失敗する前に別のカードを押すと、その記事が開いたままでメッセージが出る", async ({
+      page,
+    }) => {
+      const folder = "E2E 未読に戻すに失敗してカードを押す";
+      const { answered } = await openSecondSlowly(page, folder, true);
+      const third = await urlOf(page, `${folder} 3`);
+
+      await unsee(page, `${folder} 2`).click();
+      await page.waitForTimeout(200);
+      await card(page, `${folder} 3`).getByRole("link").click();
+      await expect(heading(page)).toHaveText(`${folder} 3`, { timeout: 800 });
+      await answered;
+
+      await expect(toast(page).getByText("保存できませんでした。もう一度押してください")).toBeVisible();
+      await page.waitForTimeout(1000);
+      await expect(heading(page)).toHaveText(`${folder} 3`);
+      expect(page.url()).toBe(third);
+      await expect(unsee(page, `${folder} 2`)).toBeVisible();
+      await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+
+      // Pressed again once the server answers: unread, and the third article stays open.
+      await page.unrouteAll();
+      await unsee(page, `${folder} 2`).click();
+      await expect(card(page, `${folder} 2`).getByRole("button", { name: "スキップ" })).toBeVisible();
+      await expect(heading(page)).toHaveText(`${folder} 3`);
+    });
   });
 });
 

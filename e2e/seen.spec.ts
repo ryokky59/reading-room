@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test, type Locator, type Page } from "./test";
+import { expect, test, type BrowserContext, type Locator, type Page } from "./test";
 
 // 既読 (seen) apart from 読了 (read). Each test uses its own folder from the end of e2e/seed.mts:
 // sites A (2 unread) and B (1 unread, 1 seen, 1 skipped, 1 read).
@@ -528,7 +528,7 @@ test("PC で記事を開いたあとのフルロードでは、最初の HTML �
   await expect(unread(page)).toHaveText(/^2 本/);
 });
 
-test("PC で記事を開いたままリロードすると、前に開いた記事は一覧に薄く残る", async ({ page }) => {
+test("PC で記事を開いたままリロードすると、開いている記事だけが一覧に残り、その前に開いた記事は消える", async ({ page }) => {
   const name = "E2E 開いたままリロード";
   await openFolder(page, name);
   await openColumn(page, `${name} A`);
@@ -538,12 +538,248 @@ test("PC で記事を開いたままリロードすると、前に開いた記�
   await expect(heading(page)).toHaveText(`${name} A2`);
   await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
 
-  // The document is the article's; the list beside it comes by the router, with the cookie.
+  // A full load starts again, as one of the list does; the open article stays by `open`.
   await page.reload();
   await expect(heading(page)).toHaveText(`${name} A2`);
   await expect(card(page, `${name} A2`)).toHaveAttribute("aria-current", "true");
+  await expect(list(page).getByRole("listitem")).toHaveCount(1);
+  await expect(card(page, `${name} A1`)).toHaveCount(0);
+});
+
+// A bookmark or a link from elsewhere (#112): the faded rows start from this load, as on a full
+// load of the list, though the session cookie may be days old.
+// The ← of the article beside the list (BESIDE): the ✕ is the sheet's, from `lg` up.
+const closeBeside = (page: Page) => page.getByRole("link", { name: "戻る", exact: true }).click();
+const listedSince = async (context: BrowserContext) =>
+  Number((await context.cookies()).find((c) => c.name === "listed")?.value.split("~")[0] || NaN);
+
+test("PC で記事 URL を直接開くと、前に開いた記事は横の一覧に無い", async ({ page }) => {
+  const name = "E2E 記事を直接開く";
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name, 2);
+  await openColumn(page, `${name} A`);
+  await card(page, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await closeBeside(page);
+  await expect(heading(page)).toHaveCount(0);
   await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
-  await expect(list(page).getByRole("listitem")).toHaveCount(2);
+  const a2 = await card(page, `${name} A2`).getByRole("link").getAttribute("href");
+
+  await page.goto(a2!);
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await expect(card(page, `${name} A2`)).toHaveAttribute("aria-current", "true");
+  await expect(list(page).getByRole("listitem")).toHaveCount(1);
+  await expect(card(page, `${name} A1`)).toHaveCount(0);
+
+  // 読了 and its 「元に戻す」: A2 was seen before this list's `since`, and comes back all the same.
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(toast(page).getByText("読了にしました")).toBeVisible();
+  // The site has nothing unread left, so the Board is shown.
+  await expect(page.getByText(`${name} A2`, { exact: true })).toHaveCount(0);
+  await undo(page).click();
+  await expect(columnRow(page, `${name} A`, `${name} A2`)).toHaveAttribute("data-seen", "");
+  await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
+});
+
+// 「元に戻す」 keeps the article it put back by its id (`kept`), whenever it was seen: moving
+// `since` back to it would bring back every row seen after it, the faded rows #112 removes.
+test("PC で前に開いた記事を URL から開いて読了し「元に戻す」と、その記事だけが一覧に戻り、あとの既読は戻らない", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const name = "E2E 直接開いて戻す";
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name);
+  await openColumn(page, `${name} A`);
+  for (const title of [`${name} A1`, `${name} A2`]) {
+    await card(page, title).getByRole("link").click();
+    await expect(heading(page)).toHaveText(title);
+    await closeBeside(page);
+    await expect(heading(page)).toHaveCount(0);
+    await expect(card(page, title)).toHaveAttribute("data-seen", "");
+  }
+  const a1 = await card(page, `${name} A1`).getByRole("link").getAttribute("href");
+
+  await page.goto(a1!);
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("aria-current", "true");
+  await expect(card(page, `${name} A3`)).toBeVisible();
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+  // Another window's 「すべて既読」 of the articles without a site, which the undo must keep.
+  const value = (await context.cookies()).find((c) => c.name === "listed")?.value ?? "";
+  expect(value).toMatch(/^\d+~\d+~$/);
+  const cut = `none-${Number(value.split("~")[0]) + 1}`;
+  await context.addCookies([{ name: "listed", value: `${value}${cut}`, url: baseURL! }]);
+
+  // 読了 opens A3 beside the list, and the undo puts A1 back with A3 still open.
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(heading(page)).toHaveText(`${name} A3`);
+  await expect(card(page, `${name} A1`)).toHaveCount(0);
+  await undo(page).click();
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} A3`)).toHaveAttribute("aria-current", "true");
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+
+  // The next requests of the list agree, and the other window's cut is still there.
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/&a=1$/);
+  await includeSeen(page).click();
+  await expect(page).not.toHaveURL(/&a=1$/);
+  await expect(heading(page)).toHaveText(`${name} A3`);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+  expect((await context.cookies()).find((c) => c.name === "listed")?.value).toContain(cut);
+});
+
+test("PC で「既読を含む」から前の既読を開いて読了し「元に戻す」と、その記事だけがボードに戻り、あとの既読は戻らない", async ({
+  page,
+}) => {
+  const name = "E2E 既読を含むで戻す";
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name, 2);
+  await openColumn(page, `${name} A`);
+  // A2 first: it is the one put back, and A1 is seen after it.
+  for (const title of [`${name} A2`, `${name} A1`]) {
+    await card(page, title).getByRole("link").click();
+    await expect(heading(page)).toHaveText(title);
+    await closeBeside(page);
+    await expect(heading(page)).toHaveCount(0);
+    await expect(card(page, title)).toHaveAttribute("data-seen", "");
+  }
+
+  // A full load starts again: the site has nothing left, so the folder's Board shows.
+  await page.reload();
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/\/\?f=\d+&a=1$/);
+  await card(page, `${name} A2`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await page.getByRole("button", { name: "読了にする" }).click();
+  await expect(heading(page)).toHaveCount(0);
+  await expect(card(page, `${name} A2`)).toHaveCount(0);
+  await undo(page).click();
+  await expect(card(page, `${name} A2`)).toHaveAttribute("data-seen", "");
+
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(columnRow(page, `${name} A`, `${name} A2`)).toHaveAttribute("data-seen", "");
+  await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
+});
+
+test("PC で何日も前の since が Cookie にあっても、記事 URL を直接開くと前の既読は一覧に無く、since が新しくなる", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const name = "E2E 古い since で直接開く";
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name, 2);
+  await openColumn(page, `${name} A`);
+  await card(page, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await closeBeside(page);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  const a2 = await card(page, `${name} A2`).getByRole("link").getAttribute("href");
+
+  const stale = Date.now() - 3 * 86_400_000;
+  await context.addCookies([{ name: "listed", value: `${stale}~~`, url: baseURL! }]);
+  await page.goto(a2!);
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await expect(card(page, `${name} A2`)).toHaveAttribute("aria-current", "true");
+  await expect(card(page, `${name} A1`)).toHaveCount(0);
+
+  await closeBeside(page);
+  await expect(heading(page)).toHaveCount(0);
+  await expect(card(page, `${name} A1`)).toHaveCount(0);
+  expect(await listedSince(context)).toBeGreaterThan(stale);
+});
+
+test("PC で記事 URL を直接開いたあとに一覧から開いた記事は、一覧が更新されても薄く残る", async ({ page }) => {
+  const name = "E2E 直接開いてから開く";
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name, 2);
+  await openColumn(page, `${name} A`);
+  const a1 = await card(page, `${name} A1`).getByRole("link").getAttribute("href");
+
+  await page.goto(a1!);
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await card(page, `${name} A2`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await closeBeside(page);
+  await expect(heading(page)).toHaveCount(0);
+  await expect(card(page, `${name} A2`)).toHaveAttribute("data-seen", "");
+
+  // The switch asks the server for the list twice, with the `since` of the direct load.
+  await includeSeen(page).click();
+  await expect(page).toHaveURL(/&a=1$/);
+  await includeSeen(page).click();
+  await expect(page).not.toHaveURL(/&a=1$/);
+  await expect(list(page)).toBeVisible();
+  await expect(card(page, `${name} A2`)).toHaveAttribute("data-seen", "");
+});
+
+test("スマホで記事 URL を直接開いて戻ると、前に開いた記事は一覧に無い @mobile", async ({ page }) => {
+  const name = "E2E スマホで直接開く";
+  await openFolder(page, name, 2);
+  await columnRow(page, `${name} A`, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(columnRow(page, `${name} A`, `${name} A1`)).toHaveAttribute("data-seen", "");
+  const a2 = await columnRow(page, `${name} A`, `${name} A2`).getByRole("link").getAttribute("href");
+
+  await page.goto(a2!);
+  await expect(heading(page)).toHaveText(`${name} A2`);
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(heading(page)).toHaveCount(0);
+  await expect(chip(folderNav(page), name, 0)).toBeVisible();
+  await expect(page.getByText(`${name} A1`, { exact: true })).toHaveCount(0);
+});
+
+test("PC で /feeds や /read を開いてから受信箱へ戻ると、その前に開いた記事はボードに無い", async ({ page }) => {
+  const name = "E2E フィードを挟む";
+  await openFolder(page, name, 2);
+  for (const [title, path, left] of [
+    [`${name} A1`, "/feeds", 1],
+    [`${name} A2`, "/read", 0],
+  ] as const) {
+    await columnRow(page, `${name} A`, title).getByRole("link").click();
+    await expect(heading(page)).toHaveText(title);
+    await page.getByRole("button", { name: "記事を閉じる" }).click();
+    await expect(heading(page)).toHaveCount(0);
+    await expect(columnRow(page, `${name} A`, title)).toHaveAttribute("data-seen", "");
+
+    await page.goto(path);
+    await page.getByRole("link", { name: "Reading Room", exact: true }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await chip(folderNav(page), name, left).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+  }
+});
+
+test("PC で /articles/<id>/list を直接開くと(ルーターの代わりの読み込み)、Cookie の since は変わらず、前に開いた記事は薄く残る", async ({
+  page,
+  context,
+}) => {
+  const name = "E2E 一覧の URL を開く";
+  await page.setViewportSize(BESIDE);
+  await openFolder(page, name, 2);
+  await openColumn(page, `${name} A`);
+  await card(page, `${name} A1`).getByRole("link").click();
+  await expect(heading(page)).toHaveText(`${name} A1`);
+  await closeBeside(page);
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  const since = await listedSince(context);
+  expect(since).toBeGreaterThan(0);
+  const a2 = await card(page, `${name} A2`).getByRole("link").getAttribute("href");
+
+  // The URL Next loads as a document when the router cannot fetch the list beside an article.
+  await page.goto(a2!.replace(/^(\/articles\/\d+)/, "$1/list"));
+  await expect(card(page, `${name} A1`)).toHaveAttribute("data-seen", "");
+  await expect(card(page, `${name} A2`)).toBeVisible();
+  expect(await listedSince(context)).toBe(since);
 });
 
 for (const [name, tag] of [

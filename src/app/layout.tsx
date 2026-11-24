@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { ActivityLog } from "@/components/ActivityLog";
+import { ListedOnFullLoad } from "@/components/InboxShell";
 import { NavPendingProvider, NavProgress } from "@/components/NavPending";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import "./globals.css";
@@ -29,6 +30,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials" />
       </head>
       <body className="min-h-full">
+        {/* First, so its layout effect runs before the pages' own read the cookie. */}
+        <ListedOnFullLoad />
         {/* Here rather than in the inbox, so the header tabs to 読了 / フィード show the bar too. */}
         <NavPendingProvider>
           {children}
