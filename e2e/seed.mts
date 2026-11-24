@@ -468,6 +468,30 @@ const undoSeenArticles = undoSeenFeeds.flatMap((f, i) =>
 );
 await db.insert(schema.articles).values(undoSeenArticles);
 
+// A full load of a page other than the list starts the faded rows again (e2e/seen.spec.ts, #112):
+// one folder per test with site A of two unread articles; 直接開いて戻す has a third, opened
+// next after 読了.
+const freshFolders = await db
+  .insert(schema.folders)
+  .values(
+    ["E2E 記事を直接開く", "E2E 古い since で直接開く", "E2E 直接開いてから開く", "E2E スマホで直接開く", "E2E フィードを挟む", "E2E 一覧の URL を開く", "E2E 直接開いて戻す", "E2E 既読を含むで戻す"].map(
+      (name, i) => ({ name, position: 162 + i }),
+    ),
+  )
+  .returning();
+const freshFeeds = await db
+  .insert(schema.feeds)
+  .values(freshFolders.map((f, i) => feed(`fresh-${i}-a`, `${f.name} A`, f.id)))
+  .returning();
+const freshArticles = freshFeeds.flatMap((f, i) =>
+  (freshFolders[i].name === "E2E 直接開いて戻す" ? ["A1", "A2", "A3"] : ["A1", "A2"]).map((t, j) => {
+    const n = 2800 + i * 10 + j;
+    const title = `${freshFolders[i].name} ${t}`;
+    return article(n, { title, titleJa: title, source: f.name, feedId: f.id, fetchedAt: old(n) });
+  }),
+);
+await db.insert(schema.articles).values(freshArticles);
+
 // The Board (e2e/board.spec.ts): one folder per test that changes state.
 const boardFolders = await db
   .insert(schema.folders)
@@ -782,5 +806,5 @@ const unlistedArticles = [
 await db.insert(schema.articles).values(unlistedArticles);
 
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + freshArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length} articles into ${dir}`,
 );

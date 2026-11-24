@@ -22,15 +22,17 @@ export async function dbNow() {
  * for a document that the service worker (public/sw.js) fetches.
  *
  * The list beside an article (`besideArticle`) always keeps the cookie: when the router cannot
- * fetch `/articles/<id>/list` it loads that URL as a document, and the open article must still be
- * listed.
+ * fetch `/articles/<id>/list` it loads that URL as a document, and what was listed must stay.
+ * A full load of the article's own URL starts again in the browser instead: ListedOnFullLoad
+ * (InboxShell) drops `since` from the cookie, so this renders from now.
  */
 export async function requestListed({ besideArticle = false } = {}): Promise<ListedRows> {
   const fullLoad = !besideArticle && ((await headers()).get("accept") ?? "").includes("text/html");
-  const { since, open, cut } = parseListed(fullLoad ? undefined : (await cookies()).get(LISTED_COOKIE)?.value);
+  const { since, open, cut, kept } = parseListed(fullLoad ? undefined : (await cookies()).get(LISTED_COOKIE)?.value);
   return {
     since: new Date(since ?? (await dbNow())),
     open,
     cut: Object.entries(cut).map(([feed, at]) => ({ feedId: feed === "none" ? null : Number(feed), at: new Date(at) })),
+    kept: [...kept],
   };
 }

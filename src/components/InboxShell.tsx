@@ -142,8 +142,30 @@ export function ListedSince({ since }: { since: number }) {
   });
   useLayoutEffect(() => {
     const listed = readListed();
-    if (listed.since === null || listed.since < since) writeListed({ since, open: openIdRef.current, cut: listed.cut });
+    if (listed.since === null || listed.since < since) {
+      // A newer `since` is a full load, which drops `kept`; none yet, a direct load, which did so.
+      writeListed({ since, open: openIdRef.current, cut: listed.cut, kept: listed.since === null ? listed.kept : [] });
+    }
   }, [since]);
+  return null;
+}
+
+/**
+ * A full load of any other page (an article's URL, /feeds, /read) starts again too, as a full
+ * load of the list does (lib/opened.ts): the cookie keeps only `open`, so the list's next request
+ * is rendered from the server's now, and ListedSince writes that down. Left alone are the list
+ * itself, which the server has rendered from a new `since` already, and the list beside an
+ * article, which the router loads as a document when it cannot fetch it. Mounted once per
+ * document, in the root layout; a layout effect, so the cookie is cleared before
+ * ListAfterFullLoad's effect asks for the list.
+ */
+export function ListedOnFullLoad() {
+  useLayoutEffect(() => {
+    const path = window.location.pathname;
+    if (path === "/" || /^\/articles\/[^/]+\/list$/.test(path)) return;
+    const { since, open, cut, kept } = readListed();
+    if (since !== null || Object.keys(cut).length > 0 || kept.length > 0) writeListed({ since: null, open, cut: {}, kept: [] });
+  }, []);
   return null;
 }
 
@@ -208,7 +230,8 @@ export function useScrolledSeen() {
  * Keeps what the list needs to hold seen rows in place (see lib/opened.ts): the open article goes
  * in the cookie, on phones too, and 「すべて既読」 moves `cut` or `since`. A full load of the list
  * starts again: the server ignores the cookie for it (lib/opened-request.ts) and ListedSince
- * writes the new one. Beside an article, a reload keeps the cookie.
+ * writes the new one. So does a full load of an article's URL (ListedOnFullLoad), where only the
+ * open article stays.
  */
 function useOpened(openId: number | null): Opened {
   const [opened, setOpened] = useState<ReadonlySet<number>>(() => new Set(openId === null ? [] : [openId]));
@@ -288,8 +311,8 @@ function useOpened(openId: number | null): Opened {
         };
       }
       const unlined = lined(() => true);
-      // One past it: `since` keeps what was seen at it or later.
-      writeListed({ ...before, since: seenAt + 1 });
+      // One past it: `since` keeps what was seen at it or later. What 「元に戻す」 kept goes too.
+      writeListed({ ...before, since: seenAt + 1, kept: [] });
       setOpened((s) => new Set([...s].filter((id) => id === openIdRef.current)));
       setSaved(false, () => true);
       return () => {
@@ -297,7 +320,12 @@ function useOpened(openId: number | null): Opened {
         // The cuts that `since` made redundant were dropped from the cookie (serializeListed):
         // they come back too, and a cut written since the press wins over the one before it.
         if (listed.since === seenAt + 1) {
-          writeListed({ ...listed, since: before.since, cut: { ...before.cut, ...listed.cut } });
+          writeListed({
+            ...listed,
+            since: before.since,
+            cut: { ...before.cut, ...listed.cut },
+            kept: [...before.kept, ...listed.kept],
+          });
         }
         setSaved(true, (id) => unlined.has(id));
       };
@@ -434,8 +462,13 @@ export function useLeftInbox() {
         }
         // The screen it was pressed on; not a step of the view the article may have open.
         track("undo", { articleId: id, viewId: null, props: { of: kind } });
-        if (seen) keep(id);
-        else forget(id);
+        if (seen) {
+          // It may have been seen before `since` (opened from its URL, or under 既読を含む): the
+          // cookie keeps it listed by its id, and no other row comes back (lib/opened.ts).
+          const listed = readListed();
+          if (!listed.kept.includes(id)) writeListed({ ...listed, kept: [...listed.kept, id] });
+          keep(id);
+        } else forget(id);
         router.refresh();
       };
       toast.show(kind === "read" ? "読了にしました" : "スキップしました", { owner: id, undo });
