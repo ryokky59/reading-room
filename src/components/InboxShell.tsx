@@ -580,39 +580,47 @@ export function BoardPane({
   );
 }
 
-function readLayout() {
-  return new RegExp(`(?:^|; )${LAYOUT_COOKIE}=([^;]*)`).exec(document.cookie)?.[1];
-}
-
 /**
- * Keeps the layout cookie (lib/board-layout.ts) to the screen: written when the Board mounts, and
- * again when the screen turns or is resized across BOARD. Columns sent PHONE_ROWS rows are filled
- * at once. After a change the Board is fetched again for its new layout, so a phone stops holding
- * 50 rows per section too. An open article over the Board leaves that to its closing, which
- * refreshes anyway (useRefreshOnLeavingArticle). A Board that came with every row on a phone (the
- * first visit, or a broken cookie) keeps them: they are hidden.
+ * Keeps the layout cookie (lib/board-layout.ts) to the screen, and the Board to the cookie. The
+ * cookie is written each time the Board mounts, comes back from the server or the screen turns
+ * across BOARD: rewriting an unchanged value renews it, which Safari otherwise drops after 7 days.
+ * Then the Board is fetched again when what came is not the screen's layout:
+ *
+ * - Columns sent PHONE_ROWS rows, at once: whatever sent them (a router cache entry from before a
+ *   turn, another window of the browser that wrote `stack` before this one's refresh).
+ * - A phone sent every row, only once the screen turned or another refresh brought them (another
+ *   window wrote `cols`). On mount they are a phone's first visit or a broken cookie: hidden,
+ *   so kept rather than fetched twice.
+ *
+ * Not while an article is open: closing it refreshes anyway (useRefreshOnLeavingArticle), and a
+ * refresh now would race ListAfterFullLoad's navigation; nor on the closing, for the same reason.
+ * A refresh that brings back the same layout again (another window rewrote the cookie meanwhile)
+ * is not asked for again until something else changes, so two windows cannot keep refreshing.
  */
 function useBoardLayout(rendered: BoardLayout, open: boolean) {
   const router = useRouter();
-  const now = useRef({ rendered, open });
-  useLayoutEffect(() => {
-    now.current = { rendered, open };
-  });
+  // Counts the turns across BOARD, so that one runs the effect below.
+  const [turns, setTurns] = useState(0);
   useEffect(() => {
     const media = window.matchMedia(BOARD);
-    const sync = (changed: boolean) => {
-      const want: BoardLayout = media.matches ? "cols" : "stack";
-      // A malformed one is written over, too.
-      if (readLayout() !== want) document.cookie = `${LAYOUT_COOKIE}=${want}; path=/; max-age=31536000; samesite=lax`;
-      const { rendered, open } = now.current;
-      const short = rendered === "stack" && want === "cols";
-      if (!open && rendered !== want && (short || changed)) router.refresh();
-    };
-    sync(false);
-    const onChange = () => sync(true);
+    const onChange = () => setTurns((n) => n + 1);
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
-  }, [router]);
+  }, []);
+  const last = useRef<{ rendered: BoardLayout; open: boolean; turns: number; asked: boolean } | null>(null);
+  useEffect(() => {
+    const want: BoardLayout = isBoard() ? "cols" : "stack";
+    document.cookie = `${LAYOUT_COOKIE}=${want}; path=/; max-age=31536000; samesite=lax`;
+    const before = last.current;
+    const changed = before !== null && (before.rendered !== rendered || before.turns !== turns);
+    // A refresh for this same mismatch is already on its way, or came back with it.
+    const asked = before !== null && before.asked && before.turns === turns && rendered !== want;
+    const closing = before !== null && before.open && !open;
+    const refresh =
+      !open && !closing && !asked && rendered !== want && (rendered === "stack" || changed);
+    if (refresh) router.refresh();
+    last.current = { rendered, open, turns, asked: asked || refresh };
+  }, [rendered, open, turns, router]);
 }
 
 /** A row of a Board column, faded once it is seen, like a list card (see useFaded). */

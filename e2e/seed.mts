@@ -442,12 +442,12 @@ await db.insert(schema.articles).values(undoSeenArticles);
 const boardFolders = await db
   .insert(schema.folders)
   .values(
-    ["E2E ボード", "E2E ボードで開く", "E2E ボードで既読", "E2E ボードで失敗", "E2E ボードのスマホ", "E2E ボードから読了", "E2E ボードから戻す", "E2E 遅い一覧", "E2E 最後の未読", "E2E ファビコン", "E2E 五十本を越える", "E2E 止まりだけ", "E2E 横向きで戻る", "E2E 三本だけ", "E2E 横向きで四本目", "E2E 列の先読み"].map(
+    ["E2E ボード", "E2E ボードで開く", "E2E ボードで既読", "E2E ボードで失敗", "E2E ボードのスマホ", "E2E ボードから読了", "E2E ボードから戻す", "E2E 遅い一覧", "E2E 最後の未読", "E2E ファビコン", "E2E 五十本を越える", "E2E 止まりだけ", "E2E 横向きで戻る", "E2E 三本だけ", "E2E 横向きで四本目", "E2E 列の先読み", "E2E 別の窓"].map(
       (name, i) => ({ name, position: 110 + i }),
     ),
   )
   .returning();
-const [boardShow, boardOpen, boardSeen, boardFail, boardPhone, boardRead, boardBack, boardSlow, boardLast, boardIcons, boardOver, boardStopped, boardSide, boardThree, boardFourth, boardPrefetch] = boardFolders;
+const [boardShow, boardOpen, boardSeen, boardFail, boardPhone, boardRead, boardBack, boardSlow, boardLast, boardIcons, boardOver, boardStopped, boardSide, boardThree, boardFourth, boardPrefetch, boardOtherWindow] = boardFolders;
 const boardFeeds = await db
   .insert(schema.feeds)
   .values([
@@ -481,6 +481,7 @@ const boardFeeds = await db
     feed("board-three", "E2E 三本の列", boardThree.id),
     feed("board-fourth", "E2E 四本目の列", boardFourth.id),
     feed("board-prefetch", "E2E 先読みの列", boardPrefetch.id),
+    feed("board-other-window", "E2E 別の窓の列", boardOtherWindow.id),
     // Beside 「URL から追加」 in 未分類: its 「すべて既読」 must leave this feed alone.
     { ...feed("board-unfiled", "E2E 未分類の列", boardShow.id), folderId: null },
   ])
@@ -536,6 +537,7 @@ const boardArticles = [
   ...boardRows("E2E 四本目の列", 5),
   // Enough to scroll the column by a screen at 1440×900, which marks the rows passed as seen.
   ...boardRows("E2E 先読みの列", 20),
+  ...boardRows("E2E 別の窓の列", 6),
 ];
 const boardInserted = await db.insert(schema.articles).values(boardArticles).returning();
 const boardTalked = boardInserted.find((a) => a.titleJa === "E2E 列 少ない 2")!;

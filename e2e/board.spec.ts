@@ -516,6 +516,71 @@ test("スマホの幅で開いてから広げると、リロードなしで列�
   expect(await mostSentRows(page)).toBeLessThanOrEqual(3);
 });
 
+// Another window of the same browser (a small PWA window, a phone-width one) rewrites the cookie
+// between this window's requests; the test writes it as that window would.
+test("別の窓が「縦積み」を書いても、PC の幅で記事を閉じたあとの列は 3 本にならない", async ({ page, baseURL }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect.poll(() => layoutCookie(page)).toBe("cols");
+  await openTab(page, "E2E 別の窓");
+  await expect(sentRows(page, "E2E 別の窓の列")).toHaveCount(6);
+
+  await page.context().addCookies([{ name: "layout", value: "stack", url: baseURL! }]);
+  await row(page, "E2E 別の窓の列", "E2E 別の窓の列 1").getByRole("link").click();
+  await expect(heading(page)).toHaveText("E2E 別の窓の列 1");
+  await closeSheet(page).click();
+  await expect(heading(page)).toHaveCount(0);
+  await expect(row(page, "E2E 別の窓の列", "E2E 別の窓の列 1")).toHaveAttribute("data-seen", "");
+  await expect(sentRows(page, "E2E 別の窓の列")).toHaveCount(6);
+  await page.waitForTimeout(1500);
+  await expect(sentRows(page, "E2E 別の窓の列")).toHaveCount(6);
+  await expect.poll(() => layoutCookie(page)).toBe("cols");
+
+  // The other window writes `stack` after this one wrote `cols` but before the refresh on closing
+  // reaches the server: the columns come back with 3 rows, and are fetched again, once.
+  await row(page, "E2E 別の窓の列", "E2E 別の窓の列 2").getByRole("link").click();
+  await expect(heading(page)).toHaveText("E2E 別の窓の列 2");
+  const refreshes: string[] = [];
+  let rewrite = true;
+  await page.route("**/*", (route) => {
+    const headers = route.request().headers();
+    if (!("rsc" in headers) || "next-router-prefetch" in headers || "next-action" in headers) return route.fallback();
+    refreshes.push(route.request().url());
+    if (!rewrite) return route.fallback();
+    rewrite = false;
+    return route.fallback({ headers: { ...headers, cookie: (headers.cookie ?? "").replace("layout=cols", "layout=stack") } });
+  });
+  await closeSheet(page).click();
+  await expect(heading(page)).toHaveCount(0);
+  await expect.poll(() => refreshes.length).toBeGreaterThanOrEqual(2);
+  await expect(sentRows(page, "E2E 別の窓の列")).toHaveCount(6);
+  await page.waitForTimeout(1500);
+  await expect(sentRows(page, "E2E 別の窓の列")).toHaveCount(6);
+  // The refresh on closing and the one that fills the columns: nothing keeps refreshing.
+  expect(refreshes).toHaveLength(2);
+});
+
+test("別の窓が「列」を書いても、スマホの幅で ← で戻ったあとの列は 3 本に戻る", async ({ page, baseURL }) => {
+  await page.setViewportSize(PHONE);
+  await page.goto("/");
+  await expect.poll(() => layoutCookie(page)).toBe("stack");
+  await openTab(page, "E2E 別の窓");
+  await expect(sentRows(page, "E2E 別の窓の列")).toHaveCount(3);
+
+  await page.context().addCookies([{ name: "layout", value: "cols", url: baseURL! }]);
+  // The first row left: the test on PCs above reads two of this feed.
+  const title = (await rows(page, "E2E 別の窓の列").first().getByText(/^E2E 別の窓の列 \d+$/).textContent())!;
+  await row(page, "E2E 別の窓の列", title).getByRole("link").click();
+  await expect(heading(page)).toHaveText(title);
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  await expect(row(page, "E2E 別の窓の列", title)).toHaveAttribute("data-seen", "");
+  await expect(sentRows(page, "E2E 別の窓の列")).toHaveCount(3);
+  await page.waitForTimeout(1500);
+  await expect(sentRows(page, "E2E 別の窓の列")).toHaveCount(3);
+  await expect.poll(() => layoutCookie(page)).toBe("stack");
+});
+
 test.describe("横向きのスマホ 844×390", () => {
   test.use({ viewport: { width: 844, height: 390 } });
 
