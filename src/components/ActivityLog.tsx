@@ -2,6 +2,7 @@
 
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
+import { listScreenOf } from "@/components/InboxShell";
 import { articleIdOf, noteScreen, screenOf } from "@/lib/track";
 
 /**
@@ -12,8 +13,10 @@ import { articleIdOf, noteScreen, screenOf } from "@/lib/track";
  */
 export function ActivityLog() {
   const pathname = usePathname();
-  const screen = screenOf(pathname, useSearchParams());
+  const params = useSearchParams();
+  const screen = screenOf(pathname, params);
+  const list = listScreenOf(params);
   const articleId = articleIdOf(pathname);
-  useEffect(() => noteScreen(screen, articleId), [screen, articleId]);
+  useEffect(() => noteScreen(screen, articleId, list), [screen, articleId, list]);
   return null;
 }

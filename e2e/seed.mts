@@ -835,6 +835,74 @@ const unlistedArticles = [
 ];
 await db.insert(schema.articles).values(unlistedArticles);
 
+// The timeline (e2e/timeline.spec.ts): one folder per test that changes state, each with sites A
+// and B. A feed's articles were fetched in one go, A after B, but came out in turns: "<folder> 1"
+// is the newest published (A), "<folder> 2" the next (B), and so on. In `E2E 時系列`, a B article
+// dated a day ahead was fetched between 6 and 7, and a paused feed has the newest unread of all.
+const timelineFolders = await db
+  .insert(schema.folders)
+  .values(
+    [
+      "E2E 時系列",
+      "E2E 時系列の続き",
+      "E2E 時系列で開く",
+      "E2E 時系列から閉じる",
+      "E2E 時系列のスマホ",
+      "E2E 時系列と別のタブ",
+      "E2E 時系列でスキップ失敗",
+      "E2E 時系列の記録",
+    ].map((name, i) => ({ name, position: 210 + i })),
+  )
+  .returning();
+// More than a page of the list (30) in the first two; the phone's scrolls.
+const timelineCounts = [34, 32, 4, 4, 16, 4, 4, 4];
+const timelineFeeds = await db
+  .insert(schema.feeds)
+  .values(timelineFolders.flatMap((f, i) => ["A", "B"].map((s) => feed(`timeline-${i}-${s}`, `${f.name} ${s}`, f.id))))
+  .returning();
+const [timelineStopped] = await db
+  .insert(schema.feeds)
+  .values({ ...feed("timeline-paused", "E2E 時系列 止めた", timelineFolders[0].id), enabled: false })
+  .returning();
+const fetchedA = old(9000);
+const fetchedB = old(9010);
+const publishedFrom = old(9100).getTime();
+let timelineN = 9000;
+const timelineArticles = timelineFolders.flatMap((f, i) => {
+  const [a, b] = timelineFeeds.filter((x) => x.folderId === f.id);
+  return Array.from({ length: timelineCounts[i] }, (_, k) =>
+    article(timelineN++, {
+      title: `${f.name} ${k + 1}`,
+      titleJa: `${f.name} ${k + 1}`,
+      source: (k % 2 === 0 ? a : b).name,
+      feedId: (k % 2 === 0 ? a : b).id,
+      ...(i === 4 ? { contentHtml: longBody } : {}),
+      fetchedAt: k % 2 === 0 ? fetchedA : fetchedB,
+      publishedAt: new Date(publishedFrom - k * 60_000),
+    }),
+  );
+});
+const timelineB = timelineFeeds[1];
+timelineArticles.push(
+  article(timelineN++, {
+    title: "E2E 時系列 未来",
+    titleJa: "E2E 時系列 未来",
+    source: timelineB.name,
+    feedId: timelineB.id,
+    fetchedAt: new Date(publishedFrom - 5.5 * 60_000),
+    publishedAt: new Date(now + 86_400_000),
+  }),
+  article(timelineN++, {
+    title: "E2E 時系列 止めた 1",
+    titleJa: "E2E 時系列 止めた 1",
+    source: timelineStopped.name,
+    feedId: timelineStopped.id,
+    fetchedAt: fetchedA,
+    publishedAt: new Date(publishedFrom + 60_000),
+  }),
+);
+await db.insert(schema.articles).values(timelineArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + freshArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length} articles into ${dir}`,
+  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + freshArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length + timelineArticles.length} articles into ${dir}`,
 );

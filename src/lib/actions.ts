@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { articles, feeds, folders, getDb } from "./db";
 import { addUrl, discoverFeed, fetchAllFeeds, fetchFeed } from "./feeds";
-import { inboxOrder, inboxWhere, parseInboxFilter, placeWhere, seenNow } from "./inbox";
+import { inboxWhere, listOrder, parseInboxFilter, placeWhere, runningWhere, seenNow } from "./inbox";
 import { dbNow } from "./opened-request";
 
 export type ActionState = { message?: string; error?: string };
@@ -24,7 +24,8 @@ export type ActionState = { message?: string; error?: string };
  * `after` is the article being left. When it is in the filter, only the articles after it in the
  * list's order count: the next one for an article past the end of the list, or opened from its
  * URL and not in the list at all. When it is not (the list was switched while it was open), the
- * filter's first unread, the top of that list, comes next.
+ * filter's first unread, the top of that list, comes next. The timeline (`v=t`) goes in its own
+ * order and leaves out stopped feeds, as its list does.
  */
 export async function nextInboxArticle(query: string, loaded: number[], after?: number): Promise<number | null> {
   const filter = parseInboxFilter(Object.fromEntries(new URLSearchParams(query)));
@@ -38,7 +39,7 @@ export async function nextInboxArticle(query: string, loaded: number[], after?: 
         .select({ id: articles.id })
         .from(articles)
         .leftJoin(feeds, eq(feeds.id, articles.feedId))
-        .where(and(eq(articles.id, from), placeWhere(filter)))
+        .where(and(eq(articles.id, from), placeWhere(filter), filter.v ? runningWhere : undefined))
     ).length > 0;
   const [row] = await db
     .select({ id: articles.id })
@@ -47,11 +48,12 @@ export async function nextInboxArticle(query: string, loaded: number[], after?: 
     .where(
       and(
         inboxWhere(filter),
+        filter.v ? runningWhere : undefined,
         inFilter && ids.length ? notInArray(articles.id, ids) : undefined,
-        inFilter && from !== null ? afterArticle(from) : undefined,
+        inFilter && from !== null ? (filter.v ? afterInTimeline(from) : afterArticle(from)) : undefined,
       ),
     )
-    .orderBy(...inboxOrder)
+    .orderBy(...listOrder(filter))
     .limit(1);
   return row?.id ?? null;
 }
@@ -71,6 +73,19 @@ function afterArticle(id: number) {
         or (x.published_at is null and articles.published_at is not null)
         or (articles.published_at is not distinct from x.published_at and articles.id < x.id)
       ))
+    )
+  )`;
+}
+
+/**
+ * Rows after article `id` in timelineOrder (least(published_at, fetched_at) desc, id desc). The
+ * time is never null: fetched_at is not. Nothing matches when `id` is gone.
+ */
+function afterInTimeline(id: number) {
+  return sql`exists (
+    select 1 from articles x where x.id = ${id} and (
+      least(articles.published_at, articles.fetched_at) < least(x.published_at, x.fetched_at)
+      or (least(articles.published_at, articles.fetched_at) = least(x.published_at, x.fetched_at) and articles.id < x.id)
     )
   )`;
 }

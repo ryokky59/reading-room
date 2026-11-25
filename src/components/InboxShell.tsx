@@ -23,7 +23,7 @@ import { BusyButton } from "./BusyButton";
 import { Header } from "./Header";
 import { InboxControls } from "./InboxControls";
 import { SeenLine } from "./SeenOnScroll";
-import { useNavPending } from "./NavPending";
+import { LinkPending, useNavPending } from "./NavPending";
 import { ToastProvider, useToast } from "./Toast";
 
 // PCs and unfolded phones (the `split` variant in globals.css, 600px and up) read with the list
@@ -500,9 +500,87 @@ type BoardOrigin = {
 
 const BoardOriginContext = createContext<BoardOrigin>({ href: null, openedFrom: false });
 
+const hasSite = (params: URLSearchParams) => /^[1-9]\d{0,9}$/.test(params.get("s") ?? "");
+
 /** Whether a URL shows the Board. Reads the params of showsBoard in lib/inbox.ts. */
 export function showsBoardUrl(pathname: string, params: URLSearchParams) {
-  return pathname === "/" && !/^[1-9]\d{0,9}$/.test(params.get("s") ?? "") && params.get("a") !== "1";
+  return pathname === "/" && !hasSite(params) && params.get("a") !== "1" && params.get("v") !== "t";
+}
+
+/**
+ * Which kind of list a URL's filter shows, for the activity log: the timeline (`v=t`, which a
+ * site's list ignores; see parseInboxFilter) or a list. An article's URL carries the filter of
+ * the list beside it.
+ */
+export function listScreenOf(params: URLSearchParams): "list" | "timeline" {
+  return params.get("v") === "t" && !hasSite(params) ? "timeline" : "list";
+}
+
+/**
+ * 「サイト別 | 時系列」 at the head of the row under the folder tabs, on the Board and the timeline.
+ * The queries keep the folder tab. サイト別 is a plain link: the Board does not fit beside an
+ * article, so beside one it closes the article. 時系列 changes the list beside one, as a chip does.
+ */
+export function ViewSwitch({ timeline, boardQuery, timelineQuery }: { timeline: boolean; boardQuery: string; timelineQuery: string }) {
+  const item = "pressable rounded-full px-2.5 py-0.5";
+  const on = "bg-accent-soft font-medium text-accent";
+  return (
+    <nav aria-label="表示" className="flex shrink-0 rounded-full border border-line p-0.5">
+      <Link href={`/${boardQuery}`} aria-current={timeline ? undefined : "page"} className={`${item} ${timeline ? "" : on}`}>
+        サイト別
+        <LinkPending />
+      </Link>
+      <ListLink query={timelineQuery} aria-current={timeline ? "page" : undefined} className={`${item} ${timeline ? on : ""}`}>
+        時系列
+        <LinkPending />
+      </ListLink>
+    </nav>
+  );
+}
+
+// The view last shown at `/` on this device, Board or timeline (useRememberedView).
+const VIEW_KEY = "inbox-view";
+
+/**
+ * Remembers which view the owner last chose, and opens `/` in it: on mount only (a load, the
+ * home-screen app starting, 「新着」 from another screen), so that neither a router.refresh() nor
+ * the 「すべて」 tab, nor the timeline chosen in another tab, changes a Board on screen. Written
+ * only by a URL that is plainly one of the two: not a site's list, nor 既読を含む.
+ */
+function useRememberedView() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const view =
+    pathname === "/" && !hasSite(params) && params.get("a") !== "1" ? (params.get("v") === "t" ? "timeline" : "board") : null;
+  const restoring = useRef(false);
+  const mounted = useRef(false);
+  // Before the effect below, which would write down the Board this is about to leave.
+  useEffect(() => {
+    if (mounted.current) return;
+    mounted.current = true;
+    if (window.location.pathname !== "/" || window.location.search !== "") return;
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(VIEW_KEY);
+    } catch {}
+    if (saved === "timeline") {
+      restoring.current = true;
+      // A replace, so that browser back does not lead to the Board.
+      router.replace("/?v=t");
+    }
+  }, [router]);
+  useEffect(() => {
+    // Not the Board of the mount that is being replaced.
+    if (restoring.current) {
+      restoring.current = false;
+      return;
+    }
+    if (view === null) return;
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {}
+  }, [view]);
 }
 
 /** The URL if it shows the Board, else null. */
@@ -767,6 +845,7 @@ export function InboxShell({
     [scrolled, unseen],
   );
   usePhoneListScroll(open);
+  useRememberedView();
   useArticleUrlAfterListChange();
   useRefreshOnLeavingArticle(open, leaving.size > 0);
   const sheet = useSheet(open, boardOrigin, search);
@@ -1226,7 +1305,7 @@ function CardUnseeButton({ id }: { id: number }) {
           setSaving(false);
         }
         // A list card, also beside the article (whose URL says `article`).
-        track("unsee", { screen: "list", articleId: id, viewId: null });
+        track("unsee", { screen: listScreenOf(new URLSearchParams(search)), articleId: id, viewId: null });
         forget(id);
         startTransition(() => {
           // Browser back, a card or j / k during the save has already moved on, or is on its way;
@@ -1258,7 +1337,7 @@ export function MarkAllSeenButton({
   /** Null when the screen has none of the articles to go by: no bound. */
   upTo: number | null;
   /** Where the button is, for the activity log: beside an article the URL says `article`. */
-  screen: "board" | "list";
+  screen: "board" | "list" | "timeline";
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -1314,6 +1393,7 @@ export function MarkAllSeenButton({
  */
 function CardSkipButton({ id }: { id: number }) {
   const router = useRouter();
+  const screen = listScreenOf(useSearchParams());
   const [pending, startTransition] = useTransition();
   useNavPending(pending);
   const { setLeaving } = useContext(LeavingContext);
@@ -1341,7 +1421,7 @@ function CardSkipButton({ id }: { id: number }) {
             return;
           }
           // Skipped without being read here, even beside an open article (whose URL says `article`).
-          track("skip", { screen: "list", articleId: id, viewId: null, props: { via: "button" } });
+          track("skip", { screen, articleId: id, viewId: null, props: { via: "button" } });
           refreshAfterLeave(router, since);
         });
       }}

@@ -2,7 +2,7 @@
 // screen it happened on. Sending never waits, never retries and never throws: a lost event
 // changes nothing on screen. The values are listed in lib/events.ts and in README.md.
 
-import { isWide, showsBoardUrl } from "@/components/InboxShell";
+import { isWide, listScreenOf, showsBoardUrl } from "@/components/InboxShell";
 import type { ActivityEvent, EventType, OpenSource, Screen } from "./events";
 
 /** What a caller gives track(); the device, the screen and the open article's view are added. */
@@ -44,7 +44,7 @@ export function screenOf(pathname: string, params: URLSearchParams): Screen | nu
   if (articleIdOf(pathname) !== null) return "article";
   if (pathname === "/read") return "read";
   if (pathname === "/feeds") return "feeds";
-  if (pathname === "/") return showsBoardUrl(pathname, params) ? "board" : "list";
+  if (pathname === "/") return showsBoardUrl(pathname, params) ? "board" : listScreenOf(params);
   return null;
 }
 
@@ -97,8 +97,10 @@ export function currentViewId(articleId: number) {
 }
 
 // The screen shown before the current one, and how the next article is being opened when the
-// article view says so itself (markOpenSource).
+// article view says so itself (markOpenSource). `lastList` is the kind of list its URL had: an
+// article's URL carries the filter of the list beside it.
 let lastScreen: Screen | null = null;
+let lastList: "list" | "timeline" = "list";
 let pendingSource: OpenSource | null = null;
 
 /**
@@ -110,7 +112,7 @@ export function markOpenSource(source: OpenSource) {
 }
 
 /** How an article opened from `screen` was chosen, when nothing marked it. */
-function sourceFrom(screen: Screen | null): OpenSource {
+function sourceFrom(screen: Screen | null, list: "list" | "timeline"): OpenSource {
   switch (screen) {
     case null:
       return "direct"; // the first screen of this page load: a typed or shared URL, or a reload
@@ -118,24 +120,30 @@ function sourceFrom(screen: Screen | null): OpenSource {
       return "board";
     case "read":
       return "read";
+    case "timeline":
+      return "timeline";
     default:
-      // A feed list, or the list beside another article.
-      return "list";
+      // A feed list, or the list (or the timeline) beside another article.
+      return list;
   }
 }
 
 /**
  * Called on every change of screen or of the open article (see ActivityLog). Sends `open` when
  * another article (or the same one again, after leaving it) shows; a URL that changes only the
- * list beside the article, or a router.refresh(), keeps the view.
+ * list beside the article, or a router.refresh(), keeps the view. `list` is the kind of list the
+ * URL's filter shows (listScreenOf).
  */
-export function noteScreen(screen: Screen | null, articleId: number | null) {
+export function noteScreen(screen: Screen | null, articleId: number | null, list: "list" | "timeline" = "list") {
   const marked = pendingSource;
   pendingSource = null;
   if (articleId === null) view = null;
   else if (view?.articleId !== articleId) {
     view = { articleId, viewId: randomId() };
-    track("open", { screen: "article", articleId, source: marked ?? sourceFrom(lastScreen) });
+    track("open", { screen: "article", articleId, source: marked ?? sourceFrom(lastScreen, lastList) });
   }
-  if (screen) lastScreen = screen;
+  if (screen) {
+    lastScreen = screen;
+    lastList = list;
+  }
 }

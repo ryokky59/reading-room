@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, max, sql } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Chip, ChipRow } from "@/components/ChipRow";
@@ -16,13 +16,32 @@ import {
   ListLink,
   MarkAllSeenButton,
   UnreadCount,
+  ViewSwitch,
 } from "@/components/InboxShell";
 import { SeenOnScroll } from "@/components/SeenOnScroll";
 import { feedColor, folderList, unreadBuckets, type Bucket } from "@/lib/board";
 import { articles, feeds, folders, getDb } from "@/lib/db";
 import { faviconUrl } from "@/lib/favicon";
-import { DIGEST_ATTEMPT_LIMIT, DIGEST_FAILED, formatAgo, formatDate, hostname, isForeign, readingMinutes } from "@/lib/format";
-import { inboxOrder, inboxQuery, listedWhere, parseInboxFilter, type InboxFilter, type ListedRows } from "@/lib/inbox";
+import {
+  DIGEST_ATTEMPT_LIMIT,
+  DIGEST_FAILED,
+  formatAgo,
+  formatDate,
+  formatDateTime,
+  hostname,
+  isForeign,
+  readingMinutes,
+} from "@/lib/format";
+import {
+  inboxQuery,
+  inboxWhere,
+  listedWhere,
+  listOrder,
+  parseInboxFilter,
+  runningWhere,
+  type InboxFilter,
+  type ListedRows,
+} from "@/lib/inbox";
 import { cutKey } from "@/lib/opened";
 import { requestListed } from "@/lib/opened-request";
 
@@ -31,8 +50,9 @@ const PAGE_SIZE = 30;
 
 /**
  * The list of a feed, under its hero, or of a folder, under its chips (at `/` that takes 既読を含む:
- * without it the folder shows as the Board). It is the whole screen on phones and the left pane
- * on PCs, where it stays mounted while articles open next to it.
+ * without it the folder shows as the Board), or the timeline (`v=t`): every site of the folder
+ * tab mixed, newest published first, without site chips or stopped feeds. It is the whole screen
+ * on phones and the left pane on PCs, where it stays mounted while articles open next to it.
  * `onEmptySite` decides what happens when the selected site has nothing unread left:
  * the inbox redirects to the folder; next to an open article the folder is shown in place.
  */
@@ -60,8 +80,9 @@ async function List({
   const limit = Math.min(Math.max(Number(filter.n) || PAGE_SIZE, PAGE_SIZE), 500);
   const folderId = filter.f && filter.f !== "none" ? Number(filter.f) : null;
   const feedId = filter.s ? Number(filter.s) : null;
+  const timeline = filter.v === "t";
   const db = await getDb();
-  const [rows, buckets, folderRows, [feed]] = await Promise.all([
+  const [rows, buckets, folderRows, [feed], [tab]] = await Promise.all([
     db
       .select({
         id: articles.id,
@@ -86,8 +107,8 @@ async function List({
       .from(articles)
       .leftJoin(feeds, eq(feeds.id, articles.feedId))
       .leftJoin(folders, eq(folders.id, feeds.folderId))
-      .where(listedWhere(filter, listed))
-      .orderBy(...inboxOrder)
+      .where(and(listedWhere(filter, listed), timeline ? runningWhere : undefined))
+      .orderBy(...listOrder(filter))
       .limit(limit),
     unreadBuckets(),
     folderList(),
@@ -104,6 +125,18 @@ async function List({
           .from(feeds)
           .leftJoin(folders, eq(folders.id, feeds.folderId))
           .where(eq(feeds.id, feedId)),
+    // The timeline's folder tab: its newest unread, which bounds 「すべて既読」 (the cards are not in
+    // fetch order), and the unread of its stopped feeds, which it does not show.
+    !timeline
+      ? []
+      : db
+          .select({
+            newest: max(articles.fetchedAt),
+            stopped: sql<number>`count(*) filter (where not ${runningWhere})`.mapWith(Number),
+          })
+          .from(articles)
+          .leftJoin(feeds, eq(feeds.id, articles.feedId))
+          .where(inboxWhere({ f: filter.f })),
   ]);
 
   const sum = (list: Bucket[]) => list.reduce((t, b) => t + b.n, 0);
@@ -132,7 +165,8 @@ async function List({
         ? sum(buckets)
         : sum(inFolder(selectedFolder));
   // Sites with no unread articles never show up in the aggregate, so they get no chip.
-  const sites = selectedFolder === "all" ? [] : inFolder(selectedFolder).filter((b) => b.feedId !== null);
+  // Nor does the timeline, which is for reading the sites mixed.
+  const sites = selectedFolder === "all" || timeline ? [] : inFolder(selectedFolder).filter((b) => b.feedId !== null);
   if (site?.n === 0) sites.push(site);
   sites.sort((a, b) => b.n - a.n || (a.name ?? "").localeCompare(b.name ?? "", "ja"));
 
@@ -140,6 +174,7 @@ async function List({
   const current: InboxFilter = {
     f: selectedFolder === "all" ? undefined : folderFilter(selectedFolder).f,
     s: feedId === null ? undefined : String(feedId),
+    v: filter.v,
     // Kept so going back from an article shows as many cards as before.
     n: limit > PAGE_SIZE ? String(limit) : undefined,
     a: filter.a,
@@ -173,7 +208,7 @@ async function List({
           </p>
         </div>
       ) : (
-        <FolderTabs folders={folderRows} buckets={buckets} selected={selectedFolder} a={filter.a} />
+        <FolderTabs folders={folderRows} buckets={buckets} selected={selectedFolder} v={filter.v} a={filter.a} />
       )}
       {feedId === null && selectedFolder !== "all" && sites.length > 0 && (
         <nav aria-label="サイト" className="mt-2">
@@ -193,6 +228,10 @@ async function List({
         </nav>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        {timeline && (
+          // The Board has only unread: 既読を含む is dropped.
+          <ViewSwitch timeline boardQuery={inboxQuery({ f: current.f })} timelineQuery={inboxQuery({ ...current, n: undefined })} />
+        )}
         <ListLink
           query={inboxQuery({ ...current, a: filter.a ? undefined : "1" })}
           scroll={false}
@@ -206,9 +245,9 @@ async function List({
         {selectedFolder !== "all" && total > 0 && (
           <MarkAllSeenButton
             target={feedId !== null ? { feedId } : { folderId: selectedFolder }}
-            // The newest row, as the list is newest first.
-            upTo={rows[0]?.fetchedAt.getTime() ?? null}
-            screen="list"
+            // The newest row, as the list is newest first; the timeline is not in fetch order.
+            upTo={timeline ? (tab?.newest?.getTime() ?? null) : (rows[0]?.fetchedAt.getTime() ?? null)}
+            screen={timeline ? "timeline" : "list"}
           />
         )}
         <p className="ml-auto">
@@ -218,7 +257,10 @@ async function List({
 
       {rows.length === 0 ? (
         <p className="mt-16 text-center text-muted">
-          未読の記事はありません。「今すぐ取得」で新着を取ってこられます。
+          {/* As the Board says it. */}
+          {tab && tab.stopped > 0
+            ? `止まっているフィードに未読が ${tab.stopped} 本あります。`
+            : "未読の記事はありません。「今すぐ取得」で新着を取ってこられます。"}
         </p>
       ) : (
         <SeenOnScroll
@@ -239,7 +281,10 @@ async function List({
                   {/* The host gives way first; a long site name is cut only in the narrower pane below `lg`. */}
                   <span className="min-w-0 truncate font-medium text-text lg:shrink-0">{a.source}</span>
                   <span className="shrink-[999] truncate">{hostname(a.url)}</span>
-                  <span className="ml-auto shrink-0">{formatDate(a.publishedAt ?? a.fetchedAt)}</span>
+                  {/* The timeline's order, to the minute: a day alone would not show it. */}
+                  <span className="ml-auto shrink-0">
+                    {timeline ? formatDateTime(timelineTimeOf(a)) : formatDate(a.publishedAt ?? a.fetchedAt)}
+                  </span>
                 </div>
                 <h2 className="mt-1 font-bold leading-snug">{a.titleJa ?? a.title}</h2>
                 {isForeign(a.lang, a.title) && a.titleJa && a.titleJa !== a.title && (
@@ -286,4 +331,9 @@ async function List({
       )}
     </div>
   );
+}
+
+/** When the timeline places an article (timelineTime in lib/inbox.ts): published, but no later than fetched. */
+function timelineTimeOf(a: { publishedAt: Date | null; fetchedAt: Date }) {
+  return a.publishedAt && a.publishedAt < a.fetchedAt ? a.publishedAt : a.fetchedAt;
 }
