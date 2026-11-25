@@ -113,7 +113,10 @@ test.describe("PC 幅", () => {
     // scroll sideways.
     const title = row(page, "E2E 列 たくさん", "E2E 列 たくさん 1").first().getByText("E2E 列 たくさん 1", { exact: true });
     await widen(title);
-    expect(await sideOverflows(page), "a row kept from wrapping").not.toEqual([]);
+    // Caught by the column's list of rows (the px vary with the width).
+    expect(await sideOverflows(page), "a row kept from wrapping").toContainEqual(
+      expect.stringMatching(/^ul\.board:min-h-0\.board:flex-1\.board:overflow-y-auto \d+px$/),
+    );
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     await unwiden(title);
     expect(await sideOverflows(page)).toEqual([]);

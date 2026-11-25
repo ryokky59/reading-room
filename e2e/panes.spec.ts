@@ -824,12 +824,19 @@ for (const viewport of [
       // `overflow-x: clip` wrapper, which keeps it from the pane's scrollWidth).
       const cardTitle = list(page).getByRole("heading", { name: "量産記事 9", exact: true });
       await widen(cardTitle);
-      expect(await sideOverflows(page), "a card kept from wrapping").not.toEqual([]);
+      // Caught by the wrapper the card is in, not by some other frame (the px vary with the width).
+      expect(await sideOverflows(page), "a card kept from wrapping").toContainEqual(
+        expect.stringMatching(/^div\.mx-auto\.max-w-5xl\.overflow-x-clip \d+px$/),
+      );
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
       expect(await page.locator("[data-list-pane]").evaluate((e) => e.scrollWidth - e.clientWidth)).toBe(0);
       await unwiden(cardTitle);
       await widen(heading(page));
-      expect(await sideOverflows(page), "the article kept from wrapping").not.toEqual([]);
+      // Caught by the article's pane: all three classes, as the outer div, the shell's right frame and
+      // the header share `split:min-w-0` and `split:flex-1`.
+      expect(await sideOverflows(page), "the article kept from wrapping").toContainEqual(
+        expect.stringMatching(/^div\.outline-none\.split:min-w-0\.split:flex-1 \d+px$/),
+      );
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
       await unwiden(heading(page));
       expect(await sideOverflows(page)).toEqual([]);
