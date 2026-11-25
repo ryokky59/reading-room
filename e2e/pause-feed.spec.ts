@@ -1,3 +1,4 @@
+import { sideOverflows } from "./fits";
 import { expect, test, type Page } from "./test";
 
 // Stopping a site's fetching from the article page. Each width uses its own enabled feed,
@@ -17,10 +18,6 @@ const resumeButton = (page: Page) => main(page).getByRole("button", { name: "再
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const chip = (label: string, count: number) =>
   new RegExp(`^${escape(label)}\\s*${count}$`);
-
-async function expectNoSideScroll(page: Page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-}
 
 /** Opens the folder's first article and returns its URL. */
 async function openArticle(page: Page, folder: string) {
@@ -64,7 +61,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     // "やめる" leaves everything as it was.
     await stopButton(page).click();
     await expect(confirmBox(page)).toBeVisible();
-    await expectNoSideScroll(page);
+    expect(await sideOverflows(page)).toEqual([]);
     await confirmBox(page).getByRole("button", { name: "やめる" }).click();
     await expect(confirmBox(page)).toHaveCount(0);
     await expect(stopButton(page)).toBeVisible();
@@ -73,7 +70,7 @@ test.describe("PC 幅(3 ペイン)", () => {
     await waitForListBeside(page, articleUrl);
 
     await stopFromArticle(page, site);
-    await expectNoSideScroll(page);
+    expect(await sideOverflows(page)).toEqual([]);
     await page.reload();
     await expect(stoppedNote(page)).toBeVisible();
 
@@ -120,16 +117,16 @@ test.describe("スマホ幅 @mobile", () => {
     const folder = "E2E スマホで止める";
     const site = `${folder}サイト`;
     await openArticle(page, folder);
-    await expectNoSideScroll(page);
+    expect(await sideOverflows(page)).toEqual([]);
 
     await stopButton(page).click();
     await expect(confirmBox(page)).toBeVisible();
-    await expectNoSideScroll(page);
+    expect(await sideOverflows(page)).toEqual([]);
     await confirmBox(page).getByRole("button", { name: "やめる" }).click();
     await expect(stopButton(page)).toBeVisible();
 
     await stopFromArticle(page, site);
-    await expectNoSideScroll(page);
+    expect(await sideOverflows(page)).toEqual([]);
     await expect(page.getByRole("button", { name: "読了にする" })).toBeVisible();
 
     // Back in the list, the site's articles and its chip are still there; the opened one is seen.
@@ -142,6 +139,6 @@ test.describe("スマホ幅 @mobile", () => {
     await expect(stoppedNote(page)).toBeVisible();
     await resumeButton(page).click();
     await expect(stopButton(page)).toBeVisible();
-    await expectNoSideScroll(page);
+    expect(await sideOverflows(page)).toEqual([]);
   });
 });

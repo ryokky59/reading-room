@@ -1,3 +1,4 @@
+import { pageOverflow, sideOverflows, unwiden, widen } from "./fits";
 import { expect, test, type Locator, type Page, type Route } from "./test";
 import { openFeed } from "./nav";
 
@@ -790,10 +791,6 @@ test.describe("狭い PC 幅", () => {
   });
 });
 
-/** Whether the page scrolls sideways. */
-const overflowsX = (page: Page) =>
-  page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
-
 // An unfolded iPhone Duo (the estimated portrait width, and portrait and landscape as measured in
 // the simulator) reads with the list and the article side by side, like a PC; the chat is a
 // drawer from the right.
@@ -808,7 +805,7 @@ for (const viewport of [
     test("一覧と記事が横に並び、横にはみ出さない。対話は右からの引き出しで、入力欄が見える", async ({ page }) => {
       await openWithSeen(page, "E2E たくさん");
       await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeVisible();
-      expect(await overflowsX(page)).toBe(false);
+      expect(await sideOverflows(page)).toEqual([]);
 
       await card(page, "量産記事 9").getByRole("link").click();
       await expect(heading(page)).toHaveText("量産記事 9");
@@ -820,9 +817,22 @@ for (const viewport of [
       expect(mainBox.x).toBeGreaterThanOrEqual(listBox.x + listBox.width);
       expect(mainBox.x + mainBox.width).toBeLessThanOrEqual(viewport.width);
       expect(Math.abs(mainBox.y - listBox.y)).toBeLessThan(100);
-      expect(await overflowsX(page)).toBe(false);
-      // The cards fit the narrower list pane instead of scrolling it sideways.
-      expect(await pane(page).evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+      // The cards fit the narrower list pane, and the article its pane.
+      expect(await sideOverflows(page)).toEqual([]);
+      // Controls: a line kept from wrapping in a card, then in the article, is caught, though the
+      // page does not scroll sideways and neither does the list pane (the card is inside an
+      // `overflow-x: clip` wrapper, which keeps it from the pane's scrollWidth).
+      const cardTitle = list(page).getByRole("heading", { name: "量産記事 9", exact: true });
+      await widen(cardTitle);
+      expect(await sideOverflows(page), "a card kept from wrapping").not.toEqual([]);
+      expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+      expect(await page.locator("[data-list-pane]").evaluate((e) => e.scrollWidth - e.clientWidth)).toBe(0);
+      await unwiden(cardTitle);
+      await widen(heading(page));
+      expect(await sideOverflows(page), "the article kept from wrapping").not.toEqual([]);
+      expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+      await unwiden(heading(page));
+      expect(await sideOverflows(page)).toEqual([]);
 
       // The phone's bottom bar gives way to the actions under the article.
       await expect(page.getByRole("button", { name: "AI に質問する" })).toBeHidden();
@@ -855,14 +865,14 @@ for (const width of [382, 466]) {
     test("一覧と記事が別の画面になる", async ({ page }) => {
       await openWithSeen(page, "E2E たくさん");
       await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
-      expect(await overflowsX(page)).toBe(false);
+      expect(await sideOverflows(page)).toEqual([]);
 
       await card(page, "量産記事 9").getByRole("link").click();
       await expect(heading(page)).toHaveText("量産記事 9");
       await expect(list(page)).toHaveCount(0);
       await expect(page.getByRole("link", { name: "Reading Room" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "AI に質問する" })).toBeVisible();
-      expect(await overflowsX(page)).toBe(false);
+      expect(await sideOverflows(page)).toEqual([]);
 
       await page.getByRole("link", { name: "戻る", exact: true }).click();
       await expect(heading(page)).toHaveCount(0);
