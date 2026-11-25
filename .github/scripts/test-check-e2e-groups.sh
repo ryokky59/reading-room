@@ -9,7 +9,9 @@
 # given unquoted, as the e2e job does. Nothing is written to ci.yml or e2e/. The changes are placed
 # by position (a group's `- group:` line, its value lines, the e2e job's `steps:` line), not by file
 # name, so moving a file to another group does not break the test. Runs with macOS's /bin/bash 3.2:
-# no associative arrays or mapfile.
+# no associative arrays or mapfile. check-e2e-groups.sh runs under the same bash as this script
+# ($BASH), not the first bash on PATH, so `/bin/bash .github/scripts/test-check-e2e-groups.sh` tests
+# it with 3.2 even where Homebrew's bash comes first on PATH.
 set -euo pipefail
 
 workflow=.github/workflows/ci.yml
@@ -138,19 +140,21 @@ start() {
 # Runs check-e2e-groups.sh on workflow copy "$1", with no arguments when "$2" is "all" and with
 # `--group "$2"` and that group's names otherwise, and checks that it exits with "$3". Each further
 # argument is a check on the output: "+text" must appear, "-text" must not, "=1" means the output is
-# exactly one line. The command runs under `bash -c` with the names unquoted, so the shell drops
-# everything after a "#" as it does in CI; the exit code is taken outside it.
+# exactly one line. The command runs under `"$BASH" -c` with the names unquoted, so the shell drops
+# everything after a "#" as it does in CI; the exit code is taken outside it. The command starts
+# with this bash's path, quoted, so a failure's report shows which bash ran it.
 expect() {
-  local wf=$1 group=$2 code=$3 command output actual problems=
+  local wf=$1 group=$2 code=$3 command output actual problems= shell
   shift 3
+  shell=$(printf '%q' "$BASH")
   if [ "$group" = all ]; then
-    command="bash $script"
+    command="$shell $script"
   else
-    command="bash $script --group $group $(group_args "$wf" "$group")"
+    command="$shell $script --group $group $(group_args "$wf" "$group")"
   fi
   checks=$((checks + 1))
   set +e
-  output=$(CHECK_E2E_WORKFLOW="$wf" bash -c "$command" 2>&1)
+  output=$(CHECK_E2E_WORKFLOW="$wf" "$BASH" -c "$command" 2>&1)
   actual=$?
   set -e
   [ "$actual" -eq "$code" ] || problems="exit code"
