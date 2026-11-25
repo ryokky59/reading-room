@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { sideOverflows } from "./fits";
 import { expect, test, type BrowserContext, type Locator, type Page } from "./test";
 
 // 既読 (seen) apart from 読了 (read). Each test uses its own folder from the end of e2e/seed.mts:
@@ -440,7 +441,7 @@ test("既読カードの「未読に戻す」が、行の文字と重ならず�
       expect(t.x + t.width).toBeLessThanOrEqual(b.x);
     }
     await button.click({ trial: true });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect(await sideOverflows(page)).toEqual([]);
   };
 
   await page.setViewportSize({ width: 1440, height: 900 });
