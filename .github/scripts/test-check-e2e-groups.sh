@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests check-e2e-groups.sh on changed copies of .github/workflows/ci.yml: comments in and around the
 # groups' `specs: >-` values (#184, #188) and a name in the wrong case (#170, #181). CI runs it in the
-# check job so the cases run with ubuntu's awk (mawk) as well as macOS's. Run from the repository
-# root: `bash .github/scripts/test-check-e2e-groups.sh`.
+# check job, so the cases run with that job's awk (the job's log shows which; gawk in run 45577441517)
+# as well as with macOS's. Run from the repository root: `bash .github/scripts/test-check-e2e-groups.sh`.
 #
 # Each case copies ci.yml into a temporary directory, changes the copy and runs check-e2e-groups.sh
 # on it through CHECK_E2E_WORKFLOW, with no arguments and with `--group N` and the group's names

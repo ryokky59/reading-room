@@ -23,15 +23,20 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
-      # Shows which awk runs here, so the log shows whether test-check-e2e-groups.sh (#191) uses mawk.
+      # Shows which awk runs here: the one check-e2e-groups.sh and its test (#191) run with below.
+      # Prints the path and the first line of the version only. `--version` goes first: macOS's awk
+      # ignores `-W` and exits 0 with no output. The output goes into a variable, not `| head`, so
+      # awk cannot get SIGPIPE.
       - run: |
           readlink -f "$(command -v awk)"
-          awk -W version 2>/dev/null || awk --version
+          version=$(awk --version 2>/dev/null </dev/null || awk -W version 2>/dev/null </dev/null)
+          printf '%s\n' "${version%%$'\n'*}"
       # Every test file Playwright runs (from `playwright test --list`, subfolders of e2e/ included)
       # must be in exactly one group of the e2e job below. Each e2e job then checks that Playwright
       # runs exactly the files of its group.
       - run: bash .github/scripts/check-e2e-groups.sh
-      # Runs check-e2e-groups.sh on changed copies of this file, so its cases run with ubuntu's mawk.
+      # Runs check-e2e-groups.sh on changed copies of this file, with this job's awk (the step above
+      # shows which): the same awk that runs check-e2e-groups.sh in CI.
       - run: bash .github/scripts/test-check-e2e-groups.sh
 
   # The E2E suite runs in three jobs, each on its own runner with its own seeded database and
