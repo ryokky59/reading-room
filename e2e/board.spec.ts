@@ -1,3 +1,4 @@
+import { STUB_PORT } from "./env";
 import { expect, test, type Page } from "./test";
 
 // The Board at `/`: a column per feed, grouped by folder. Rows are at the end of e2e/seed.mts,
@@ -494,6 +495,14 @@ test.describe("PC 幅", () => {
 
     // Only a host name reaches the service.
     expect((await page.request.get("/api/favicon/a%2Fb")).status()).toBe(404);
+  });
+
+  test("アイコンのサービスがリダイレクトで答えたら、たどらずに 404 を返す", async ({ request }) => {
+    const res = await request.get("/api/favicon/redirect.example");
+    expect(res.status()).toBe(404);
+    // Nothing reached where the redirect points (e2e/stub.mts counts the requests there).
+    const count = await request.get(`http://localhost:${STUB_PORT}/favicons/redirected/count`);
+    expect(await count.text()).toBe("0");
   });
 });
 
