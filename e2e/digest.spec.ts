@@ -24,14 +24,53 @@ const VIEWPORTS = [
   { width: 1440, height: 900 },
 ];
 
-/** Checks at each width that `text` is shown and nothing makes the page scroll sideways. */
-async function expectFits(page: Page, text: string) {
+const pageOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+
+/**
+ * How far the characters of `text` reach past the right edge of the nearest ancestor that
+ * clips or scrolls sideways (the article pane from 600px up), or of the window when there is
+ * none. The element's own box does not grow when its characters overflow, so the characters
+ * are measured through a Range.
+ */
+const textOverflow = (page: Page, text: string) =>
+  page.getByText(text).evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const right = Math.max(...Array.from(range.getClientRects(), (r) => r.right));
+    let frame = el.parentElement;
+    while (frame && getComputedStyle(frame).overflowX === "visible") frame = frame.parentElement;
+    const edge = frame ? frame.getBoundingClientRect().left + frame.clientLeft + frame.clientWidth : window.innerWidth;
+    return right - edge;
+  });
+
+/**
+ * Checks at each width that `text` is shown, nothing makes the page scroll sideways, and the
+ * text's characters stay inside the pane it scrolls in. With `control`, it also checks at the
+ * widths where the article has its own pane that a line kept from wrapping is caught, though
+ * the page itself does not scroll sideways.
+ */
+async function expectFits(page: Page, text: string, { control = false } = {}) {
   const size = page.viewportSize();
   for (const viewport of VIEWPORTS) {
+    const at = `${viewport.width}×${viewport.height}`;
     await page.setViewportSize(viewport);
     await expect(page.getByText(text)).toBeVisible();
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    expect(overflow, `${viewport.width}×${viewport.height}`).toBeLessThanOrEqual(0);
+    expect(await pageOverflow(page), at).toBeLessThanOrEqual(0);
+    // 1px for fractional widths.
+    expect(await textOverflow(page, text), at).toBeLessThanOrEqual(1);
+    if (control && viewport.width >= 600) {
+      const element = page.getByText(text);
+      await element.evaluate((el) => {
+        el.style.whiteSpace = "nowrap";
+        el.style.paddingLeft = "4000px";
+      });
+      expect(await textOverflow(page, text), `${at}, kept from wrapping`).toBeGreaterThan(1);
+      expect(await pageOverflow(page), `${at}, kept from wrapping`).toBeLessThanOrEqual(0);
+      await element.evaluate((el) => {
+        el.style.whiteSpace = "";
+        el.style.paddingLeft = "";
+      });
+    }
   }
   if (size) await page.setViewportSize(size);
 }
@@ -81,9 +120,11 @@ test.describe("要約と翻訳の失敗", () => {
   const reviewReplies: string[] = [];
   // When the stub last received a digest call, by title.
   const lastDigest: Record<string, number> = {};
-  const titles = ["上限テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", "Translation cut-off test", SEEDED, SEEDED_MOBILE];
+  // While set, the next digest call for 同時取得テストの記事 waits for it before failing.
+  let holdDigest: Promise<void> | null = null;
+  const titles = ["上限テストの記事", "同時取得テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", "Translation cut-off test", SEEDED, SEEDED_MOBILE];
   // Each test has its own feed, empty while it is added, so its articles come in through 「今すぐ取得」.
-  const listed: Record<string, string[]> = { "/limit.xml": [], "/other.xml": [], "/refused.xml": [], "/translate.xml": [], "/cut.xml": [] };
+  const listed: Record<string, string[]> = { "/limit.xml": [], "/other.xml": [], "/refused.xml": [], "/translate.xml": [], "/cut.xml": [], "/overlap.xml": [] };
 
   /**
    * Presses 「今すぐ取得」, waits for the run to end, and opens `feed`'s list freshly loaded: the
@@ -158,6 +199,13 @@ test.describe("要約と翻訳の失敗", () => {
           digest("other", "翻訳を断られる記事");
         } else if (title === "Translation cut-off test") {
           digest("other", "翻訳が切れる記事");
+        } else if (title === "同時取得テストの記事" && holdDigest) {
+          const hold = holdDigest;
+          holdDigest = null;
+          void hold.then(() => {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "e2e" } }));
+          });
         } else {
           // 400 rather than 500: the SDK does not retry it, so the test stays quick.
           res.writeHead(400, { "content-type": "application/json" });
@@ -285,6 +333,35 @@ test.describe("要約と翻訳の失敗", () => {
     expect(calls.digest["拒否テストの記事"]).toBe(1);
   });
 
+  test("取得が 2 つ同時に動いても、要約が失敗した記事の要約は 1 回しか呼ばない", async ({ page }) => {
+    test.setTimeout(120_000);
+    const TITLE = "同時取得テストの記事";
+    await addFeed(page, "/overlap.xml", "同時取得テスト");
+    listed["/overlap.xml"].push(TITLE);
+    // Saved with a failed digest, then left until it is due again.
+    await pressFetch(page);
+    expect(calls.digest[TITLE]).toBe(1);
+    const wait = lastDigest[TITLE] + INTERVAL + 1_500 - Date.now();
+    if (wait > 0) await page.waitForTimeout(wait);
+
+    // The first run's digest of it is held while a second run, from another tab, starts and ends.
+    let release = () => {};
+    holdDigest = new Promise((resolve) => (release = resolve));
+    const other = await page.context().newPage();
+    try {
+      await page.goto("/");
+      await page.getByRole("button", { name: "今すぐ取得" }).click();
+      await expect.poll(() => calls.digest[TITLE], { timeout: 60_000 }).toBe(2);
+      await pressFetch(other);
+      expect(calls.digest[TITLE], "the second run left it to the first").toBe(2);
+    } finally {
+      release();
+    }
+    await expect(page.getByText(/本の新着を追加しました/)).toBeVisible({ timeout: 60_000 });
+    expect(calls.digest[TITLE]).toBe(2);
+    await other.close();
+  });
+
   test("翻訳を拒否されると失敗の文と「やり直す」が出て、やり直せる", async ({ page }) => {
     test.setTimeout(90_000);
     await addFeed(page, "/translate.xml", "翻訳テスト");
@@ -318,7 +395,7 @@ test.describe("要約と翻訳の失敗", () => {
     await expect(main).toContainText(TRANSLATION_FAILED);
     await expect(retry).toBeVisible();
     expect(calls.translate["Translation cut-off test"]).toBe(1);
-    await expectFits(page, TRANSLATION_FAILED);
+    await expectFits(page, TRANSLATION_FAILED, { control: true });
 
     // Cut off: what came, then the note under it, and 「やり直す」.
     await retry.click();

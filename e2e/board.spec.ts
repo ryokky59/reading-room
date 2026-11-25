@@ -1,3 +1,5 @@
+import { STUB_PORT } from "./env";
+import { pageOverflow, sideOverflows, unwiden, widen } from "./fits";
 import { expect, test, type Page } from "./test";
 
 // The Board at `/`: a column per feed, grouped by folder. Rows are at the end of e2e/seed.mts,
@@ -23,8 +25,6 @@ const BESIDE = { width: 1000, height: 800 };
 const stopped = (page: Page) => page.getByRole("region", { name: "止まっているフィード" });
 const failed = (page: Page) => page.getByRole("alert").filter({ hasText: "保存できませんでした。もう一度押してください" });
 const scrollY = (page: Page) => page.evaluate(() => window.scrollY);
-const overflowsX = (page: Page) =>
-  page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 // The rows the server sent, hidden ones too (a phone hides all but the first 3 of a section).
 const sentRows = (page: Page, name: string) => column(page, name).locator("li[data-row]");
 // The most rows any column of the page was sent.
@@ -51,7 +51,7 @@ async function expectDigestStates(page: Page) {
   await expect(refused.getByText(FAILED, { exact: true })).toHaveCount(1);
   await expect(refused.getByText("AI 要約", { exact: true })).toHaveCount(0);
   await expect(refused).not.toContainText("RSS の概要です。");
-  expect(await overflowsX(page)).toBe(false);
+  expect(await sideOverflows(page)).toEqual([]);
 
   await openTab(page, "E2E 要約まだ");
   const pending = rows(page, "E2E 要約まだのサイト").first();
@@ -84,7 +84,11 @@ test.describe("PC 幅", () => {
     const second = (await page.getByRole("region", { name: "E2E ボードで開く", exact: true }).boundingBox())!;
     expect(second.x).toBeGreaterThan(first.x);
     expect(second.y).toBe(first.y);
-    expect(await overflowsX(page)).toBe(false);
+    // The row of groups and the folder chips scroll sideways on purpose: they are not counted.
+    const groupRow = page.locator("[data-list-pane] section[aria-label]").first().locator("xpath=..");
+    expect(await groupRow.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await folderNav(page).locator("ul.chip-row").evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await sideOverflows(page)).toEqual([]);
 
     await tab(page, "E2E ボード").click();
     await expect(page).toHaveURL(/\/\?f=\d+$/);
@@ -105,6 +109,14 @@ test.describe("PC 幅", () => {
     await expect(rows(page, "E2E 列 たくさん").nth(49)).toBeAttached();
     const more = many.getByRole("link", { name: "あと 5 件 ›" });
     await expect(more).toBeVisible();
+    // Control: a row's title kept from wrapping is caught in its column, though the page does not
+    // scroll sideways.
+    const title = row(page, "E2E 列 たくさん", "E2E 列 たくさん 1").first().getByText("E2E 列 たくさん 1", { exact: true });
+    await widen(title);
+    expect(await sideOverflows(page), "a row kept from wrapping").not.toEqual([]);
+    expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    await unwiden(title);
+    expect(await sideOverflows(page)).toEqual([]);
 
     // A column scrolls on its own: the row of columns and the page stay.
     const list = many.getByRole("list");
@@ -495,6 +507,14 @@ test.describe("PC 幅", () => {
     // Only a host name reaches the service.
     expect((await page.request.get("/api/favicon/a%2Fb")).status()).toBe(404);
   });
+
+  test("アイコンのサービスがリダイレクトで答えたら、たどらずに 404 を返す", async ({ request }) => {
+    const res = await request.get("/api/favicon/redirect.example");
+    expect(res.status()).toBe(404);
+    // Nothing reached where the redirect points (e2e/stub.mts counts the requests there).
+    const count = await request.get(`http://localhost:${STUB_PORT}/favicons/redirected/count`);
+    expect(await count.text()).toBe("0");
+  });
 });
 
 for (const viewport of [
@@ -509,7 +529,7 @@ for (const viewport of [
       await expect(column(page, "E2E 列 たくさん")).toBeVisible();
       const few = (await column(page, "E2E 列 少ない").boundingBox())!;
       expect(few.y).toBe((await column(page, "E2E 列 たくさん").boundingBox())!.y);
-      expect(await overflowsX(page)).toBe(false);
+      expect(await sideOverflows(page)).toEqual([]);
       // A column ends inside the screen and scrolls on its own, however short the screen.
       const many = (await column(page, "E2E 列 たくさん").boundingBox())!;
       expect(many.y + many.height).toBeLessThanOrEqual(viewport.height);
@@ -517,7 +537,7 @@ for (const viewport of [
       await row(page, "E2E 列 たくさん", "E2E 列 たくさん 1").first().getByRole("link").click();
       await expect(heading(page)).toBeVisible();
       await expect(feedList(page).getByRole("listitem")).toHaveCount(30);
-      expect(await overflowsX(page)).toBe(false);
+      expect(await sideOverflows(page)).toEqual([]);
     });
   });
 }
@@ -652,7 +672,7 @@ test.describe("横向きのスマホ 844×390", () => {
     const box = (await many.boundingBox())!;
     expect(few.x).toBe(box.x);
     expect(few.y).toBeGreaterThanOrEqual(box.y + box.height);
-    expect(await overflowsX(page)).toBe(false);
+    expect(await sideOverflows(page)).toEqual([]);
 
     await page.getByRole("button", { name: "URL を追加" }).click();
     await expect(page.getByPlaceholder("https://…")).toBeVisible();
@@ -660,7 +680,7 @@ test.describe("横向きのスマホ 844×390", () => {
     expect(await pane.evaluate((el) => el.clientHeight)).toBeGreaterThan(150);
     await column(page, "E2E 列 少ない").scrollIntoViewIfNeeded();
     await expect(column(page, "E2E 列 少ない")).toBeInViewport();
-    expect(await overflowsX(page)).toBe(false);
+    expect(await sideOverflows(page)).toEqual([]);
   });
 });
 
@@ -710,11 +730,16 @@ test.describe("横向きのスマホ 844×390 @mobile", () => {
     await page.goBack();
     await expect(heading(page)).toHaveText("E2E 横向きで開く 2");
     await page.goForward();
+    // A column this test never reads shows the Board is drawn. The two rows it
+    // opened can leave the Board: when back reloads the article as a document,
+    // `since` moves past them, and the Board after forward no longer lists them
+    // (whether they should stay is #162).
     await expect(page).toHaveURL("/");
-    await expect(column(page, "E2E 横向きで開く")).toBeVisible();
+    await expect(column(page, "E2E 横向きで残る")).toBeVisible();
     await expect(heading(page)).toHaveCount(0);
     await page.waitForTimeout(1000);
     await expect(page).toHaveURL("/");
+    await expect(column(page, "E2E 横向きで残る")).toBeVisible();
     await expect(heading(page)).toHaveCount(0);
   });
 });
@@ -725,13 +750,13 @@ test.describe("スマホ @mobile", () => {
     const section = column(page, "E2E スマホの列");
     await expect(section.getByRole("list").getByRole("listitem")).toHaveCount(3);
     await expect(section.getByText("AI 要約", { exact: true })).toHaveCount(1);
-    expect(await overflowsX(page)).toBe(false);
+    expect(await sideOverflows(page)).toEqual([]);
 
     await section.getByRole("link", { name: "もっと見る(あと 2 件)›" }).click();
     await expect(page).toHaveURL(/\/\?f=\d+&s=\d+$/);
     await expect(feedList(page).getByRole("listitem")).toHaveCount(5);
     await expect(page.getByRole("heading", { name: "E2E スマホの列", exact: true, level: 2 })).toBeVisible();
-    expect(await overflowsX(page)).toBe(false);
+    expect(await sideOverflows(page)).toEqual([]);
 
     await boardLink(page).click();
     await expect(page).toHaveURL(/\/\?f=\d+$/);
@@ -758,7 +783,7 @@ test.describe("スマホ @mobile", () => {
     await expect(folded.getByRole("link", { name: /フィード管理/ })).toBeVisible();
     const box = (await folded.boundingBox())!;
     expect(box.y).toBeGreaterThan((await column(page, "E2E 列 少ない").boundingBox())!.y);
-    expect(await overflowsX(page)).toBe(false);
+    expect(await sideOverflows(page)).toEqual([]);
   });
 
   test("「今すぐ取得」「URL を追加」がヘッダーにあり、横にはみ出さない @mobile", async ({ page }) => {
@@ -768,7 +793,7 @@ test.describe("スマホ @mobile", () => {
     await expect(header.getByRole("button", { name: "URL を追加" })).toBeInViewport();
     await header.getByRole("button", { name: "URL を追加" }).click();
     await expect(page.getByPlaceholder("https://…")).toBeInViewport();
-    expect(await overflowsX(page)).toBe(false);
+    expect(await sideOverflows(page)).toEqual([]);
   });
 
   test("← で戻るとボードの位置に戻り、ブラウザの戻るでも同じ @mobile", async ({ page }) => {
@@ -864,7 +889,7 @@ test.describe("スマホ 390×844 @mobile", () => {
     await expect(shown).toHaveText(titles);
     await expect(more).toHaveText(label);
     await expect(column(page, "E2E 列 たくさん").getByText("AI 要約", { exact: true })).toHaveCount(1);
-    expect(await overflowsX(page)).toBe(false);
+    expect(await sideOverflows(page)).toEqual([]);
   });
 
   test("記事を開いて ← で戻っても、ブラウザの戻るでも、列は 3 本のまま @mobile", async ({ page }) => {

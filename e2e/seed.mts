@@ -532,6 +532,8 @@ const boardFeeds = await db
     { ...feed("board-only-stopped", "E2E 止まりの列", boardStopped.id), enabled: false },
     feed("board-side", "E2E 横向きで開く", boardSide.id),
     feed("board-widen", "E2E 広げて一覧", boardSide.id),
+    // No test opens this one: its column shows the Board is drawn after forward.
+    feed("board-side-stays", "E2E 横向きで残る", boardSide.id),
     feed("board-three", "E2E 三本の列", boardThree.id),
     feed("board-fourth", "E2E 四本目の列", boardFourth.id),
     feed("board-prefetch", "E2E 先読みの列", boardPrefetch.id),
@@ -587,6 +589,7 @@ const boardArticles = [
   ...boardRows("E2E 止まりの列", 1),
   ...boardRows("E2E 横向きで開く", 2),
   ...boardRows("E2E 広げて一覧", 2),
+  ...boardRows("E2E 横向きで残る", 1),
   ...boardRows("E2E 三本の列", 6),
   ...boardRows("E2E 四本目の列", 5),
   // Enough to scroll the column by a screen at 1440×900, which marks the rows passed as seen.
@@ -745,7 +748,7 @@ const sheetFolders = await db
     })),
   )
   .returning();
-const sheetSites: { folder: number; name: string; count: number; long?: boolean }[] = [
+const sheetSites: { folder: number; name: string; count: number; long?: boolean; firstRead?: boolean }[] = [
   { folder: 0, name: "E2E シート A", count: 20 },
   { folder: 0, name: "E2E シート B", count: 2 },
   { folder: 1, name: "E2E シート 三本", count: 3 },
@@ -759,6 +762,9 @@ const sheetSites: { folder: number; name: string; count: number; long?: boolean 
   // e2e/panes.spec.ts: keys go to the article, not the column behind it. A column that scrolls,
   // and bodies long enough to scroll the article.
   { folder: 6, name: "E2E シート キー", count: 20, long: true },
+  // e2e/panes.spec.ts: j past the end of a column. The newest row is read, and made unread again
+  // once the column has loaded.
+  { folder: 1, name: "E2E シート 新着", count: 3, firstRead: true },
 ];
 const sheetFeeds = await db
   .insert(schema.feeds)
@@ -768,7 +774,8 @@ const sheetArticles = sheetFeeds.flatMap((f, i) =>
   Array.from({ length: sheetSites[i].count }, (_, j) => {
     const n = 6000 + i * 100 + j;
     const body = sheetSites[i].long ? { contentHtml: `<p>記事 ${n} の長い本文です。段落を重ねています。</p>`.repeat(80) } : {};
-    return article(n, { title: `${f.name} ${j + 1}`, titleJa: `${f.name} ${j + 1}`, source: f.name, feedId: f.id, fetchedAt: old(n), ...body });
+    const read = sheetSites[i].firstRead && j === 0 ? { status: "read" as const, readAt: new Date(now), seenAt: new Date(now) } : {};
+    return article(n, { title: `${f.name} ${j + 1}`, titleJa: `${f.name} ${j + 1}`, source: f.name, feedId: f.id, fetchedAt: old(n), ...body, ...read });
   }),
 );
 await db.insert(schema.articles).values(sheetArticles);
@@ -802,6 +809,29 @@ const unlistedArticles = [
     feedId: unlistedOther.id,
     fetchedAt: old(8000 + 38 * 2 + 1),
   }),
+  // For j (e2e/leave.spec.ts): rows between 30 and 31, so the feed's list does not show them and
+  // the rows above stay as they are. Pairs that tests open with j, the other feed's row between
+  // the filtered ones.
+  ...(
+    [
+      ["j 1", unlistedFeed],
+      ["j 2", unlistedFeed],
+      ["j 3", unlistedFeed],
+      ["j と j の間 1", unlistedOther],
+      ["j 4", unlistedFeed],
+      ["j 5", unlistedFeed],
+      ["j と j の間 2", unlistedOther],
+      ["j 6", unlistedFeed],
+    ] as const
+  ).map(([name, f], i) =>
+    article(8200 + i, {
+      title: `載っていない記事 ${name}`,
+      titleJa: `載っていない記事 ${name}`,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: old(8000 + 29 * 2 + (i + 1) * 0.2),
+    }),
+  ),
 ];
 await db.insert(schema.articles).values(unlistedArticles);
 

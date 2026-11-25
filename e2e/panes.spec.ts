@@ -1,3 +1,4 @@
+import { pageOverflow, sideOverflows, unwiden, widen } from "./fits";
 import { expect, test, type Locator, type Page, type Route } from "./test";
 import { openFeed } from "./nav";
 
@@ -559,6 +560,53 @@ test.describe("PC 幅のシート", () => {
     await last.getByRole("link").click();
     await expect(heading(page)).toHaveText(`${many} 50`);
     await expect(place(page)).toHaveText("50 / 50");
+
+    // k pressed while j waits for the lookup past the column's end opens the previous article, even
+    // when the lookup answers before that article has arrived (#150). Both are held to fix the order.
+    const prevPath = new URL((await row(page, many, `${many} 49`).getByRole("link").getAttribute("href"))!, page.url())
+      .pathname;
+    let held = 0;
+    let releaseLookup = () => {};
+    const lookupReleased = new Promise<void>((r) => (releaseLookup = r));
+    let releasePrev = () => {};
+    const prevReleased = new Promise<void>((r) => (releasePrev = r));
+    const holdLookup = async (route: Route) => {
+      if (!("next-action" in route.request().headers())) return route.fallback();
+      await lookupReleased;
+      await route.fallback().catch(() => {});
+    };
+    const holdPrev = async (route: Route) => {
+      const headers = route.request().headers();
+      const path = new URL(route.request().url()).pathname;
+      if (!("rsc" in headers) || !/^\/articles\/\d+$/.test(path)) return route.fallback();
+      if ("next-router-prefetch" in headers) return route.abort();
+      if (path !== prevPath) return route.fallback();
+      held++;
+      await prevReleased;
+      await route.fallback().catch(() => {});
+    };
+    await page.route("**/*", holdLookup);
+    await page.route("**/*", holdPrev);
+    await page.keyboard.press("j");
+    await page.keyboard.press("k");
+    await expect.poll(() => held).toBe(1);
+    const answered = page.waitForResponse((r) => "next-action" in r.request().headers());
+    releaseLookup();
+    await answered;
+    // Past the lookup's push, had there been one: the previous article has not arrived yet.
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(`${many} 50`);
+    releasePrev();
+    await expect(heading(page)).toHaveText(`${many} 49`);
+    await page.waitForTimeout(1000);
+    await expect(heading(page)).toHaveText(`${many} 49`);
+    expect(new URL(page.url()).pathname).toBe(prevPath);
+    await page.unroute("**/*", holdPrev);
+    await page.unroute("**/*", holdLookup);
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText(`${many} 50`);
+    await expect(place(page)).toHaveText("50 / 50");
+
     await page.keyboard.press("j");
     await expect(heading(page)).toHaveText(`${many} 51`);
     await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
@@ -573,6 +621,41 @@ test.describe("PC 幅のシート", () => {
     await page.keyboard.press("k");
     await expect(heading(page)).toHaveText(`${many} 50`);
     await expect(column(page, many)).toBeVisible();
+  });
+
+  test("列を読み込んだあとに未読になった、列のどの行よりも新しい記事は、列の末尾の j で開かない", async ({ page }) => {
+    const site = "E2E シート 新着";
+    await page.goto("/");
+    await folderNav(page).getByRole("link", { name: /^E2E シートで j\s*\d+$/ }).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(unreadIn(page, site)).toHaveText("2");
+    await expect(row(page, site, `${site} 1`)).toHaveCount(0);
+
+    // Another tab makes the feed's newest article unread again, as an hourly fetch would bring one.
+    const other = await page.context().newPage();
+    await other.goto("/read");
+    await other.getByRole("link", { name: new RegExp(`${site} 1`) }).click();
+    await expect(other.getByRole("heading", { level: 1 })).toHaveText(`${site} 1`);
+    await other.getByRole("button", { name: "未読に戻す" }).click();
+    await expect(other).not.toHaveURL(/\/articles\//);
+    await other.close();
+
+    await row(page, site, `${site} 3`).getByRole("link").click();
+    await expect(heading(page)).toHaveText(`${site} 3`);
+    await expect(place(page)).toHaveText("2 / 2");
+    const url = page.url();
+    let sent = 0;
+    await page.route("**/*", (route) => {
+      if ("next-action" in route.request().headers()) sent++;
+      return route.fallback();
+    });
+    await page.keyboard.press("j");
+    await expect.poll(() => sent).toBeGreaterThan(0);
+    // Long enough for the article it found, had there been one, to have opened.
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(`${site} 3`);
+    await expect(page).toHaveURL(url);
+    await expect(place(page)).toHaveText("2 / 2");
   });
 
   test("読了 / スキップで同じフィードの次が開き、最後の 1 本でシートが閉じてボードに戻る。保存に失敗すればもう一度押せる", async ({ page }) => {
@@ -708,10 +791,6 @@ test.describe("狭い PC 幅", () => {
   });
 });
 
-/** Whether the page scrolls sideways. */
-const overflowsX = (page: Page) =>
-  page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
-
 // An unfolded iPhone Duo (the estimated portrait width, and portrait and landscape as measured in
 // the simulator) reads with the list and the article side by side, like a PC; the chat is a
 // drawer from the right.
@@ -726,7 +805,7 @@ for (const viewport of [
     test("一覧と記事が横に並び、横にはみ出さない。対話は右からの引き出しで、入力欄が見える", async ({ page }) => {
       await openWithSeen(page, "E2E たくさん");
       await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeVisible();
-      expect(await overflowsX(page)).toBe(false);
+      expect(await sideOverflows(page)).toEqual([]);
 
       await card(page, "量産記事 9").getByRole("link").click();
       await expect(heading(page)).toHaveText("量産記事 9");
@@ -738,9 +817,22 @@ for (const viewport of [
       expect(mainBox.x).toBeGreaterThanOrEqual(listBox.x + listBox.width);
       expect(mainBox.x + mainBox.width).toBeLessThanOrEqual(viewport.width);
       expect(Math.abs(mainBox.y - listBox.y)).toBeLessThan(100);
-      expect(await overflowsX(page)).toBe(false);
-      // The cards fit the narrower list pane instead of scrolling it sideways.
-      expect(await pane(page).evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+      // The cards fit the narrower list pane, and the article its pane.
+      expect(await sideOverflows(page)).toEqual([]);
+      // Controls: a line kept from wrapping in a card, then in the article, is caught, though the
+      // page does not scroll sideways and neither does the list pane (the card is inside an
+      // `overflow-x: clip` wrapper, which keeps it from the pane's scrollWidth).
+      const cardTitle = list(page).getByRole("heading", { name: "量産記事 9", exact: true });
+      await widen(cardTitle);
+      expect(await sideOverflows(page), "a card kept from wrapping").not.toEqual([]);
+      expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+      expect(await page.locator("[data-list-pane]").evaluate((e) => e.scrollWidth - e.clientWidth)).toBe(0);
+      await unwiden(cardTitle);
+      await widen(heading(page));
+      expect(await sideOverflows(page), "the article kept from wrapping").not.toEqual([]);
+      expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+      await unwiden(heading(page));
+      expect(await sideOverflows(page)).toEqual([]);
 
       // The phone's bottom bar gives way to the actions under the article.
       await expect(page.getByRole("button", { name: "AI に質問する" })).toBeHidden();
@@ -773,14 +865,14 @@ for (const width of [382, 466]) {
     test("一覧と記事が別の画面になる", async ({ page }) => {
       await openWithSeen(page, "E2E たくさん");
       await expect(page.getByText("一覧から記事を選ぶと、ここで読めます。")).toBeHidden();
-      expect(await overflowsX(page)).toBe(false);
+      expect(await sideOverflows(page)).toEqual([]);
 
       await card(page, "量産記事 9").getByRole("link").click();
       await expect(heading(page)).toHaveText("量産記事 9");
       await expect(list(page)).toHaveCount(0);
       await expect(page.getByRole("link", { name: "Reading Room" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "AI に質問する" })).toBeVisible();
-      expect(await overflowsX(page)).toBe(false);
+      expect(await sideOverflows(page)).toEqual([]);
 
       await page.getByRole("link", { name: "戻る", exact: true }).click();
       await expect(heading(page)).toHaveCount(0);

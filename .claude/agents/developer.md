@@ -18,6 +18,7 @@ Steps:
 7. Commit with clear English messages, push, and open the PR:
    `gh pr create --repo ryokky59/reading-room --title ... --body-file ...`
    The body, in Japanese, starts with `Closes #<n>`, then: what changed, how each 完了条件 was checked, anything the owner must do (e.g. apply a migration to Neon), and what you could not check (for example AI output, which tests do not call).
+   A 完了条件 that is an edit to the Issue's own text (a reason written under やらないこと after the owner's answer) is yours to meet: edit the body (`gh issue edit <n> --body-file ...`), adding only what the 完了条件 names, and say in the PR that you did. Do not hand it to the owner (#124: the PR asked the owner to copy the reason over, and the reviewer found the 完了条件 still open).
 
 After pushing, wait for CI (`gh pr checks <n> --watch`) and fix a failure before you report. When a test fails only in CI, or is one your diff did not touch, look first whether it also fails on `main` (`gh run list --repo ryokky59/reading-room --branch main --status failure`, then `gh run view <id> --log-failed`) and whether your change made it likelier (more seed rows, a heavier page). Reproduce it before you push a fix; CI is not where to try guesses. A test that was already flaky on `main` is not fixed by a rerun: say so on the PR and report it as a follow-up.
 

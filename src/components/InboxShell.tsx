@@ -99,7 +99,10 @@ type InboxNav = {
   ids: number[] | null;
   /** `unseen` are the ids the list or the Board came with as unread. */
   setIds: (ids: number[], unseen: number[]) => void;
-  /** Adds an article that j opened past the end of the list, so that j / k go on from it. */
+  /**
+   * Adds an article that j opened past the end of the list (or the one the list does not show
+   * that j left), so that j / k go on from it.
+   */
   addPast: (id: number) => void;
 };
 

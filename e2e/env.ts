@@ -3,6 +3,9 @@
 /** The app's port. Override with E2E_PORT when several worktrees run tests at once. */
 export const PORT = Number(process.env.E2E_PORT ?? 3210);
 
+/** e2e/stub.mts, which stands in for the feeds and the favicon service. */
+export const STUB_PORT = PORT + 1;
+
 /** The app's database; the seed is kept beside it, and so is the note that a test failed. */
 export const PGLITE_DIR = ".data/e2e";
 export const SEED_DIR = `${PGLITE_DIR}-seed`;

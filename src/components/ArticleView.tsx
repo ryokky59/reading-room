@@ -185,23 +185,33 @@ export function ArticleView({
   function neighbor(step: 1 | -1) {
     if (!listIds) return undefined;
     const i = listIds.indexOf(article.id);
-    return i < 0 ? (step === 1 ? listIds[0] : undefined) : listIds[i + step];
+    return i < 0 ? undefined : listIds[i + step];
   }
   // Where the article is in the list or the Board column behind it, for 「n / N」.
   const place = listIds ? listIds.indexOf(article.id) : -1;
   const lookingPast = useRef(false);
   /**
-   * j past the end of a Board column (which shows only its first rows) in the sheet: the next
-   * unread of the same filter, which has the column's feed. Nothing when there is none.
+   * j with nothing next in the list: the next unread of the same filter after this article.
+   * - Past the end of a Board column (which shows only its first rows) in the sheet: the next row
+   *   of the column's feed, not one that became unread above the column since it was loaded.
+   * - An article the list does not show (opened from its URL): the one after it, as 読了 opens
+   *   (#54), not the list's top. The article goes after the list too, so k comes back to it.
+   * Nothing when there is none, or when the lookup fails.
    */
-  async function openPast() {
+  async function openAfter() {
     if (!listIds || lookingPast.current) return;
     lookingPast.current = true;
+    const listed = listIds.includes(article.id);
     try {
-      const next = await nextInboxArticle(search, [...listIds, article.id]);
+      const next = await nextInboxArticle(search, [...listIds, article.id], article.id);
       // As in run(): the owner may have moved on meanwhile.
-      if (next === null || window.location.pathname !== `/articles/${article.id}`) return;
-      addPast(next);
+      if (next === null || !stillOn(`/articles/${article.id}`)) return;
+      // Not after the list when the list has it: an article outside the filter (the list was
+      // switched while it was open) gets the filter's first unread, as 読了 there does.
+      if (!listIds.includes(next)) {
+        if (!listed) addPast(article.id);
+        addPast(next);
+      }
       markOpenSource("key");
       router.push(`/articles/${next}${search}`);
     } catch (e) {
@@ -316,8 +326,8 @@ export function ArticleView({
         if (id !== undefined) {
           markOpenSource("key");
           router.push(`/articles/${id}${search}`);
-        } else if (e.key === "j" && isSheet()) {
-          void openPast();
+        } else if (e.key === "j" && listIds && (isSheet() || !listIds.includes(article.id))) {
+          void openAfter();
         }
       } else if (e.key === "e" && !done) {
         void leave("read", "key");
