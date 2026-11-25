@@ -23,7 +23,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
-      # Every spec in e2e/ must be in exactly one group of the e2e job below.
+      # Every test file Playwright runs (from `playwright test --list`, subfolders of e2e/ included)
+      # must be in exactly one group of the e2e job below.
       - run: bash .github/scripts/check-e2e-groups.sh
 
   # The E2E suite runs in three jobs, each on its own runner with its own seeded database and
