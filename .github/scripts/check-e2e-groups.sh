@@ -19,9 +19,12 @@
 # line, with only the usage). The value is every line indented deeper than its `specs:` line. A `#`
 # on any other line (the `specs: >-` line itself, a line between groups or before `steps:`, after
 # the `- group:` value) is a real YAML comment and is not checked.
+#
+# CHECK_E2E_WORKFLOW, when set, is read in place of .github/workflows/ci.yml, and the errors name it
+# instead. test-check-e2e-groups.sh uses it to run this script on changed copies of ci.yml.
 set -euo pipefail
 
-workflow=.github/workflows/ci.yml
+workflow=${CHECK_E2E_WORKFLOW:-.github/workflows/ci.yml}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
