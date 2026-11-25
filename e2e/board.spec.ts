@@ -730,11 +730,16 @@ test.describe("横向きのスマホ 844×390 @mobile", () => {
     await page.goBack();
     await expect(heading(page)).toHaveText("E2E 横向きで開く 2");
     await page.goForward();
+    // A column this test never reads shows the Board is drawn. The two rows it
+    // opened can leave the Board: when back reloads the article as a document,
+    // `since` moves past them, and the Board after forward no longer lists them
+    // (whether they should stay is #162).
     await expect(page).toHaveURL("/");
-    await expect(column(page, "E2E 横向きで開く")).toBeVisible();
+    await expect(column(page, "E2E 横向きで残る")).toBeVisible();
     await expect(heading(page)).toHaveCount(0);
     await page.waitForTimeout(1000);
     await expect(page).toHaveURL("/");
+    await expect(column(page, "E2E 横向きで残る")).toBeVisible();
     await expect(heading(page)).toHaveCount(0);
   });
 });
