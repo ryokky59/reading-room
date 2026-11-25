@@ -559,6 +559,53 @@ test.describe("PC 幅のシート", () => {
     await last.getByRole("link").click();
     await expect(heading(page)).toHaveText(`${many} 50`);
     await expect(place(page)).toHaveText("50 / 50");
+
+    // k pressed while j waits for the lookup past the column's end opens the previous article, even
+    // when the lookup answers before that article has arrived (#150). Both are held to fix the order.
+    const prevPath = new URL((await row(page, many, `${many} 49`).getByRole("link").getAttribute("href"))!, page.url())
+      .pathname;
+    let held = 0;
+    let releaseLookup = () => {};
+    const lookupReleased = new Promise<void>((r) => (releaseLookup = r));
+    let releasePrev = () => {};
+    const prevReleased = new Promise<void>((r) => (releasePrev = r));
+    const holdLookup = async (route: Route) => {
+      if (!("next-action" in route.request().headers())) return route.fallback();
+      await lookupReleased;
+      await route.fallback().catch(() => {});
+    };
+    const holdPrev = async (route: Route) => {
+      const headers = route.request().headers();
+      const path = new URL(route.request().url()).pathname;
+      if (!("rsc" in headers) || !/^\/articles\/\d+$/.test(path)) return route.fallback();
+      if ("next-router-prefetch" in headers) return route.abort();
+      if (path !== prevPath) return route.fallback();
+      held++;
+      await prevReleased;
+      await route.fallback().catch(() => {});
+    };
+    await page.route("**/*", holdLookup);
+    await page.route("**/*", holdPrev);
+    await page.keyboard.press("j");
+    await page.keyboard.press("k");
+    await expect.poll(() => held).toBe(1);
+    const answered = page.waitForResponse((r) => "next-action" in r.request().headers());
+    releaseLookup();
+    await answered;
+    // Past the lookup's push, had there been one: the previous article has not arrived yet.
+    await page.waitForTimeout(500);
+    await expect(heading(page)).toHaveText(`${many} 50`);
+    releasePrev();
+    await expect(heading(page)).toHaveText(`${many} 49`);
+    await page.waitForTimeout(1000);
+    await expect(heading(page)).toHaveText(`${many} 49`);
+    expect(new URL(page.url()).pathname).toBe(prevPath);
+    await page.unroute("**/*", holdPrev);
+    await page.unroute("**/*", holdLookup);
+    await page.keyboard.press("j");
+    await expect(heading(page)).toHaveText(`${many} 50`);
+    await expect(place(page)).toHaveText("50 / 50");
+
     await page.keyboard.press("j");
     await expect(heading(page)).toHaveText(`${many} 51`);
     await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&s=\d+$/);
