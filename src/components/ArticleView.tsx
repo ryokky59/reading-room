@@ -205,7 +205,7 @@ export function ArticleView({
     try {
       const next = await nextInboxArticle(search, [...listIds, article.id], article.id);
       // As in run(): the owner may have moved on meanwhile.
-      if (next === null || window.location.pathname !== `/articles/${article.id}`) return;
+      if (next === null || !stillOn(`/articles/${article.id}`)) return;
       // Not after the list when the list has it: an article outside the filter (the list was
       // switched while it was open) gets the filter's first unread, as 読了 there does.
       if (!listIds.includes(next)) {
