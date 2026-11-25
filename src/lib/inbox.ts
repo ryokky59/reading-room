@@ -1,10 +1,11 @@
 // The inbox filter lives in the URL: `f` is a folder id or "none" (未分類), `s` a feed id,
-// `n` how many cards are shown (grown by 「もっと見る」), `a=1` also shows seen (既読) articles.
+// `v=t` the timeline (every site mixed, newest published first; not with `s`), `n` how many cards
+// are shown (grown by 「もっと見る」), `a=1` also shows seen (既読) articles.
 
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { articles, feeds } from "./db/schema";
 
-export type InboxFilter = { f?: string; s?: string; n?: string; a?: string };
+export type InboxFilter = { f?: string; s?: string; v?: "t"; n?: string; a?: string };
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const id = (v: string | undefined) => (v && /^[1-9]\d{0,9}$/.test(v) ? v : undefined);
@@ -12,20 +13,24 @@ const id = (v: string | undefined) => (v && /^[1-9]\d{0,9}$/.test(v) ? v : undef
 /** Keeps only well-formed filter values from search params. */
 export function parseInboxFilter(params: Record<string, string | string[] | undefined>): InboxFilter {
   const f = one(params.f);
+  const s = id(one(params.s));
   return {
     f: f === "none" ? f : id(f),
-    s: id(one(params.s)),
+    s,
+    // A site's list keeps its own order.
+    v: !s && one(params.v) === "t" ? "t" : undefined,
     n: id(one(params.n)),
     a: one(params.a) === "1" ? "1" : undefined,
   };
 }
 
 /**
- * Whether `/` shows the Board. A site (`s`) shows its feed list, and 既読を含む (`a`) the plain list:
- * the Board has only unread. InboxShell reads the same two params from the URL; keep them in step.
+ * Whether `/` shows the Board. A site (`s`) shows its feed list, 既読を含む (`a`) the plain list
+ * (the Board has only unread), and `v=t` the timeline. InboxShell reads the same params from the
+ * URL (showsBoardUrl); keep them in step.
  */
 export function showsBoard(filter: InboxFilter) {
-  return !filter.s && !filter.a;
+  return !filter.s && !filter.a && !filter.v;
 }
 
 /** Query string (with "?", or "" when empty) for the filter, its params always in this order. */
@@ -33,6 +38,7 @@ export function inboxQuery(filter: InboxFilter): string {
   const q = new URLSearchParams();
   if (filter.f) q.set("f", filter.f);
   if (filter.s) q.set("s", filter.s);
+  if (filter.v) q.set("v", filter.v);
   if (filter.n) q.set("n", filter.n);
   if (filter.a) q.set("a", filter.a);
   const s = q.toString();
@@ -97,3 +103,25 @@ export function listedWhere(filter: InboxFilter, { since, open, cut, kept }: Lis
 
 /** The order the list shows unread articles in, newest first; the id breaks ties so paging is stable. */
 export const inboxOrder = [desc(articles.fetchedAt), desc(articles.publishedAt), desc(articles.id)];
+
+/**
+ * The timeline's order: when the article came out, newest first. A date in the future (a feed's
+ * mistake) is held to when it was fetched, so it does not stay on top; an article with none (added
+ * by URL) goes by when it was fetched. Fetching saves a feed at a time, so inboxOrder would put
+ * each fetch's sites in blocks. The id breaks ties.
+ */
+// Spelled out: inside `sql`, drizzle renders the columns bare. `least` skips a null.
+export const timelineTime = sql<Date>`least(articles.published_at, articles.fetched_at)`;
+export const timelineOrder = [desc(timelineTime), desc(articles.id)];
+
+/** The order of the filter's list: the timeline's for `v=t`, else inboxOrder. */
+export function listOrder(filter: InboxFilter) {
+  return filter.v ? timelineOrder : inboxOrder;
+}
+
+/**
+ * Articles of feeds being fetched, and those with no feed (URL から追加): a stopped feed (paused,
+ * or failing) has its unread behind 止まっているフィード on the Board, and the timeline leaves
+ * them out too. The query must left join `feeds`.
+ */
+export const runningWhere = or(isNull(articles.feedId), and(eq(feeds.enabled, true), isNull(feeds.lastError)));
