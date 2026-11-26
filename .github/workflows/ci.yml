@@ -73,6 +73,7 @@ jobs:
               e2e/board.spec.ts
               e2e/leave.spec.ts
               e2e/reading.spec.ts
+              e2e/timeline.spec.ts
           - group: 3
             specs: >-
               e2e/activity.spec.ts
@@ -86,7 +87,6 @@ jobs:
               e2e/picks.spec.ts
               e2e/scroll-seen.spec.ts
               e2e/seen.spec.ts
-              e2e/timeline.spec.ts
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
