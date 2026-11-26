@@ -1,5 +1,5 @@
 import { createServer, type Server, type ServerResponse } from "node:http";
-import { CRON_SECRET, PORT } from "./env";
+import { CRON_SECRET, PICKS_TIMEOUT_MS, PORT } from "./env";
 import { expect, resetAfterThis, test, type Page } from "./test";
 
 // 「今朝の 5 本」 at the top of the Board (#102). The seed (e2e/seed.mts) has the same 5 picks for the
@@ -273,6 +273,14 @@ test.describe("選ぶ(/api/cron)", () => {
     res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "e2e" } }));
   };
 
+  // Never answers: the request is read and left open (#152).
+  const hang: Reply = () => {};
+  // Sends the headers and the first event, then goes quiet with the stream open.
+  const quiet: Reply = (res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write(sse("end_turn").split("\n\n")[0] + "\n\n");
+  };
+
   /** The candidate ids in a picks call, by title. */
   const idsIn = (body: string) =>
     Object.fromEntries([...body.matchAll(/<article id=\\?"(\d+)\\?"><title>(.*?)<\/title>/g)].map((m) => [m[2], Number(m[1])]));
@@ -295,6 +303,8 @@ test.describe("選ぶ(/api/cron)", () => {
   });
 
   test.afterAll(async () => {
+    // close() waits for open connections, and a stream left quiet never ends by itself.
+    api.closeAllConnections();
     await new Promise((resolve) => api.close(resolve));
   });
 
@@ -384,5 +394,33 @@ test.describe("選ぶ(/api/cron)", () => {
     expect(Array.isArray(body.failedFeeds)).toBe(true);
     // The seed's feed on a closed port.
     expect(body.failedFeeds).toContain("E2E 列 エラー");
+  });
+
+  test("AI が応答を返さないと、上限でピックをあきらめて 500。何も保存せず、同じ日にまた呼ぶ", async ({ page }) => {
+    replies.push(hang, hang);
+    // Without the limit the call would wait as long as the stub, so the request times out.
+    const timeout = PICKS_TIMEOUT_MS + 10_000;
+    expect((await page.request.get(onlyPicks("2001-01-05"), { headers: auth, timeout })).status()).toBe(500);
+    expect(calls).toHaveLength(1);
+    expect((await page.request.get(onlyPicks("2001-01-05"), { headers: auth, timeout })).status()).toBe(500);
+    expect(calls).toHaveLength(2);
+  });
+
+  test("AI がヘッダーと message_start だけ返して黙っても、/api/cron は上限のあと取得に進み、結果を 200 で返す", async ({ page }) => {
+    test.setTimeout(120_000);
+    replies.push(quiet);
+    const started = Date.now();
+    // The rest of the run, the fetch against the seed, takes well under a second (0.1–0.4 s for the
+    // test above, locally and in CI), so 15 s more is room for a slow runner. Without the limit the
+    // request runs into its own timeout.
+    const res = await page.request.get("/api/cron?day=2001-01-06", { headers: auth, timeout: PICKS_TIMEOUT_MS + 15_000 });
+    const took = Date.now() - started;
+    expect(res.status()).toBe(200);
+    expect(calls).toHaveLength(1);
+    const body = await res.json();
+    expect(typeof body.added).toBe("number");
+    expect(Array.isArray(body.failedFeeds)).toBe(true);
+    expect(took).toBeGreaterThanOrEqual(PICKS_TIMEOUT_MS);
+    expect(took).toBeLessThan(PICKS_TIMEOUT_MS + 15_000);
   });
 });

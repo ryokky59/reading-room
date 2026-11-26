@@ -252,7 +252,7 @@ ${body || "(本文なし)"}
 - summary: 記事の要点を日本語 1 文(40〜60 字)で。本文がなければタイトルから分かる範囲で 1 文`,
       },
     ],
-  });
+  }, { signal: AbortSignal.timeout(PICKS_TIMEOUT_MS) });
   const msg = await stream.finalMessage();
   if (msg.stop_reason === "refusal") throw new Error("refused");
   const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
@@ -313,6 +313,16 @@ export function streamTranslation(a: { title: string; markdown: string }, onDone
 
 export type PickCandidate = { id: number; title: string; summary: string; source: string; minutes: number | null };
 export type PickChoice = { id: number; reason: string };
+
+/**
+ * How long chooseMorningPicks may take in all, retries included. The hourly cron chooses the picks
+ * before it fetches, so an API that never answers, or goes quiet mid-stream, would otherwise use the
+ * whole maxDuration (300 s) and leave no time to fetch (#152). 60 seconds leaves 240 for the fetch.
+ * A signal rather than the SDK's `timeout`: that one stops counting once the response headers
+ * arrive, so a stream that goes quiet after them is never cut.
+ * E2E sets 3 seconds through the environment (e2e/env.ts).
+ */
+const PICKS_TIMEOUT_MS = Number(process.env.PICKS_TIMEOUT_MS) || 60_000;
 
 const escapeXml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -379,7 +389,7 @@ ${done || "(まだありません)"}
 - picks: 読む順に並べる。id は候補の id、reason は「なぜ今日これか」を日本語 1 文(40 字前後)で。要約に書かれていないことは書かない。`,
       },
     ],
-  });
+  }, { signal: AbortSignal.timeout(PICKS_TIMEOUT_MS) });
   const msg = await stream.finalMessage();
   if (msg.stop_reason === "refusal") throw new Error("refused");
   const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
