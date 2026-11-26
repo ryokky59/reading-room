@@ -735,19 +735,43 @@ test.describe("横向きのスマホ 844×390 @mobile", () => {
     await page.goBack();
     await expect(heading(page)).toHaveText("E2E 横向きで開く 2");
     await page.goForward();
-    // A column this test never reads shows the Board is drawn. The two rows it
-    // opened can leave the Board: when back reloads the article as a document,
-    // `since` moves past them, and the Board after forward no longer lists them
-    // (whether they should stay is #162).
-    await expect(page).toHaveURL("/");
-    await expect(column(page, "E2E 横向きで残る")).toBeVisible();
-    await expect(heading(page)).toHaveCount(0);
-    await page.waitForTimeout(1000);
-    await expect(page).toHaveURL("/");
-    await expect(column(page, "E2E 横向きで残る")).toBeVisible();
-    await expect(heading(page)).toHaveCount(0);
+    await expectOpenedRowsStay(page, "E2E 横向きで開く");
   });
 });
+
+test("1000×800 でボードから開いて「戻る」のあと、ブラウザの戻る→進むでも、読んだ行がボードに残る", async ({ page }) => {
+  await page.setViewportSize(BESIDE);
+  await page.goto("/");
+  await row(page, "E2E 横並びで開く", "E2E 横並びで開く 1").getByRole("link").click();
+  await expect(heading(page)).toHaveText("E2E 横並びで開く 1");
+  await expect(card(page, "E2E 横並びで開く 1")).toHaveAttribute("aria-current", "true");
+  await page.keyboard.press("j");
+  await expect(heading(page)).toHaveText("E2E 横並びで開く 2");
+  await page.getByRole("link", { name: "戻る", exact: true }).click();
+  await expect(page).toHaveURL("/");
+  await expect(heading(page)).toHaveCount(0);
+
+  await page.goBack();
+  await expect(heading(page)).toHaveText("E2E 横並びで開く 2");
+  await page.goForward();
+  await expectOpenedRowsStay(page, "E2E 横並びで開く");
+});
+
+/**
+ * After back / forward from the Board's article beside the list (600–1023px), the Board shows its
+ * two opened rows faded, and still does after the refresh that follows (#162): back reloads the
+ * article as a document, and that load must not start the sitting again.
+ */
+async function expectOpenedRowsStay(page: Page, name: string) {
+  for (const wait of [0, 3000]) {
+    await page.waitForTimeout(wait);
+    await expect(page).toHaveURL("/");
+    await expect(heading(page)).toHaveCount(0);
+    await expect(rows(page, name)).toHaveCount(2);
+    await expect(row(page, name, `${name} 1`)).toHaveAttribute("data-seen", "");
+    await expect(row(page, name, `${name} 2`)).toHaveAttribute("data-seen", "");
+  }
+}
 
 test.describe("スマホ @mobile", () => {
   test("フィードごとに見出し 3 本と「もっと見る」が出て、そのフィードの一覧になり、「‹ ボード」で戻れる @mobile", async ({ page }) => {

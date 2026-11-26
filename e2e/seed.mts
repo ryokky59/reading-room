@@ -532,8 +532,7 @@ const boardFeeds = await db
     { ...feed("board-only-stopped", "E2E 止まりの列", boardStopped.id), enabled: false },
     feed("board-side", "E2E 横向きで開く", boardSide.id),
     feed("board-widen", "E2E 広げて一覧", boardSide.id),
-    // No test opens this one: its column shows the Board is drawn after forward.
-    feed("board-side-stays", "E2E 横向きで残る", boardSide.id),
+    feed("board-beside", "E2E 横並びで開く", boardSide.id),
     feed("board-three", "E2E 三本の列", boardThree.id),
     feed("board-fourth", "E2E 四本目の列", boardFourth.id),
     feed("board-prefetch", "E2E 先読みの列", boardPrefetch.id),
@@ -589,7 +588,7 @@ const boardArticles = [
   ...boardRows("E2E 止まりの列", 1),
   ...boardRows("E2E 横向きで開く", 2),
   ...boardRows("E2E 広げて一覧", 2),
-  ...boardRows("E2E 横向きで残る", 1),
+  ...boardRows("E2E 横並びで開く", 2),
   ...boardRows("E2E 三本の列", 6),
   ...boardRows("E2E 四本目の列", 5),
   // Enough to scroll the column by a screen at 1440×900, which marks the rows passed as seen.

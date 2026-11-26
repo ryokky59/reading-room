@@ -161,15 +161,59 @@ export function ListedSince({ since }: { since: number }) {
  * article, which the router loads as a document when it cannot fetch it. Mounted once per
  * document, in the root layout; a layout effect, so the cookie is cleared before
  * ListAfterFullLoad's effect asks for the list.
+ *
+ * Left alone too is a load the router does itself on browser back / forward (#162): beside an
+ * article (600–1023px) Next.js keeps the list slot's refresh URL as the Board's `/`, and when it
+ * restores an entry whose slot is stale it refetches the list from there, gets the Board, and
+ * replaces the page with the entry's URL as a document. That load's type is `navigate`, like an
+ * URL opened by hand; what tells it apart is the traversal to the same URL just before.
  */
 export function ListedOnFullLoad() {
   useLayoutEffect(() => {
+    const byRouter = takeTraversal();
     const path = window.location.pathname;
-    if (path === "/" || /^\/articles\/[^/]+\/list$/.test(path)) return;
-    const { since, open, cut, kept } = readListed();
-    if (since !== null || Object.keys(cut).length > 0 || kept.length > 0) writeListed({ since: null, open, cut: {}, kept: [] });
+    if (!byRouter && path !== "/" && !/^\/articles\/[^/]+\/list$/.test(path)) {
+      const { since, open, cut, kept } = readListed();
+      if (since !== null || Object.keys(cut).length > 0 || kept.length > 0) writeListed({ since: null, open, cut: {}, kept: [] });
+    }
+    window.addEventListener("popstate", noteTraversal);
+    return () => window.removeEventListener("popstate", noteTraversal);
   }, []);
   return null;
+}
+
+// Where the browser last went back / forward to, for ListedOnFullLoad. Per tab, as is the history.
+const TRAVERSED_KEY = "traversed";
+// The router's load follows a refetch or two; long enough for a slow phone's network.
+const TRAVERSAL_MS = 30_000;
+
+function noteTraversal() {
+  try {
+    sessionStorage.setItem(TRAVERSED_KEY, JSON.stringify({ href: window.location.href, at: Date.now() }));
+  } catch {}
+}
+
+/**
+ * Whether this document is the router's load of the URL the browser just went back / forward to,
+ * rather than one the owner opened or reloaded. Forgets the traversal either way.
+ */
+function takeTraversal() {
+  try {
+    const raw = sessionStorage.getItem(TRAVERSED_KEY);
+    if (raw === null) return false;
+    sessionStorage.removeItem(TRAVERSED_KEY);
+    const { href, at } = JSON.parse(raw) as { href?: unknown; at?: unknown };
+    const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    return (
+      href === window.location.href &&
+      typeof at === "number" &&
+      Date.now() - at >= 0 &&
+      Date.now() - at < TRAVERSAL_MS &&
+      entry?.type === "navigate"
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** A row that SeenOnScroll marked as seen, or is about to. */
