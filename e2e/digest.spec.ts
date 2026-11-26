@@ -17,6 +17,7 @@ const TRANSLATION_FAILED = "(日本語にまとめられませんでした。や
 const TRANSLATION_CUT = "(記事が長く、ここまでで切れました。やり直してください)";
 const REVIEW_FAILED = "(この月の振り返りは作れませんでした。作り直してください)";
 const REVIEW_CUT = "(振り返りが長くなり、ここまでで切れました。作り直してください)";
+const CHAT_CUT = "(返答が長くなり、ここまでで切れました)";
 // The widths the owner reads on: a phone upright and on its side, and a PC.
 const VIEWPORTS = [
   { width: 390, height: 844 },
@@ -115,14 +116,17 @@ test.describe("要約と翻訳の失敗", () => {
     digest: {} as Record<string, number>,
     translate: {} as Record<string, number>,
     review: {} as Record<string, number>,
+    chat: {} as Record<string, number>,
   };
   // The stub's next look-back replies, oldest first.
   const reviewReplies: string[] = [];
+  // The stub's next chat replies, oldest first. With none queued, a chat call gets a 400.
+  const chatReplies: string[] = [];
   // When the stub last received a digest call, by title.
   const lastDigest: Record<string, number> = {};
   // While set, the next digest call for 同時取得テストの記事 waits for it before failing.
   let holdDigest: Promise<void> | null = null;
-  const titles = ["上限テストの記事", "同時取得テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", "Translation cut-off test", SEEDED, SEEDED_MOBILE];
+  const titles = ["上限テストの記事", "同時取得テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", "Translation cut-off test", SEEDED, SEEDED_MOBILE, "対話が切れる記事"];
   // Each test has its own feed, empty while it is added, so its articles come in through 「今すぐ取得」.
   const listed: Record<string, string[]> = { "/limit.xml": [], "/other.xml": [], "/refused.xml": [], "/translate.xml": [], "/cut.xml": [], "/overlap.xml": [] };
 
@@ -162,9 +166,13 @@ test.describe("要約と翻訳の失敗", () => {
       req.on("end", () => {
         const body = JSON.parse(raw) as { output_config?: { format?: unknown } };
         // The look-back lists every article read that month, so it is told apart before the titles.
+        // Only a chat call has the article in <article> in its system prompt; it is told apart
+        // before translations, which would count it otherwise.
         const kind = raw.includes("振り返りを書いてください")
           ? "review"
-          : body.output_config?.format
+          : raw.includes("<article>")
+            ? "chat"
+            : body.output_config?.format
             ? "digest"
             : "translate";
         const title = kind === "review" ? "(month)" : (titles.find((t) => raw.includes(t)) ?? "(other)");
@@ -176,7 +184,14 @@ test.describe("要約と翻訳の失敗", () => {
         };
         const digest = (lang: string, titleJa: string) =>
           stream(sse("end_turn", JSON.stringify({ lang, title_ja: titleJa, summary: `${titleJa}の要約です。` })));
-        if (kind === "review") {
+        if (kind === "chat") {
+          const reply = chatReplies.shift();
+          if (reply) stream(reply);
+          else {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "e2e" } }));
+          }
+        } else if (kind === "review") {
           // A test that queues its own replies does not depend on the calls earlier tests made;
           // otherwise refused first, then ended with nothing written.
           const reply = reviewReplies.shift();
@@ -518,5 +533,74 @@ test.describe("要約と翻訳の失敗", () => {
     await expect(month).not.toContainText(REVIEW_CUT);
     expect(calls.review["(month)"] - before).toBe(4);
     expect(reviewReplies).toHaveLength(0);
+  });
+  test("対話の返答が長さの上限で切れると、途中までの返答の下に切れた旨の文が出て保存され、次の返答には付かない", async ({
+    page,
+  }) => {
+    const TITLE = "対話が切れる記事";
+    const PARTIAL = "途中までの返答です。";
+    const COMPLETE = "続きの返答です。";
+    chatReplies.splice(0, chatReplies.length, sse("max_tokens", PARTIAL), sse("end_turn", COMPLETE));
+    const before = calls.chat[TITLE] ?? 0;
+    const chat = page.getByRole("complementary", { name: "AI と話す" });
+    // The reply's box: the note's characters must end inside it, and inside the pane it scrolls in.
+    const reply = (text: string) => chat.locator("div.rounded-xl").filter({ has: page.getByText(text) });
+    const expectNoteFits = async (at: string) => {
+      await expect(chat.getByText(CHAT_CUT)).toBeVisible();
+      const over = await chat.getByText(CHAT_CUT).evaluate((el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const right = Math.max(...Array.from(range.getClientRects(), (r) => r.right));
+        const box = el.closest("div.rounded-xl")!.getBoundingClientRect();
+        return right - box.right;
+      });
+      // 1px for fractional widths.
+      expect(over, at).toBeLessThanOrEqual(1);
+      expect(await textOverflow(page, CHAT_CUT), at).toBeLessThanOrEqual(1);
+      expect(await pageOverflow(page), at).toBeLessThanOrEqual(0);
+    };
+
+    // From 1440px the chat is a column that is always shown.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/read");
+    await page.getByRole("link", { name: new RegExp(TITLE) }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(TITLE);
+    await chat.getByRole("button", { name: "要約してもらう" }).click();
+
+    // Cut off: what came, then the note under it, and no 「考えています…」.
+    await expect(chat).toContainText(PARTIAL);
+    await expect(chat).toContainText(CHAT_CUT);
+    await expect(chat.getByText("考えています…")).toHaveCount(0);
+    await expect(chat.getByRole("button", { name: "要約をもう一度試す" })).toHaveCount(0);
+    const partial = await chat.getByText(PARTIAL).boundingBox();
+    const note = await chat.getByText(CHAT_CUT).boundingBox();
+    expect(note!.y).toBeGreaterThan(partial!.y);
+    await expectNoteFits("1440×900");
+
+    // On a phone the chat is a sheet.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "対話の続きを開く" }).click();
+    await expectNoteFits("390×844");
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // It was kept: after a reload the same reply and note are there.
+    await page.reload();
+    await expect(chat).toContainText(PARTIAL);
+    await expect(chat.getByText(CHAT_CUT)).toHaveCount(1);
+
+    // A reply that ends comes under it without the note, and the cut-off one stays.
+    await chat.getByPlaceholder("質問や感想を書く").fill("続きを");
+    await chat.getByRole("button", { name: "送信" }).click();
+    await expect(chat).toContainText(COMPLETE);
+    await expect(chat).toContainText(PARTIAL);
+    await expect(chat.getByText(CHAT_CUT)).toHaveCount(1);
+    await expect(reply(COMPLETE)).not.toContainText(CHAT_CUT);
+    const complete = await chat.getByText(COMPLETE).boundingBox();
+    expect(complete!.y).toBeGreaterThan((await chat.getByText(CHAT_CUT).boundingBox())!.y);
+    await page.reload();
+    await expect(chat).toContainText(COMPLETE);
+    await expect(chat.getByText(CHAT_CUT)).toHaveCount(1);
+    expect(calls.chat[TITLE] - before).toBe(2);
+    expect(chatReplies).toHaveLength(0);
   });
 });

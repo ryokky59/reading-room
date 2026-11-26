@@ -82,6 +82,12 @@ export function streamChat(article: Article, turns: Turn[], onDone: (text: strin
           const note = "\n\n(この内容には回答できませんでした)";
           full += note;
           controller.enqueue(encoder.encode(note));
+        } else if (final.stop_reason === "max_tokens" && full.trim()) {
+          // Kept and saved: the user's turn is already stored, and a later "続きを" picks up from here.
+          // No 「エラー」 in it: ArticleView offers a new summary when the last reply contains that word.
+          const note = "\n\n(返答が長くなり、ここまでで切れました)";
+          full += note;
+          controller.enqueue(encoder.encode(note));
         }
         if (full.trim()) await onDone(full);
       } catch (err) {

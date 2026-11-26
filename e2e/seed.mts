@@ -45,6 +45,8 @@ const inserted = await db
       summary: "長い要約の記事です。".repeat(12),
     }),
     article(5, { title: "対話のある記事", titleJa: "対話のある記事" }),
+    // e2e/digest.spec.ts: a reply cut off by the length limit. Read, so it stays off the Board.
+    article(138, { title: "対話が切れる記事", titleJa: "対話が切れる記事", status: "read", readAt: new Date(now) }),
   ])
   .returning({ id: schema.articles.id, title: schema.articles.title });
 
