@@ -28,7 +28,7 @@ export const EVENT_TYPES = [
 export type EventType = (typeof EVENT_TYPES)[number];
 
 /** Where an article was opened from; see 「行動ログ」 in README.md. */
-export const OPEN_SOURCES = ["board", "list", "timeline", "next", "key", "read", "direct"] as const;
+export const OPEN_SOURCES = ["board", "picks", "list", "timeline", "next", "key", "read", "direct"] as const;
 export type OpenSource = (typeof OPEN_SOURCES)[number];
 
 export const SCREENS = ["board", "list", "timeline", "article", "read", "feeds"] as const;

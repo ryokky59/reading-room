@@ -81,6 +81,7 @@ jobs:
               e2e/mobile-scroll.spec.ts
               e2e/panes.spec.ts
               e2e/pause-feed.spec.ts
+              e2e/picks.spec.ts
               e2e/scroll-seen.spec.ts
               e2e/seen.spec.ts
               e2e/timeline.spec.ts

@@ -19,5 +19,5 @@ The goal is a better process next time, not a report. Run this yourself (not in 
    - うまくいったこと (one or two lines)
    - 手戻り・詰まったこと と その原因
    - 改善 (file and the change), or 「今回は変更なし」
-5. If there are changes, make them in a worktree on a branch `retro-<issue>-<slug>` from the latest `origin/main`, and open a PR titled `振り返り #<issue>: ...` whose body links the retrospective comment. The owner merges it; never push to `main`.
-6. Tell the owner in Japanese, in about three lines: the main lesson, and the process PR URL (or that nothing changed).
+5. If there are changes, make them in a worktree on a branch `retro-<issue>-<slug>` from the latest `origin/main`, and open a PR titled `振り返り #<issue>: ...` whose body links the retrospective comment. Merge it once its checks pass (`gh pr merge <PR> --merge`), unless it changes app code or removes a stop for a step that cannot be undone (`.claude/automation/pick-issue.md` step 7); then leave it open with a comment saying why. Never push to `main`.
+6. Tell the owner in Japanese, in about three lines: the main lesson, and the process PR URL and whether it was merged (or that nothing changed).

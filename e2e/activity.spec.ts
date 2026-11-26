@@ -95,6 +95,45 @@ test.describe("PC 幅", () => {
     expect(next.sessionId).toBe(first.sessionId);
   });
 
+  test("「今朝の 5 本」の行から開くと source=picks、同じ記事を列の行から開くと source=board。別タブで開いた後も board のまま", async ({
+    page,
+  }) => {
+    // The fifth pick is this test's (e2e/picks.spec.ts).
+    const title = "今朝の 5 本目";
+    const picks = page.getByRole("region", { name: "今朝の 5 本", exact: true });
+    const columnRow = column(page, "E2E 今朝のサイト").getByRole("listitem").filter({ hasText: title });
+    await page.goto("/");
+    const sent = recordActivity(page);
+    let open = nextOpen(page);
+    await picks.getByRole("link", { name: new RegExp(title) }).click();
+    await expect(heading(page)).toHaveText(title);
+    const id = openId(page);
+    expect(await open).toMatchObject({ type: "open", source: "picks", articleId: id, screen: "article" });
+    await expectOpens(sent, 1);
+
+    // Back on the Board, the same article from its column.
+    await page.goBack();
+    await expect(heading(page)).toHaveCount(0);
+    open = nextOpen(page);
+    await columnRow.getByRole("link").click();
+    await expect(heading(page)).toHaveText(title);
+    expect(await open).toMatchObject({ source: "board", articleId: id });
+    await expectOpens(sent, 2);
+
+    // A pick opened in another tab marks nothing here: the next one from a column is still `board`.
+    await page.goBack();
+    await expect(heading(page)).toHaveCount(0);
+    const tab = page.context().waitForEvent("page");
+    await picks.getByRole("link", { name: new RegExp(title) }).click({ modifiers: ["ControlOrMeta"] });
+    await (await tab).close();
+    await expect(heading(page)).toHaveCount(0);
+    open = nextOpen(page);
+    await columnRow.getByRole("link").click();
+    await expect(heading(page)).toHaveText(title);
+    expect(await open).toMatchObject({ source: "board", articleId: id });
+    await expectOpens(sent, 3);
+  });
+
   test("記事の横でフォルダのチップや「もっと見る」を押しても open は増えない", async ({ page }) => {
     // The list beside an open article: from `lg` up the article is a sheet over it (panes.spec.ts).
     await page.setViewportSize(BESIDE);
@@ -242,6 +281,7 @@ test.describe("/api/activity", () => {
     // Optional fields may be left out, and an article that is gone is not an error.
     expect((await post(page, { ...valid, articleId: undefined, source: null, viewId: undefined })).status()).toBe(204);
     expect((await post(page, { ...valid, articleId: 999_999 })).status()).toBe(204);
+    expect((await post(page, { ...valid, source: "picks" })).status()).toBe(204);
     expect((await post(page, { ...valid, scrollPct: 100, dwellMs: 0, props: { via: "key" } })).status()).toBe(204);
 
     for (const bad of [

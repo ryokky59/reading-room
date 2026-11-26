@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "../src/lib/db/schema";
-import { DIGEST_ATTEMPT_LIMIT } from "../src/lib/format";
+import { DIGEST_ATTEMPT_LIMIT, pickDay } from "../src/lib/format";
 
 const dir = process.env.PGLITE_DIR;
 if (!dir) throw new Error("PGLITE_DIR is required");
@@ -45,6 +45,8 @@ const inserted = await db
       summary: "長い要約の記事です。".repeat(12),
     }),
     article(5, { title: "対話のある記事", titleJa: "対話のある記事" }),
+    // e2e/digest.spec.ts: a reply cut off by the length limit. Read, so it stays off the Board.
+    article(138, { title: "対話が切れる記事", titleJa: "対話が切れる記事", status: "read", readAt: new Date(now) }),
   ])
   .returning({ id: schema.articles.id, title: schema.articles.title });
 
@@ -532,8 +534,7 @@ const boardFeeds = await db
     { ...feed("board-only-stopped", "E2E 止まりの列", boardStopped.id), enabled: false },
     feed("board-side", "E2E 横向きで開く", boardSide.id),
     feed("board-widen", "E2E 広げて一覧", boardSide.id),
-    // No test opens this one: its column shows the Board is drawn after forward.
-    feed("board-side-stays", "E2E 横向きで残る", boardSide.id),
+    feed("board-beside", "E2E 横並びで開く", boardSide.id),
     feed("board-three", "E2E 三本の列", boardThree.id),
     feed("board-fourth", "E2E 四本目の列", boardFourth.id),
     feed("board-prefetch", "E2E 先読みの列", boardPrefetch.id),
@@ -589,7 +590,7 @@ const boardArticles = [
   ...boardRows("E2E 止まりの列", 1),
   ...boardRows("E2E 横向きで開く", 2),
   ...boardRows("E2E 広げて一覧", 2),
-  ...boardRows("E2E 横向きで残る", 1),
+  ...boardRows("E2E 横並びで開く", 2),
   ...boardRows("E2E 三本の列", 6),
   ...boardRows("E2E 四本目の列", 5),
   // Enough to scroll the column by a screen at 1440×900, which marks the rows passed as seen.
@@ -851,11 +852,12 @@ const timelineFolders = await db
       "E2E 時系列と別のタブ",
       "E2E 時系列でスキップ失敗",
       "E2E 時系列の記録",
+      "E2E 時系列から新着",
     ].map((name, i) => ({ name, position: 210 + i })),
   )
   .returning();
 // More than a page of the list (30) in the first two; the phone's scrolls.
-const timelineCounts = [34, 32, 4, 4, 16, 4, 4, 4];
+const timelineCounts = [34, 32, 4, 4, 16, 4, 4, 4, 2];
 const timelineFeeds = await db
   .insert(schema.feeds)
   .values(timelineFolders.flatMap((f, i) => ["A", "B"].map((s) => feed(`timeline-${i}-${s}`, `${f.name} ${s}`, f.id))))
@@ -903,6 +905,53 @@ timelineArticles.push(
 );
 await db.insert(schema.articles).values(timelineArticles);
 
+// 「今朝の 5 本」 (e2e/picks.spec.ts): a feed of its own whose 5 articles are the picks of the pick
+// day the seed is made in and of the next one, so a run that passes 6:00 JST still finds them.
+// No other test opens them. Each test that opens one opens its own row (see the spec).
+const [picksFolder, candidateFolder] = await db
+  .insert(schema.folders)
+  .values(["E2E 今朝のフォルダ", "E2E ピック候補"].map((name, i) => ({ name, position: 230 + i })))
+  .returning();
+const [picksFeed, candidateFeed] = await db
+  .insert(schema.feeds)
+  .values([feed("picks", "E2E 今朝のサイト", picksFolder.id), feed("pick-candidates", "E2E ピック候補のサイト", candidateFolder.id)])
+  .returning();
+const pickTitles = ["今朝の 1 本目", "今朝の 2 本目", "今朝の 3 本目", "今朝の 4 本目", "今朝の 5 本目"];
+const pickArticles = await db
+  .insert(schema.articles)
+  .values(
+    pickTitles.map((title, j) =>
+      article(9500 + j, {
+        // The second is a foreign article, for 英→日.
+        ...(j === 1 ? { title: "Second pick of the morning", lang: "other" } : { title }),
+        titleJa: title,
+        source: picksFeed.name,
+        feedId: picksFeed.id,
+        charCount: 1200 * (j + 1),
+        fetchedAt: old(9500 + j),
+      }),
+    ),
+  )
+  .returning({ id: schema.articles.id });
+await db.insert(schema.picks).values(
+  [pickDay(new Date(now)), pickDay(new Date(now + 86_400_000))].flatMap((day) =>
+    pickArticles.map((a, position) => ({ day, position, articleId: a.id, reason: `${pickTitles[position]}を選んだ理由です。` })),
+  ),
+);
+// What the morning's choice is made from (e2e/picks.spec.ts): unread, summarized and fetched within
+// the last day, and fetched 20 hours before the seed, so they stay so for the whole run.
+const candidateArticles = ["選ぶ候補 A", "選ぶ候補 B"].map((title, j) =>
+  article(9600 + j, {
+    title,
+    titleJa: title,
+    summary: `${title}の要約です。`,
+    source: candidateFeed.name,
+    feedId: candidateFeed.id,
+    fetchedAt: new Date(now - 20 * 3600_000 - j * 60_000),
+  }),
+);
+await db.insert(schema.articles).values(candidateArticles);
+
 console.log(
-  `seeded ${inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + freshArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length + timelineArticles.length} articles into ${dir}`,
+  `seeded ${pickArticles.length + candidateArticles.length + inserted.length + 1 + filterArticles.length + paneArticles.length + scrollArticles.length + pauseArticles.length + pastArticles.length + sameTimeArticles.length + switchArticles.length + pressArticles.length + leaveArticles.length + seenArticles.length + undoSeenArticles.length + freshArticles.length + boardArticles.length + activityArticles.length + readingArticles.length + actionArticles.length + skimArticles.length + sheetArticles.length + unlistedArticles.length + timelineArticles.length} articles into ${dir}`,
 );
