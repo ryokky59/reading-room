@@ -251,6 +251,58 @@ test.describe("PC 幅", () => {
   });
 });
 
+test("時系列のフォルダの「すべて既読」は止まったフィードの未読を残す。「N 本」は数えたままで、ボードの「すべて既読」は止まったフィードも既読にする", async ({ page, context }) => {
+  // Two unread of a running feed, one of a paused feed and one of a failing feed.
+  const folder = "E2E 時系列ですべて既読";
+  const running = "E2E 時系列すべて 動く";
+  const markAll = page.getByRole("button", { name: "すべて既読" });
+  const toast = page.getByRole("status");
+  const empty = page.getByText("止まっているフィードに未読が 2 本あります。");
+  await openTimeline(page, folder);
+  await expect(unread(page)).toHaveText("4 本");
+  await expect(list(page).getByRole("listitem")).toHaveCount(2);
+
+  // Offline: nothing is saved, and the cards and the count stay.
+  await context.setOffline(true);
+  await markAll.click();
+  await expect(failed(page)).toBeVisible();
+  await expect(list(page).getByRole("listitem")).toHaveCount(2);
+  await expect(unread(page)).toHaveText("4 本");
+  await context.setOffline(false);
+
+  // Only the two it shows; the count still has the stopped feeds', as the Board's does.
+  await markAll.click();
+  await expect(toast).toContainText("2 本を既読にしました");
+  await expect(empty).toBeVisible();
+  await expect(unread(page)).toHaveText("2 本");
+
+  // 「元に戻す」 brings back the two it marked, and nothing else changes.
+  await toast.getByRole("button", { name: "元に戻す" }).click();
+  await expect(card(page, `${running} 1`)).toBeVisible();
+  await expect(card(page, `${running} 2`)).toBeVisible();
+  await expect(list(page).getByRole("listitem")).toHaveCount(2);
+  await expect(unread(page)).toHaveText("4 本");
+
+  await markAll.click();
+  await expect(toast).toContainText("2 本を既読にしました");
+  await expect(empty).toBeVisible();
+
+  // The stopped feeds' unread wait behind 止まっているフィード on the Board.
+  await byBoard(page).click();
+  await expect(page).toHaveURL(/\/\?f=\d+$/);
+  const stopped = page.getByRole("region", { name: "止まっているフィード" });
+  await expect(stopped.getByRole("listitem").filter({ hasText: "E2E 時系列すべて 止めた" })).toContainText("未読 1 本");
+  await expect(stopped.getByRole("listitem").filter({ hasText: "E2E 時系列すべて エラー" })).toContainText("未読 1 本");
+  await expect(unread(page)).toHaveText("2 本");
+
+  // The Board's 「すべて既読」 for the folder marks them too.
+  await page.getByRole("main").getByRole("button", { name: "すべて既読" }).first().click();
+  await expect(toast).toContainText("2 本を既読にしました");
+  // The feeds stay listed, with no unread left.
+  await expect(stopped.getByRole("listitem")).toHaveCount(2);
+  await expect(stopped).not.toContainText("未読");
+});
+
 test.describe("スマホ幅 @mobile", () => {
   /** Scrolls the timeline well down and opens `title`; answers where the list was. */
   async function openFromScrolled(page: Page, title: string) {

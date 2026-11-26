@@ -1326,7 +1326,8 @@ function CardUnseeButton({ id }: { id: number }) {
  * its toast offers 「元に戻す」, and 「既読を含む」 still has the articles. Only what the screen
  * had is marked: `upTo` is the fetched_at (ms) of the newest article it shows, so one fetched
  * since stays unread. A site's leaves the seen rows of the other Board columns in place; a
- * folder's leaves only the open article.
+ * folder's leaves only the open article. The timeline's folder leaves its stopped feeds unread:
+ * it does not show them, and the Board's 止まっているフィード does.
  */
 export function MarkAllSeenButton({
   target,
@@ -1354,7 +1355,7 @@ export function MarkAllSeenButton({
           try {
             ({ seenAt, count } = await ("feedId" in target
               ? markFeedSeen(target.feedId, upTo)
-              : markFolderSeen(target.folderId, upTo)));
+              : markFolderSeen(target.folderId, upTo, screen === "timeline")));
           } catch (e) {
             console.error(e);
             toast.fail(FAILED);
