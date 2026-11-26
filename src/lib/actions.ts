@@ -207,13 +207,28 @@ export async function markFeedSeen(feedId: number | null, upTo: number | null): 
   return setAllSeen(feedId === null ? isNull(articles.feedId) : eq(articles.feedId, feedId), upTo);
 }
 
-/** Everything unread in a folder up to `upTo`; null is 未分類, which also holds the articles without a feed. */
-export async function markFolderSeen(folderId: number | null, upTo: number | null): Promise<SeenAll> {
+/**
+ * Everything unread in a folder up to `upTo`; null is 未分類, which also holds the articles without a
+ * feed. `running` leaves out the feeds that are stopped (paused, or failing), as runningWhere does:
+ * the timeline does not show their unread, so its 「すべて既読」 leaves them for 止まっているフィード
+ * on the Board. That takes a join, which an UPDATE of `articles` does not have, so it is spelled
+ * out on the feeds the folder picks.
+ */
+export async function markFolderSeen(
+  folderId: number | null,
+  upTo: number | null,
+  running = false,
+): Promise<SeenAll> {
   const db = await getDb();
   const inFolder = db
     .select({ id: feeds.id })
     .from(feeds)
-    .where(folderId === null ? isNull(feeds.folderId) : eq(feeds.folderId, folderId));
+    .where(
+      and(
+        folderId === null ? isNull(feeds.folderId) : eq(feeds.folderId, folderId),
+        running === true ? and(eq(feeds.enabled, true), isNull(feeds.lastError)) : undefined,
+      ),
+    );
   return setAllSeen(
     folderId === null
       ? or(isNull(articles.feedId), inArray(articles.feedId, inFolder))

@@ -81,6 +81,7 @@ const seededFeeds = await db
   .values([
     feed("move", "E2E 移動するフィード", tech.id),
     feed("move-mobile", "E2E スマホで移動するフィード", tech.id),
+    feed("move-keys", "E2E キーで移動するフィード", tech.id),
     feed("keep", "E2E 残るフィード", toDelete.id),
   ])
   .returning();
@@ -905,6 +906,45 @@ timelineArticles.push(
     feedId: timelineStopped.id,
     fetchedAt: fetchedA,
     publishedAt: new Date(publishedFrom + 60_000),
+  }),
+);
+// 「すべて既読」 on the timeline (#193): two unread of a running feed, and one each of a paused feed
+// and a failing one, which the timeline does not show.
+const [markAllFolder] = await db
+  .insert(schema.folders)
+  .values({ name: "E2E 時系列ですべて既読", position: 220 })
+  .returning();
+const markAllFeeds = await db
+  .insert(schema.feeds)
+  .values([
+    feed("timeline-all-running", "E2E 時系列すべて 動く", markAllFolder.id),
+    { ...feed("timeline-all-paused", "E2E 時系列すべて 止めた", markAllFolder.id), enabled: false },
+    // On a closed port, so 「今すぐ取得」 keeps its error.
+    {
+      ...feed("timeline-all-error", "E2E 時系列すべて エラー", markAllFolder.id),
+      url: "http://localhost:9/e2e/feeds/timeline-all-error",
+      lastError: "fetch failed",
+    },
+  ])
+  .returning();
+timelineArticles.push(
+  ...(
+    [
+      [0, 1],
+      [0, 2],
+      [1, 1],
+      [2, 1],
+    ] as const
+  ).map(([i, k]) => {
+    const f = markAllFeeds[i];
+    return article(timelineN++, {
+      title: `${f.name} ${k}`,
+      titleJa: `${f.name} ${k}`,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: fetchedA,
+      publishedAt: new Date(publishedFrom - k * 60_000),
+    });
   }),
 );
 await db.insert(schema.articles).values(timelineArticles);

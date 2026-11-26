@@ -12,6 +12,14 @@ const folderOrder = (page: Page) =>
   page
     .locator("main section:not([aria-label='未分類'])")
     .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+const folderMenu = (page: Page, feedName: string) => page.getByRole("combobox", { name: `${feedName} のフォルダ` });
+// A feed's folder menu holds only its current folder until it is touched (#130). Focus it first,
+// as the owner's tap does, so the other folders are there to pick.
+async function pickFolder(page: Page, feedName: string, folderName: string) {
+  const menu = folderMenu(page, feedName);
+  await menu.focus();
+  await menu.selectOption({ label: folderName });
+}
 
 test("移行後、既存の Tech / Business のフィードが同名のフォルダに入っている", async ({ page }) => {
   await page.goto("/feeds");
@@ -28,12 +36,6 @@ test("移行後、既存の Tech / Business のフィードが同名のフォル
 });
 
 test("フォルダを作成・名前変更・並べ替え・削除できる", async ({ page }) => {
-  // Longer than the 30s default, and why: /feeds offers every folder in every feed's folder menu,
-  // and the seed gives each test its own folder and sites, so here the page holds about 27,000
-  // <option>s (2.3 MB of HTML; the owner's has a few hundred). Each of this test's seven saves and
-  // its reload redraws that page, and the trace snapshots it at every step. That takes 4s here
-  // untraced on a laptop, 6.5s traced, and 21–33s on a CI runner, so 30s was missed now and then.
-  test.setTimeout(60_000);
   await page.goto("/feeds");
   await page.getByRole("textbox", { name: "新しいフォルダ名" }).fill("E2E 新フォルダ");
   await page.getByRole("button", { name: "フォルダを作成" }).click();
@@ -73,11 +75,48 @@ test("フォルダを作成・名前変更・並べ替え・削除できる", as
 test("フィードを別のフォルダに移すと、移した先のフォルダに表示される", async ({ page }) => {
   await page.goto("/feeds");
   await expect(feedRow(page, "Tech", "E2E 移動するフィード")).toBeVisible();
-  await page.getByRole("combobox", { name: "E2E 移動するフィード のフォルダ" }).selectOption({ label: "E2E 移動先" });
+  await pickFolder(page, "E2E 移動するフィード", "E2E 移動先");
   await expect(feedRow(page, "E2E 移動先", "E2E 移動するフィード")).toBeVisible();
   await expect(feedRow(page, "Tech", "E2E 移動するフィード")).toHaveCount(0);
   await page.reload();
   await expect(feedRow(page, "E2E 移動先", "E2E 移動するフィード")).toBeVisible();
+});
+
+test("フィードのフォルダのメニューは、触るまでいまのフォルダだけで、触ると全フォルダが並ぶ", async ({ page }) => {
+  await page.goto("/feeds");
+  // Feeds no test moves.
+  const menu = folderMenu(page, "Zenn トレンド");
+  await expect(menu.getByRole("option")).toHaveText(["Tech"]);
+  await expect(menu).toHaveValue(/^\d+$/);
+  const unfiled = folderMenu(page, "E2E 未分類の列");
+  await expect(unfiled.getByRole("option")).toHaveText(["未分類"]);
+  await expect(unfiled).toHaveValue("");
+
+  // The add form always offers every folder and 未分類, so it gives the full count.
+  const all = await page.getByRole("combobox", { name: "追加先のフォルダ" }).getByRole("option").allTextContents();
+  const before = await menu.inputValue();
+  await menu.focus();
+  await expect(menu.getByRole("option")).toHaveText(all);
+  await expect(menu).toHaveValue(before);
+  await expect(menu.locator("option:checked")).toHaveText("Tech");
+  // Touching one menu fills only that one.
+  await expect(folderMenu(page, "Hacker News (100pt以上)").getByRole("option")).toHaveText(["Tech"]);
+});
+
+test("キーボードだけでフィードを別のフォルダに移せる", async ({ page }) => {
+  await page.goto("/feeds");
+  const row = feedRow(page, "Tech", "E2E キーで移動するフィード");
+  await expect(row).toBeVisible();
+  // Start the Tab order at the feed's name, just before its menu.
+  await row.getByText("E2E キーで移動するフィード", { exact: true }).click();
+  await page.keyboard.press("Tab");
+  const menu = folderMenu(page, "E2E キーで移動するフィード");
+  await expect(menu).toBeFocused();
+  await expect(menu.getByRole("option", { name: "Business", exact: true })).toHaveCount(1);
+  // Typing picks the first folder that starts with it, without opening the picker.
+  await page.keyboard.type("Business");
+  await expect(feedRow(page, "Business", "E2E キーで移動するフィード")).toBeVisible();
+  await expect(feedRow(page, "Tech", "E2E キーで移動するフィード")).toHaveCount(0);
 });
 
 test("フォルダを削除しても、フィードと記事は残り「未分類」に表示される", async ({ page }) => {
@@ -160,9 +199,7 @@ test("スマホ幅でフィード画面を操作できる @mobile", async ({ pag
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 
-  await page
-    .getByRole("combobox", { name: "E2E スマホで移動するフィード のフォルダ" })
-    .selectOption({ label: "E2E 移動先" });
+  await pickFolder(page, "E2E スマホで移動するフィード", "E2E 移動先");
   await expect(feedRow(page, "E2E 移動先", "E2E スマホで移動するフィード")).toBeVisible();
 
   // The edit panel fits on screen.

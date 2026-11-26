@@ -35,6 +35,8 @@ export async function extractArticle(url: string): Promise<Extracted> {
   try {
     res = await fetch(url, {
       headers: { "User-Agent": USER_AGENT, "Accept-Language": "ja,en;q=0.8" },
+      // Followed on purpose (#175): articles often move (http → https, short links, relays), and
+      // the first URL already comes from a feed or the owner, so refusing redirects protects nothing.
       redirect: "follow",
       signal: AbortSignal.timeout(15_000),
     });

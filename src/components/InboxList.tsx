@@ -1,4 +1,4 @@
-import { and, eq, max, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Chip, ChipRow } from "@/components/ChipRow";
@@ -125,13 +125,14 @@ async function List({
           .from(feeds)
           .leftJoin(folders, eq(folders.id, feeds.folderId))
           .where(eq(feeds.id, feedId)),
-    // The timeline's folder tab: its newest unread, which bounds 「すべて既読」 (the cards are not in
-    // fetch order), and the unread of its stopped feeds, which it does not show.
+    // The timeline's folder tab: the newest unread it shows, which bounds 「すべて既読」 (the cards
+    // are not in fetch order; that leaves the stopped feeds out too), and the unread of its stopped
+    // feeds, which it does not show.
     !timeline
       ? []
       : db
           .select({
-            newest: max(articles.fetchedAt),
+            newest: sql<Date | null>`max(${articles.fetchedAt}) filter (where ${runningWhere})`.mapWith(articles.fetchedAt),
             stopped: sql<number>`count(*) filter (where not ${runningWhere})`.mapWith(Number),
           })
           .from(articles)
