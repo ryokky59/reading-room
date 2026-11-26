@@ -15,7 +15,8 @@
 //
 // A full load of the list starts again: a new `since`, and nothing else. A full load of another
 // page (an article's URL, /feeds, /read) does too, keeping only `open` (ListedOnFullLoad in
-// InboxShell); only the list beside an article, when the router loads it as a document, keeps all.
+// InboxShell); only the list beside an article, when the router loads it as a document, keeps all,
+// as does an article the router loads as a document on browser back / forward (#162).
 
 export const LISTED_COOKIE = "listed";
 

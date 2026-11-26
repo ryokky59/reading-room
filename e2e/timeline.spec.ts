@@ -25,6 +25,35 @@ const PC = { width: 1280, height: 800 };
 // The widest screen with the list beside an open article: from `lg` up the article is a sheet.
 const BESIDE = { width: 1000, height: 800 };
 
+const header = (page: Page) => page.locator("header[data-app-header]");
+const logo = (page: Page) => header(page).getByRole("link", { name: "Reading Room", exact: true });
+const inboxTab = (page: Page) => header(page).getByRole("link", { name: "新着", exact: true });
+
+/** Shows the timeline of every folder: `/?v=t`, the すべて tab, no Board column. */
+async function expectAllTimeline(page: Page) {
+  await expect(page).toHaveURL(/\/\?v=t$/);
+  await expect(heading(page)).toHaveCount(0);
+  await expect(list(page)).toBeVisible();
+  await expect(byTime(page)).toHaveAttribute("aria-current", "page");
+  await expect(folderNav(page).getByRole("link", { name: /^すべて/ })).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("[data-feed]")).toHaveCount(0);
+}
+
+/**
+ * On a folder's timeline, 新着 and then the logo lead to the timeline of every folder, and `/`
+ * loaded after that is still the timeline (#194).
+ */
+async function homeStaysOnTimeline(page: Page) {
+  const folder = "E2E 時系列";
+  for (const link of [inboxTab, logo]) {
+    await openTimeline(page, folder);
+    await link(page).click();
+    await expectAllTimeline(page);
+  }
+  await page.goto("/");
+  await expectAllTimeline(page);
+}
+
 /** The folder's tab on the Board, then 時系列. Answers the Board's count for the tab. */
 async function openTimeline(page: Page, folder: string) {
   await openTab(page, folder);
@@ -184,6 +213,44 @@ test.describe("PC 幅", () => {
     await expect(byBoard(page)).toHaveAttribute("aria-current", "page");
   });
 
+  test("時系列でフォルダを選んだ画面の「新着」とロゴは時系列の「すべて」に行き、その後の `/` も時系列のまま", async ({ page }) => {
+    await page.setViewportSize(PC);
+    await homeStaysOnTimeline(page);
+  });
+
+  test("時系列から開いた記事の横の一覧で「新着」を押すと、記事が閉じて時系列の「すべて」が出る", async ({ page }) => {
+    const folder = "E2E 時系列から新着";
+    await page.setViewportSize(BESIDE);
+    await openTimeline(page, folder);
+    await card(page, `${folder} 1`).getByRole("link").click();
+    await expect(heading(page)).toHaveText(`${folder} 1`);
+    await expect(page).toHaveURL(/\/articles\/\d+\?f=\d+&v=t$/);
+    await inboxTab(page).click();
+    await expectAllTimeline(page);
+  });
+
+  test("ボードの「新着」とロゴは今のまま `/` のボード。時系列で「サイト別」にすると `/` はボードのまま", async ({ page }) => {
+    const folder = "E2E 時系列";
+    await page.setViewportSize(PC);
+    for (const link of [inboxTab, logo]) {
+      await openTab(page, folder);
+      await link(page).click();
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.locator("[data-feed]").first()).toBeVisible();
+      await expect(byBoard(page)).toHaveAttribute("aria-current", "page");
+    }
+
+    await openTimeline(page, folder);
+    await byBoard(page).click();
+    await expect(page).toHaveURL(/\/\?f=\d+$/);
+    await expect(column(page, `${folder} A`)).toBeVisible();
+    await page.goto("/");
+    await expect(page.locator("[data-feed]").first()).toBeVisible();
+    await page.waitForTimeout(1000);
+    await expect(page).toHaveURL(/\/$/);
+    await expect(byBoard(page)).toHaveAttribute("aria-current", "page");
+  });
+
   test("別のタブで時系列にしても、表示中のボードは router.refresh() でボードのまま", async ({ page, context }) => {
     const folder = "E2E 時系列と別のタブ";
     await openTab(page, folder);
@@ -322,6 +389,11 @@ test.describe("スマホ幅 @mobile", () => {
     await expect(page).toHaveURL(/\/\?f=\d+&v=t$/);
     await expect.poll(async () => Math.abs((await scrollY(page)) - y)).toBeLessThanOrEqual(tolerance);
   }
+
+  test("時系列でフォルダを選んだ画面の「新着」とロゴは時系列の「すべて」に行き、その後の `/` も時系列のまま @mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await homeStaysOnTimeline(page);
+  });
 
   test("時系列のカードから ← で戻ると元の位置に戻りカードは薄く残る。読了 / スキップで戻るとカードは無い @mobile", async ({ page }) => {
     const folder = "E2E 時系列のスマホ";

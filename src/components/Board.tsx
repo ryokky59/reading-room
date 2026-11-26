@@ -13,6 +13,7 @@ import {
   ViewSwitch,
 } from "@/components/InboxShell";
 import { LinkPending } from "@/components/NavPending";
+import { PickLink } from "@/components/PickLink";
 import { SeenOnScroll } from "@/components/SeenOnScroll";
 import { COLUMN_ROWS, loadBoard, PHONE_ROWS, type BoardColumn, type StoppedFeed } from "@/lib/board";
 import { LAYOUT_COOKIE, parseLayout } from "@/lib/board-layout";
@@ -20,6 +21,7 @@ import { DIGEST_ATTEMPT_LIMIT, DIGEST_FAILED, formatAgo, formatDate, isForeign, 
 import { inboxQuery, parseInboxFilter } from "@/lib/inbox";
 import { cutKey } from "@/lib/opened";
 import { requestListed } from "@/lib/opened-request";
+import { loadPicks, type PickRow } from "@/lib/picks";
 
 /**
  * The inbox with no site chosen: a column per feed, grouped by folder. With the `board` variant
@@ -37,11 +39,11 @@ export async function Board({
   const filter = parseInboxFilter(await searchParams);
   const listed = await requestListed();
   const layout = parseLayout((await cookies()).get(LAYOUT_COOKIE)?.value);
-  const { groups, stopped, folders, buckets, upTo } = await loadBoard(
-    filter,
-    listed,
-    layout === "stack" ? PHONE_ROWS : COLUMN_ROWS,
-  );
+  // 「今朝の N 本」 shows on the すべて tab only.
+  const [{ groups, stopped, folders, buckets, upTo }, picks] = await Promise.all([
+    loadBoard(filter, listed, layout === "stack" ? PHONE_ROWS : COLUMN_ROWS),
+    filter.f === undefined ? loadPicks() : null,
+  ]);
   const selected = filter.f === "none" ? null : filter.f ? Number(filter.f) : "all";
   const total = buckets
     .filter((b) => selected === "all" || b.folderId === selected)
@@ -80,6 +82,7 @@ export async function Board({
 
       {/* The bottom padding keeps the last section clear of the toast (InboxShell). */}
       <div className="mt-2 flex flex-col gap-6 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] board:min-h-0 board:flex-1 board:flex-row board:gap-5 board:overflow-x-auto board:overscroll-x-contain board:pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        {picks && picks.total > 0 && <Picks total={picks.total} rows={picks.rows} />}
         {groups.map((group) => (
           <section
             key={group.key}
@@ -104,6 +107,47 @@ export async function Board({
         {stopped.length > 0 && <Stopped feeds={stopped} />}
       </div>
     </BoardPane>
+  );
+}
+
+/**
+ * 「今朝の N 本」 (lib/picks.ts): the first section on phones, the first column on wider screens.
+ * N is how many were picked; a row goes once read or skipped, and stays faded once seen. Every
+ * row shows on phones too. Once all are gone a line says so, until the next pick day, so that
+ * coming back from the last one does not pull the page up.
+ */
+function Picks({ total, rows }: { total: number; rows: PickRow[] }) {
+  const label = `今朝の ${total} 本`;
+  return (
+    <section
+      aria-label={label}
+      style={{ borderTopColor: "var(--accent)" }}
+      className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-t-[3px] border-line bg-surface board:min-h-0 board:w-[260px] board:shrink-0"
+    >
+      <header className="shrink-0 border-b border-line px-3 py-2">
+        <h2 className="text-sm font-bold">{label}</h2>
+      </header>
+      {rows.length > 0 ? (
+        <ul aria-label={`${label}の記事`} className="board:min-h-0 board:flex-1 board:overflow-y-auto board:overscroll-contain">
+          {rows.map((row) => (
+            <BoardRow key={row.id} id={row.id} seen={row.seenAt !== null} className="border-b border-line last:border-b-0">
+              <PickLink href={`/articles/${row.id}${row.articleQuery}`} className="pressable block px-3 py-2">
+                <LinkPending />
+                <span className="line-clamp-2 text-sm font-medium leading-snug">{row.titleJa ?? row.title}</span>
+                <span className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted">
+                  <span className="min-w-0 break-all">{row.source}</span>
+                  {row.charCount > 0 && <span>{readingMinutes(row.charCount)}分</span>}
+                  {isForeign(row.lang, row.title) && <span>英→日</span>}
+                </span>
+                <span className="mt-1 line-clamp-2 text-xs leading-snug">{row.reason}</span>
+              </PickLink>
+            </BoardRow>
+          ))}
+        </ul>
+      ) : (
+        <p className="px-3 py-4 text-center text-sm text-muted">{label}は読み終えました</p>
+      )}
+    </section>
   );
 }
 

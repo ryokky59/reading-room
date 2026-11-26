@@ -82,6 +82,12 @@ export function streamChat(article: Article, turns: Turn[], onDone: (text: strin
           const note = "\n\n(この内容には回答できませんでした)";
           full += note;
           controller.enqueue(encoder.encode(note));
+        } else if (final.stop_reason === "max_tokens" && full.trim()) {
+          // Kept and saved: the user's turn is already stored, and a later "続きを" picks up from here.
+          // No 「エラー」 in it: ArticleView offers a new summary when the last reply contains that word.
+          const note = "\n\n(返答が長くなり、ここまでで切れました)";
+          full += note;
+          controller.enqueue(encoder.encode(note));
         }
         if (full.trim()) await onDone(full);
       } catch (err) {
@@ -264,4 +270,80 @@ export function streamTranslation(a: { title: string; markdown: string }, onDone
       }
     },
   });
+}
+
+export type PickCandidate = { id: number; title: string; summary: string; source: string; minutes: number | null };
+export type PickChoice = { id: number; reason: string };
+
+const escapeXml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * Chooses up to five of `candidates` for the morning's 「今朝の 5 本」, each with a one-line reason.
+ * `read` are articles the owner finished lately, as a hint of what they like. The ids that come
+ * back are not checked here: lib/picks.ts keeps only the candidates' own.
+ */
+export async function chooseMorningPicks(
+  candidates: PickCandidate[],
+  read: { title: string; source: string }[],
+): Promise<PickChoice[]> {
+  const list = candidates
+    .map(
+      (c) =>
+        `<article id="${c.id}"><title>${escapeXml(c.title)}</title><site>${escapeXml(c.source)}</site>${
+          c.minutes === null ? "" : `<minutes>${c.minutes}</minutes>`
+        }<summary>${escapeXml(c.summary)}</summary></article>`,
+    )
+    .join("\n");
+  const done = read.map((r) => `<article><title>${escapeXml(r.title)}</title><site>${escapeXml(r.source)}</site></article>`).join("\n");
+  const stream = client.messages.stream({
+    model: FAST_MODEL,
+    max_tokens: 4000,
+    output_config: {
+      effort: "low",
+      format: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            picks: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { id: { type: "integer" }, reason: { type: "string" } },
+                required: ["id", "reason"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["picks"],
+          additionalProperties: false,
+        },
+      },
+    },
+    messages: [
+      {
+        role: "user",
+        content: `この 24 時間に届いた未読の記事です。
+
+<candidates>
+${list}
+</candidates>
+
+ユーザーが最近 30 日に読み終えた記事です(好みの手がかり)。
+
+<read>
+${done || "(まだありません)"}
+</read>
+
+ユーザーはテックやビジネスの記事を、主にスマホで読みます。候補の中から、今日読むとよい記事を最大 5 本選んでください。
+- 読み終えた記事から見える関心に近いものを中心に、同じ話題やサイトに偏りすぎないように。
+- picks: 読む順に並べる。id は候補の id、reason は「なぜ今日これか」を日本語 1 文(40 字前後)で。要約に書かれていないことは書かない。`,
+      },
+    ],
+  });
+  const msg = await stream.finalMessage();
+  if (msg.stop_reason === "refusal") throw new Error("refused");
+  const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  const out = JSON.parse(text) as { picks: { id: number; reason: string }[] };
+  return out.picks.map((p) => ({ id: p.id, reason: p.reason.trim() }));
 }

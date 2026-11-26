@@ -17,4 +17,4 @@ You review one PR for Reading Room. You do not edit code; you report.
    - 指摘(重要なものから。ファイル:行 と、何が起きるか)
    - オーナーがスマホで確かめるとよいこと
 
-Only flag what you verified or can explain concretely. Never approve-merge or merge. Stop only the servers you started, by PID or port.
+Only flag what you verified or can explain concretely. What only a real phone or the Vercel preview can show is not a reason for 直してほしい: put it under オーナーがスマホで確かめるとよいこと. A product choice the PR made by its Issue's recommendation is not one either, unless it breaks a 完了条件. A migration that drops, renames or rewrites data is: say it cannot be undone. Never approve-merge or merge. Stop only the servers you started, by PID or port.

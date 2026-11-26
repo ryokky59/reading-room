@@ -105,7 +105,8 @@ let pendingSource: OpenSource | null = null;
 
 /**
  * Says how the article about to be opened was chosen, for the ones the screen before cannot tell:
- * `next` after 読了 / スキップ, `key` for j / k. Call it just before router.push to that article.
+ * `next` after 読了 / スキップ, `key` for j / k, `picks` for a row of 「今朝の N 本」. Call it just
+ * before router.push to that article, or as its link is clicked.
  */
 export function markOpenSource(source: OpenSource) {
   pendingSource = source;
