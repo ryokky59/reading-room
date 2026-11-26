@@ -81,6 +81,7 @@ const seededFeeds = await db
   .values([
     feed("move", "E2E 移動するフィード", tech.id),
     feed("move-mobile", "E2E スマホで移動するフィード", tech.id),
+    feed("move-keys", "E2E キーで移動するフィード", tech.id),
     feed("keep", "E2E 残るフィード", toDelete.id),
   ])
   .returning();
