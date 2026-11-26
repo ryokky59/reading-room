@@ -7,7 +7,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A PR's older run is replaced by its newer one. On main every merge's run finishes: cancelled
+  # ones there left main untested for 10 merges in a row while #205 broke it (#145).
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check:
