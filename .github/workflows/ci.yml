@@ -65,6 +65,7 @@ jobs:
               e2e/digest.spec.ts
               e2e/fetch.spec.ts
               e2e/folders.spec.ts
+              e2e/migrations.spec.ts
               e2e/press.spec.ts
           - group: 2
             specs: >-
