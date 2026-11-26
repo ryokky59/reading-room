@@ -1,5 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
+import { after } from "next/server";
 import type { Article } from "./db";
 
 const client = new Anthropic();
@@ -56,11 +57,47 @@ function systemFor(a: Article): Anthropic.Beta.BetaTextBlockParam[] {
 
 export type Turn = { role: "user" | "assistant"; content: string };
 
-/** Streams the assistant's reply as plain text; `onDone` receives the full text. */
-export function streamChat(article: Article, turns: Turn[], onDone: (text: string) => Promise<void>) {
+/**
+ * A text stream that `produce` writes to with `send`. The reader can go away mid-way (the page is
+ * closed or left): from then on `send` does nothing, and `produce` carries on unless it watches
+ * `signal`, which is aborted at that moment. `produce` must not throw; it reports its own errors.
+ * With `finish`, the function is kept running until `produce` ends (after(), which is waitUntil
+ * on Vercel), so a reply asked for is still saved after the page is left.
+ */
+function textStream(
+  produce: (send: (text: string) => void, signal: AbortSignal) => Promise<void>,
+  { finish = false } = {},
+) {
   const encoder = new TextEncoder();
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
+  const left = new AbortController();
+  let open = true;
+  let done: Promise<void> = Promise.resolve();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (text: string) => {
+        if (open) controller.enqueue(encoder.encode(text));
+      };
+      done = produce(send, left.signal).finally(() => {
+        if (!open) return;
+        open = false;
+        controller.close();
+      });
+    },
+    cancel() {
+      open = false;
+      left.abort();
+    },
+  });
+  if (finish) after(() => done);
+  return stream;
+}
+
+/** Streams the assistant's reply as plain text; `onDone` receives the full text. */
+// It is finished and saved even when the page is left mid-way: the user asked for it, and its input
+// is already paid for.
+export function streamChat(article: Article, turns: Turn[], onDone: (text: string) => Promise<void>) {
+  return textStream(
+    async (send) => {
       let full = "";
       try {
         const stream = client.beta.messages.stream({
@@ -74,30 +111,30 @@ export function streamChat(article: Article, turns: Turn[], onDone: (text: strin
         for await (const event of stream) {
           if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
             full += event.delta.text;
-            controller.enqueue(encoder.encode(event.delta.text));
+            send(event.delta.text);
           }
         }
         const final = await stream.finalMessage();
         if (final.stop_reason === "refusal") {
           const note = "\n\n(この内容には回答できませんでした)";
           full += note;
-          controller.enqueue(encoder.encode(note));
+          send(note);
         } else if (final.stop_reason === "max_tokens" && full.trim()) {
           // Kept and saved: the user's turn is already stored, and a later "続きを" picks up from here.
           // No 「エラー」 in it: ArticleView offers a new summary when the last reply contains that word.
           const note = "\n\n(返答が長くなり、ここまでで切れました)";
           full += note;
-          controller.enqueue(encoder.encode(note));
+          send(note);
         }
         if (full.trim()) await onDone(full);
       } catch (err) {
+        // Also a failed save after the page was left: nobody is there to tell, so it is only logged.
         console.error("chat stream failed", err);
-        controller.enqueue(encoder.encode("\n\n(エラーが発生しました。もう一度試してください)"));
-      } finally {
-        controller.close();
+        send("\n\n(エラーが発生しました。もう一度試してください)");
       }
     },
-  });
+    { finish: true },
+  );
 }
 
 export type ReviewItem = Pick<Article, "title" | "titleJa" | "source" | "summary" | "learning" | "memo"> & {
@@ -127,12 +164,12 @@ export function streamReview(month: string, items: ReviewItem[], onDone: (text: 
       return lines.join("\n");
     })
     .join("\n\n");
-  const encoder = new TextEncoder();
   // Both notes end with 「作り直してください)」, which tells a failed look-back from a kept one.
   const failure = "\n\n(この月の振り返りは作れませんでした。作り直してください)";
   const cutOff = "\n\n(振り返りが長くなり、ここまでで切れました。作り直してください)";
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
+  // Like a chat reply, it is finished and saved when the page is left mid-way.
+  return textStream(
+    async (send) => {
       let full = "";
       try {
         const stream = client.beta.messages.stream({
@@ -159,23 +196,22 @@ ${list}
         for await (const event of stream) {
           if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
             full += event.delta.text;
-            controller.enqueue(encoder.encode(event.delta.text));
+            send(event.delta.text);
           }
         }
         const final = await stream.finalMessage();
         // A month has one look-back, so a failed or cut-off one is shown but not kept: saving it
         // would replace a complete one.
-        if (final.stop_reason === "refusal" || !full.trim()) controller.enqueue(encoder.encode(failure));
-        else if (final.stop_reason === "max_tokens") controller.enqueue(encoder.encode(cutOff));
+        if (final.stop_reason === "refusal" || !full.trim()) send(failure);
+        else if (final.stop_reason === "max_tokens") send(cutOff);
         else await onDone(full);
       } catch (err) {
         console.error("review stream failed", err);
-        controller.enqueue(encoder.encode("\n\n(エラーが発生しました。もう一度試してください)"));
-      } finally {
-        controller.close();
+        send("\n\n(エラーが発生しました。もう一度試してください)");
       }
     },
-  });
+    { finish: true },
+  );
 }
 
 export type Digest = { lang: "ja" | "other"; titleJa: string; summary: string };
@@ -232,15 +268,16 @@ ${body || "(本文なし)"}
  * rather than reproducing it in full, since the articles are others' copyrighted work.
  */
 export function streamTranslation(a: { title: string; markdown: string }, onDone: (text: string) => Promise<void>) {
-  const encoder = new TextEncoder();
   // ArticleView's Translation shows 「やり直す」 when the text ends with 「やり直してください)」.
   const failure = "\n\n(日本語にまとめられませんでした。やり直してください)";
   const cutOff = "\n\n(記事が長く、ここまでで切れました。やり直してください)";
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let full = "";
-      try {
-        const stream = client.messages.stream({
+  // Unlike a chat reply, it stops when the page is left, and nothing is kept: opening an article
+  // starts it, and finishing the ones passed with j / k would pay for translations nobody reads.
+  return textStream(async (send, left) => {
+    let full = "";
+    try {
+      const stream = client.messages.stream(
+        {
           model: FAST_MODEL,
           max_tokens: 32000,
           output_config: { effort: "low" },
@@ -250,25 +287,27 @@ export function streamTranslation(a: { title: string; markdown: string }, onDone
 - 書き手の主張とあなたの補足は混ぜない。前置きや締めの挨拶は書かない。
 - 製品名・社名・人名は一般的な表記に。定着したカタカナ語がなければ原語のまま。`,
           messages: [{ role: "user", content: `<title>${a.title}</title>\n<body>\n${a.markdown}\n</body>` }],
-        });
-        for await (const event of stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            full += event.delta.text;
-            controller.enqueue(encoder.encode(event.delta.text));
-          }
+        },
+        { signal: left },
+      );
+      for await (const event of stream) {
+        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          full += event.delta.text;
+          send(event.delta.text);
         }
-        const final = await stream.finalMessage();
-        // Only a complete translation is kept, so a cut-off one is retried next time.
-        if (final.stop_reason === "end_turn" && full.trim()) await onDone(full);
-        else if (final.stop_reason === "max_tokens" && full.trim()) controller.enqueue(encoder.encode(cutOff));
-        else controller.enqueue(encoder.encode(failure));
-      } catch (err) {
-        console.error("translation failed", err);
-        controller.enqueue(encoder.encode(failure));
-      } finally {
-        controller.close();
       }
-    },
+      const final = await stream.finalMessage();
+      if (left.aborted) return;
+      // Only a complete translation is kept, so a cut-off one is retried next time.
+      if (final.stop_reason === "end_turn" && full.trim()) await onDone(full);
+      else if (final.stop_reason === "max_tokens" && full.trim()) send(cutOff);
+      else send(failure);
+    } catch (err) {
+      // Left mid-way: the request to the API was stopped on purpose, which is not a failure.
+      if (left.aborted) return;
+      console.error("translation failed", err);
+      send(failure);
+    }
   });
 }
 

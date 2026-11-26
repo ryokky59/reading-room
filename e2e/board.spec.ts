@@ -1,3 +1,4 @@
+import { staleLabel } from "../src/lib/format";
 import { STUB_PORT } from "./env";
 import { pageOverflow, sideOverflows, unwiden, widen } from "./fits";
 import { expect, test, type Page } from "./test";
@@ -406,6 +407,22 @@ test.describe("PC 幅", () => {
     await page.keyboard.press("j");
     await page.waitForTimeout(300);
     await expect(page).toHaveURL("/");
+  });
+
+  // The seed's newest article is from when the seed was made, so the page only shows the side
+  // where articles are coming in (above). The stale side is the function the header calls (#168).
+  test("新着が 6 時間入っていなければ「新着が N 時間入っていません」、24 時間からは「N 日」", () => {
+    const now = new Date("2026-11-25T06:00:00+09:00");
+    const ago = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
+    expect(staleLabel(ago(5 * 60 + 59), now)).toBeNull();
+    expect(staleLabel(ago(6 * 60), now)).toBe("新着が 6 時間入っていません");
+    expect(staleLabel(ago(23 * 60 + 59), now)).toBe("新着が 23 時間入っていません");
+    expect(staleLabel(ago(24 * 60), now)).toBe("新着が 1 日入っていません");
+    expect(staleLabel(ago(28 * 60), now)).toBe("新着が 1 日入っていません");
+    expect(staleLabel(ago(49 * 60), now)).toBe("新着が 2 日入っていません");
+    // No article from a feed yet, or one fetched after `now` (a clock a little ahead).
+    expect(staleLabel(null, now)).toBeNull();
+    expect(staleLabel(ago(-5), now)).toBeNull();
   });
 
   test("ボードから開いた記事で一覧が届く前に j / k / 読了を押しても、別のフィードへ移らない", async ({ page }) => {

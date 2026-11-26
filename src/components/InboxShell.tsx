@@ -16,6 +16,7 @@ import {
 } from "react";
 import { markFeedSeen, markFolderSeen, skipArticle, undoLeave, unmarkSeen, unmarkSeenAt } from "@/lib/actions";
 import { LAYOUT_COOKIE, type BoardLayout } from "@/lib/board-layout";
+import type { FetchedLabel } from "@/lib/format";
 import { lastNavPath, stillOn } from "@/lib/last-nav";
 import { cutKey, LISTED_COOKIE, parseListed, serializeListed, type Listed } from "@/lib/opened";
 import { track } from "@/lib/track";
@@ -828,7 +829,7 @@ export function InboxShell({
   children,
 }: {
   list: React.ReactNode;
-  lastFetched: string | null;
+  lastFetched: FetchedLabel | null;
   children: React.ReactNode;
 }) {
   const [ids, setIds] = useState<number[] | null>(null);
