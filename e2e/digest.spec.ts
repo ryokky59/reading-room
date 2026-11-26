@@ -81,7 +81,8 @@ async function expectFits(page: Page, text: string, { control = false } = {}) {
 const cards = (page: Page) => page.getByRole("list", { name: "記事" }).getByRole("listitem");
 const card = (page: Page, title: string) => cards(page).filter({ hasText: title });
 
-const sse = (stopReason: string, text?: string) => {
+/** The stream events of a reply whose text comes in the pieces `texts` (none: no text at all). */
+const sseEvents = (stopReason: string, texts: string[]) => {
   const events: Record<string, unknown>[] = [
     {
       type: "message_start",
@@ -96,17 +97,33 @@ const sse = (stopReason: string, text?: string) => {
         usage: { input_tokens: 1, output_tokens: 0 },
       },
     },
-    ...(text === undefined
+    ...(texts.length === 0
       ? []
       : [
           { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
+          ...texts.map((text) => ({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text } })),
           { type: "content_block_stop", index: 0 },
         ]),
     { type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 1 } },
     { type: "message_stop" },
   ];
-  return events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join("");
+  return events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
+};
+
+const sse = (stopReason: string, text?: string) => sseEvents(stopReason, text === undefined ? [] : [text]).join("");
+
+/**
+ * A reply the stub sends up to its first piece of text, then holds until the test calls `release`
+ * (#145: the test closes the page in between). `closed` is set when the app closes the request
+ * before the reply has ended.
+ */
+type Held = { head: string; tail: string; release: () => void; released: Promise<void>; closed: boolean };
+const held = (first: string, rest: string): Held => {
+  const events = sseEvents("end_turn", [first, rest]);
+  let release = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  // message_start, content_block_start and the first delta.
+  return { head: events.slice(0, 3).join(""), tail: events.slice(3).join(""), release, released, closed: false };
 };
 
 test.describe("要約と翻訳の失敗", () => {
@@ -121,14 +138,18 @@ test.describe("要約と翻訳の失敗", () => {
     chat: {} as Record<string, number>,
   };
   // The stub's next look-back replies, oldest first.
-  const reviewReplies: string[] = [];
+  const reviewReplies: (string | Held)[] = [];
   // The stub's next chat replies, oldest first. With none queued, a chat call gets a 400.
-  const chatReplies: string[] = [];
+  const chatReplies: (string | Held)[] = [];
+  // The roles of the messages in each chat call, oldest call first.
+  const chatRoles: string[][] = [];
+  // The stub's next translations by title, oldest first, ahead of the ones written in the stub.
+  const translateReplies: Record<string, (string | Held)[]> = {};
   // When the stub last received a digest call, by title.
   const lastDigest: Record<string, number> = {};
   // While set, the next digest call for 同時取得テストの記事 waits for it before failing.
   let holdDigest: Promise<void> | null = null;
-  const titles = ["上限テストの記事", "同時取得テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", "Translation cut-off test", SEEDED, SEEDED_MOBILE, "対話が切れる記事"];
+  const titles = ["上限テストの記事", "同時取得テストの記事", "拒否テストの記事", "成功テストの記事", "Translation refusal test", "Translation cut-off test", SEEDED, SEEDED_MOBILE, "対話が切れる記事", "離れても返答が残る記事", "Translation leave test"];
   // Each test has its own feed, empty while it is added, so its articles come in through 「今すぐ取得」.
   const listed: Record<string, string[]> = { "/limit.xml": [], "/other.xml": [], "/refused.xml": [], "/translate.xml": [], "/cut.xml": [], "/overlap.xml": [] };
 
@@ -166,7 +187,7 @@ test.describe("要約と翻訳の失敗", () => {
       let raw = "";
       req.on("data", (chunk) => (raw += chunk));
       req.on("end", () => {
-        const body = JSON.parse(raw) as { output_config?: { format?: unknown } };
+        const body = JSON.parse(raw) as { output_config?: { format?: unknown }; messages?: { role: string }[] };
         // The look-back lists every article read that month, so it is told apart before the titles.
         // Only a chat call has the article in <article> in its system prompt; it is told apart
         // before translations, which would count it otherwise.
@@ -180,13 +201,27 @@ test.describe("要約と翻訳の失敗", () => {
         const title = kind === "review" ? "(month)" : (titles.find((t) => raw.includes(t)) ?? "(other)");
         const n = (calls[kind][title] = (calls[kind][title] ?? 0) + 1);
         if (kind === "digest") lastDigest[title] = Date.now();
-        const stream = (events: string) => {
+        const stream = (events: string | Held) => {
           res.writeHead(200, { "content-type": "text/event-stream" });
-          res.end(events);
+          if (typeof events === "string") {
+            res.end(events);
+            return;
+          }
+          res.on("close", () => {
+            if (!res.writableFinished) events.closed = true;
+          });
+          res.write(events.head);
+          void events.released.then(() => {
+            if (!events.closed) res.end(events.tail);
+          });
         };
         const digest = (lang: string, titleJa: string) =>
           stream(sse("end_turn", JSON.stringify({ lang, title_ja: titleJa, summary: `${titleJa}の要約です。` })));
-        if (kind === "chat") {
+        const translation = kind === "translate" ? translateReplies[title]?.shift() : undefined;
+        if (kind === "chat") chatRoles.push((body.messages ?? []).map((m) => m.role));
+        if (translation) {
+          stream(translation);
+        } else if (kind === "chat") {
           const reply = chatReplies.shift();
           if (reply) stream(reply);
           else {
@@ -667,5 +702,125 @@ test.describe("要約と翻訳の失敗", () => {
     await expect(chat.getByText(CHAT_CUT)).toHaveCount(1);
     expect(calls.chat[TITLE] - before).toBe(2);
     expect(chatReplies).toHaveLength(0);
+  });
+
+  // #145: closing the page mid-way. The stub holds the reply after its first piece, the test closes
+  // the page, and only then lets the rest come.
+  test("対話の返答の途中で記事を閉じても、返答は最後まで作られて保存され、次の質問は返答のあとに並ぶ", async ({
+    page,
+  }) => {
+    const TITLE = "離れても返答が残る記事";
+    const FIRST = "閉じる前に届いた返答、";
+    const REST = "閉じたあとに書かれた続きです。";
+    const NEXT = "次の質問への返答です。";
+    const reply = held(FIRST, REST);
+    chatReplies.splice(0, chatReplies.length, reply, sse("end_turn", NEXT));
+    const before = calls.chat[TITLE] ?? 0;
+    const calledBefore = chatRoles.length;
+    const open = async (p: Page) => {
+      // From 1440px the chat is a column that is always shown.
+      await p.setViewportSize({ width: 1440, height: 900 });
+      await p.goto("/read");
+      await p.getByRole("link", { name: new RegExp(TITLE) }).click();
+      await expect(p.getByRole("heading", { level: 1 })).toHaveText(TITLE);
+      return p.getByRole("complementary", { name: "AI と話す" });
+    };
+    const ask = async (chat: ReturnType<Page["getByRole"]>, text: string) => {
+      await chat.getByPlaceholder("質問や感想を書く").fill(text);
+      await chat.getByRole("button", { name: "送信" }).click();
+    };
+
+    const first = await page.context().newPage();
+    try {
+      const chat = await open(first);
+      await ask(chat, "最初の質問");
+      await expect(chat).toContainText(FIRST);
+      await first.close();
+    } finally {
+      reply.release();
+    }
+
+    // Opened again: the question and the whole reply, once it has been saved.
+    const chat = await open(page);
+    await expect(async () => {
+      await page.reload();
+      await expect(chat).toContainText(FIRST + REST, { timeout: 1_000 });
+    }).toPass();
+    await expect(chat).toContainText("最初の質問");
+
+    // The next question goes after the reply: the call alternates user and assistant.
+    await ask(chat, "次の質問");
+    await expect(chat).toContainText(NEXT);
+    expect(calls.chat[TITLE] - before).toBe(2);
+    expect(chatRoles.slice(calledBefore)).toEqual([["user"], ["user", "assistant", "user"]]);
+    await page.reload();
+    const order = await chat.innerText();
+    const at = ["最初の質問", FIRST + REST, "次の質問", NEXT].map((t) => order.indexOf(t));
+    expect(at.every((i) => i >= 0), at.join(",")).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(chatReplies).toHaveLength(0);
+  });
+
+  test("振り返りを作っている途中で画面を閉じても、最後まで作られて保存される", async ({ page }) => {
+    const FIRST = "閉じる前に届いた振り返り、";
+    const REST = "閉じたあとに書かれた続きです。";
+    const reply = held(FIRST, REST);
+    reviewReplies.splice(0, reviewReplies.length, reply);
+    // The seed has articles read this month, and its section comes first. An earlier test can have
+    // kept a look-back for it, so the button is either.
+    const month = (p: Page) => p.getByRole("main").locator("section").first();
+
+    const first = await page.context().newPage();
+    try {
+      await first.goto("/read");
+      await month(first).getByRole("button", { name: /^(この月を振り返る|作り直す)$/ }).click();
+      await expect(month(first)).toContainText(FIRST);
+      await first.close();
+    } finally {
+      reply.release();
+    }
+
+    await expect(async () => {
+      await page.goto("/read");
+      await month(page).getByRole("button", { name: "振り返りを見る" }).click({ timeout: 1_000 });
+      await expect(month(page)).toContainText(FIRST + REST, { timeout: 1_000 });
+    }).toPass();
+    expect(reviewReplies).toHaveLength(0);
+  });
+
+  test("翻訳の途中で記事を閉じると、翻訳は止まって保存されず、開き直すと最初から訳す", async ({ page }) => {
+    const TITLE = "Translation leave test";
+    const FIRST = "閉じる前に届いた訳です。";
+    const COMPLETE = "開き直して最後まで訳せました。";
+    const reply = held(`## 前半\n\n${FIRST}`, "\n\n閉じたので届かない訳です。");
+    translateReplies[TITLE] = [reply, sse("end_turn", COMPLETE)];
+    const before = calls.translate[TITLE] ?? 0;
+    const open = async (p: Page) => {
+      await p.goto("/read");
+      await p.getByRole("link", { name: /離れると訳をやめる記事/ }).click();
+      await expect(p.getByRole("heading", { level: 1 })).toBeVisible();
+      return p.getByRole("main");
+    };
+
+    const first = await page.context().newPage();
+    try {
+      await expect(await open(first)).toContainText(FIRST);
+      await first.close();
+      // The app stopped its request to the API before the reply ended.
+      await expect.poll(() => reply.closed).toBe(true);
+    } finally {
+      reply.release();
+    }
+    expect(calls.translate[TITLE] - before).toBe(1);
+
+    // Nothing was kept, so opening it again translates it from the start, and that one is kept.
+    const main = await open(page);
+    await expect(main).toContainText(COMPLETE);
+    await expect(main).not.toContainText(FIRST);
+    expect(calls.translate[TITLE] - before).toBe(2);
+    await page.reload();
+    await expect(main).toContainText(COMPLETE);
+    expect(calls.translate[TITLE] - before).toBe(2);
+    expect(translateReplies[TITLE]).toHaveLength(0);
   });
 });
