@@ -98,6 +98,8 @@ export function isTyping(e: KeyboardEvent) {
 type InboxNav = {
   /** Unread article ids in the order the list shows them; null until the list has rendered. */
   ids: number[] | null;
+  /** The ids of the list's own cards, without the articles after it; null as `ids`. */
+  cardIds: number[] | null;
   /** `unseen` are the ids the list or the Board came with as unread. */
   setIds: (ids: number[], unseen: number[]) => void;
   /**
@@ -107,7 +109,7 @@ type InboxNav = {
   addPast: (id: number) => void;
 };
 
-const InboxNavContext = createContext<InboxNav>({ ids: null, setIds: () => {}, addPast: () => {} });
+const InboxNavContext = createContext<InboxNav>({ ids: null, cardIds: null, setIds: () => {}, addPast: () => {} });
 
 /**
  * The order of the list pane, for opening the next / previous article. Cards leaving the list
@@ -116,6 +118,14 @@ const InboxNavContext = createContext<InboxNav>({ ids: null, setIds: () => {}, a
  */
 export function useInboxIds() {
   return useContext(InboxNavContext).ids;
+}
+
+/**
+ * The list's own cards (or the Board column's rows), without the articles opened past its end
+ * that useInboxIds puts after them.
+ */
+export function useInboxCardIds() {
+  return useContext(InboxNavContext).cardIds;
 }
 
 /** Notes an article opened past the end of the list (see useInboxIds). */
@@ -902,7 +912,7 @@ export function InboxShell({
   // On the timeline, and beside an article opened from it, 新着 and the logo stay on the timeline.
   const home = listScreenOf(new URLSearchParams(search)) === "timeline" ? "/?v=t" : "/";
   return (
-    <InboxNavContext.Provider value={{ ids: shownIds, setIds: syncIds, addPast }}>
+    <InboxNavContext.Provider value={{ ids: shownIds, cardIds: ids, setIds: syncIds, addPast }}>
       <LeavingContext.Provider value={leavingValue}>
         <OpenedContext.Provider value={openedValue}>
         <UncountedContext.Provider value={uncounted}>
@@ -1374,7 +1384,8 @@ function CardUnseeButton({ id }: { id: number }) {
  * its toast offers 「元に戻す」, and 「既読を含む」 still has the articles. Only what the screen
  * had is marked: `upTo` is the fetched_at (ms) of the newest article it shows, so one fetched
  * since stays unread. A site's leaves the seen rows of the other Board columns in place; a
- * folder's leaves only the open article.
+ * folder's leaves only the open article. The timeline's folder leaves its stopped feeds unread:
+ * it does not show them, and the Board's 止まっているフィード does.
  */
 export function MarkAllSeenButton({
   target,
@@ -1402,7 +1413,7 @@ export function MarkAllSeenButton({
           try {
             ({ seenAt, count } = await ("feedId" in target
               ? markFeedSeen(target.feedId, upTo)
-              : markFolderSeen(target.folderId, upTo)));
+              : markFolderSeen(target.folderId, upTo, screen === "timeline")));
           } catch (e) {
             console.error(e);
             toast.fail(FAILED);
