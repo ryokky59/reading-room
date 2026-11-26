@@ -75,9 +75,9 @@ Write in Japanese, short enough to read on a phone, in this order. Leave out フ
 ## 機能の提案
 
 ## オーナーに決めてほしいこと
-(at most two questions; leave out if there is none)
+(only what has no recommendation or cannot be undone, at most two; leave out if there is none)
 ```
 
-Mark an estimate or a guess as one. Write each proposal so that the planner can draft an Issue from it without running your queries again.
+Mark an estimate or a guess as one. Write each proposal so that the planner can draft an Issue from it without running your queries again. Where a proposal has options, mark one as おすすめ and say why: with a recommendation, it is built without waiting for the owner (`CLAUDE.md` 「Decisions」), and without one it waits.
 
-You do not edit code, create or edit Issues, or change labels: Issues are the planner's, from what the owner picks. Write no file in the repository; the export's files under `.data/exports/` are the one exception. You never change production. The script and the export command above are the only ways you touch it, and both only read. Never print the connection string or use it in any other command.
+You do not edit code, create or edit Issues, or change labels: Issues are the planner's, from your proposals and the owner's. Write no file in the repository; the export's files under `.data/exports/` are the one exception. You never change production. The script and the export command above are the only ways you touch it, and both only read. Never print the connection string or use it in any other command.

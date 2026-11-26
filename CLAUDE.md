@@ -10,23 +10,35 @@ Work is tracked as GitHub Issues in `ryokky59/reading-room` and moves through la
 
 `idea` → `ready` → `in-progress` → (PR merged, Issue closed)
 
-- `idea`: written by the planner; not yet approved.
-- `ready`: the owner approved it; it can be picked up.
+- `idea`: written by the planner; a feature or product change. With a recommended option it also gets `auto` and `ready` and is built without waiting (see Decisions below).
+- `ready`: it can be picked up.
 - `in-progress`: a developer has a branch for it.
-- `auto`: needs no decision from the owner (a bug or test fix, a review follow-up with one obvious fix). The planner gives it instead of `idea`, with `ready`. An Orca automation picks these up one at a time, develops, reviews and merges them by `.claude/automation/pick-issue.md`.
-- `auto:blocked`: the automation stopped and asked the owner on the Issue. Removing the label lets it pick the Issue up again.
-- `curator`: the idea came from a morning report (below), not from the owner. It is `idea` like any other until the owner decides.
+- `auto`: the Orca automation builds it. It picks these up one at a time, develops, reviews and merges them by `.claude/automation/pick-issue.md`. The planner gives it, with `ready`, to every Issue that has a recommended way to go and nothing that cannot be undone.
+- `auto:blocked`: the automation stopped and asked the owner on the Issue, for one of the reasons under Decisions. Removing the label lets it pick the Issue up again.
+- `curator`: the idea came from a morning report (below), not from the owner. Labeled like any other Issue.
 - `report`: the one Issue where the morning reports arrive as comments. It is not work to pick up.
 
 Rules:
 
-- What to read from and what to build next is proposed by the `curator` agent, from the owner's reading data (read-only, through `.claude/scripts/reading-data.mjs`). It proposes; the owner picks. A second Orca automation runs it at 6:00 every morning by `.claude/automation/morning-report.md`: a report on the `report` Issue, and at most one new `idea` Issue.
+- What to read from and what to build next is proposed by the `curator` agent, from the owner's reading data (read-only, through `.claude/scripts/reading-data.mjs`). Each proposal names the option it recommends, so it can be built without waiting; the owner can still stop or change it on the Issue. A second Orca automation runs it at 6:00 every morning by `.claude/automation/morning-report.md`: a report on the `report` Issue, and at most one new `idea` Issue.
 - Issues are drafted by the `planner` agent, including small follow-ups from a review.
 - One Issue, one branch, one PR. Branch names are `issue-<number>-<short-slug>`.
-- Never push to `main` directly. Merging is the owner's call; agents do not merge. The one exception is the automation, for `auto` Issues and only under the conditions in `.claude/automation/pick-issue.md`.
+- Never push to `main` directly. A PR is merged once the reviewer's 判定 is マージしてよい and every check passes, under the conditions in `.claude/automation/pick-issue.md` step 5: by the automation, or by the session that ran `/dev`. The developer and reviewer agents themselves do not merge.
 - A PR body starts with `Closes #<number>` and lists how each acceptance criterion was checked.
-- The owner checks PRs on their phone through the Vercel preview URL.
+- What only a real phone or the Vercel preview can show does not hold a PR back. It is written after merging in a PR comment under オーナーに確かめてほしいこと, and the owner checks it on their phone (#77).
 - After each Issue's PR is reviewed, run a retrospective (`/retro`) and turn what went wrong into changes to these process files. Those changes go in their own PR on a `retro-<issue>-<slug>` branch.
+
+## Decisions
+
+The default (the owner, 2026-11-26): do not wait for the owner. When an Issue, a review or an agent's report has a recommended option (「おすすめ」, 「案 A（おすすめ）」, 「このドラフトは〜で書いている」, or only one sensible way), go ahead with it: build, open the PR, review and merge, and say in the PR which option was taken and why. The owner reads the result and can change course on the Issue or with a new one. An answer the owner has written on the Issue always wins over the recommendation.
+
+Stop and ask the owner (`auto:blocked`, with the options and what each would do) only when:
+
+- there is no recommended option, or several options and none is marked as the one to take; or
+- the step cannot be undone: deleting or overwriting production data (a migration that drops a table or column, or rewrites or deletes rows; a delete from production outside a migration), deleting a feed's history, or anything else whose loss a revert does not bring back; or
+- it needs something only the owner can give: a secret's value, a login (`npx neonctl auth`), a paid plan.
+
+A new dependency, a change to AI cost, a schema migration that only adds, and a change to these process files are not reasons to stop by themselves: they follow the recommendation like anything else, and the PR says what they cost.
 
 ## Checks
 
@@ -46,7 +58,7 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 - A seed article with no summary and tries left is digested again by any test that fetches (「今すぐ取得」), and the stub in `digest.spec.ts` fails it: its `digestAttempts` rises during the suite. A row that must stay "still to come" gets a `digestTriedAt` in the future (#68: the test passed alone and failed in the full run).
 - To show a timing bug is fixed, run the test several times with a fresh seed before each run. `--repeat-each` reuses one seed, so tests that open or mark rows fail from the second repeat on.
 - A passing full run does not show a test is stable alone. After a change to what every test shares (`playwright.config.ts`, `e2e/test.ts`, `e2e/server.mts`, the seed), also run alone, with a fresh seed each, the tests that use what changed (#127: blocking the Service Worker made one `page.route` test fail 4 of 5 alone while every full run passed).
-- `test.fixme` or `test.skip` on an existing test is the owner's call: report what the test shows, and when they choose it, the comment above the test names the Issue that brings it back.
+- `test.fixme` or `test.skip` on an existing test is a last resort: report what the test shows, and when it is the recommended way, the comment above the test names the Issue that brings it back.
 - An undo must put the screen back as it was before the action, not only the rows it changed. Test it after a different action has left state of its own (another button's `cut` in the listed Cookie, an open article): an action that rewrites shared state can drop what was there, and an undo that restores only its own part loses it. Test too that it brings back nothing else: have rows that must stay away (seen earlier, cut), in both orders around the one undone (#112: an undo moved `since` back to the article's first open and returned every row seen since; the test had only the order that passed).
 - From 1024px wide an opened article slides in from the right for 0.22s, and `toBeVisible()` passes while it is still off screen. A test that reads the article's position right after opening it polls the value (`expect.poll`), or compares sizes that a transform does not change (#132: the pane's right edge read 2096 at 1440×900).
 - Read a Playwright result from its `N failed` line or `test-results/.last-run.json`, not from the last line of output: `| tail` hides the failed list above the summary and replaces Playwright's exit code.
@@ -55,14 +67,14 @@ npm run test:e2e   # needs a fresh build; Playwright Chromium (`npx playwright i
 - In CI, Playwright stops itself at 15 minutes (`globalTimeout`): the job shows as failed and its report is uploaded, with `"status": "timedout"` in `test-results/.last-run.json`. The job's own 20-minute limit only catches a job stuck outside Playwright, and shows as cancelled with no report. Before re-running, read the log for a failed test: a re-run only helps when nothing had failed. When an `e2e` job passes 12 minutes, say so in the PR so the groups get rebalanced before the limit is reached.
 - Before `npm ci`, a build or an E2E run, look at the free disk (`df -h /`). Under 2 GB, do not start: write on the Issue or PR what is done and what is left, and report. A full disk stops the shell mid-run, and what the run had found is lost with it (#56: twice, with the review not yet posted).
 - If new Tailwind classes have no effect, delete `.next` and build again.
-- `next build` stops with a notice that this Next.js has a known vulnerability (`SecurityFatalError`, exit code 1); in an agent's shell this is every other build, not CI or Vercel. Run it again within 5 minutes and it builds. Do not run the upgrade the notice suggests (`next upgrade --agent=security`): it changes dependencies, which is the owner's call (Issue #111). Tell the owner it appeared.
+- `next build` stops with a notice that this Next.js has a known vulnerability (`SecurityFatalError`, exit code 1); in an agent's shell this is every other build, not CI or Vercel. Run it again within 5 minutes and it builds. Do not run the upgrade the notice suggests (`next upgrade --agent=security`) inside another Issue's PR: it changes dependencies, and it is Issue #111's work. Say in the report that it appeared.
 
 ## Notes
 
-- Local dev without `DATABASE_URL` uses PGlite under `.data/` and migrates automatically. Schema changes need a Drizzle migration in `drizzle/`; say in the PR that it must be applied to production Neon before deploy. If two migrations collide on a number, regenerate one with `drizzle-kit generate`; a renamed file keeps its old `when`, and Drizzle silently skips it in production.
+- Local dev without `DATABASE_URL` uses PGlite under `.data/` and migrates automatically. Schema changes need a Drizzle migration in `drizzle/`. A PR with a migration is merged like any other once CI passes; right after the merge, whoever merged it applies it to production Neon and checks that production recovered (`.claude/automation/pick-issue.md` step 5). Write migrations so the code before and after them both run, where that is possible: production runs the new code for the minutes before the migration lands. If two migrations collide on a number, regenerate one with `drizzle-kit generate`; a renamed file keeps its old `when`, and Drizzle silently skips it in production.
 - Production is protected by Vercel Authentication; there is no app-level login.
 - The production database is Neon project `round-feather-65545481`. Give the id in any `neonctl` command (`npx neonctl connection-string main --project-id round-feather-65545481`); without it the CLI asks which org to use and hangs inside `$(...)`.
-- Vercel has one `DATABASE_URL` entry for Production and Preview, so a preview may be using the production database. A PR with a migration or a new write says so in what the owner should check.
+- Vercel has one `DATABASE_URL` entry for Production and Preview, so a preview may be using the production database. A PR with a migration or a new write says so under オーナーに確かめてほしいこと.
 - Models are set in `src/lib/ai.ts`.
 - A Cookie the client writes to tell the server what to send (`listed`, `layout`) is shared by every window and tab of the browser, and they can differ in size and in what is open. Code that depends on one must cope with another window having rewritten it since this one last wrote it; test that by setting the Cookie from the test while the page is open (#65).
 - On phones the list stays mounted under `display: none` while an article is open (see `InboxShell.tsx`). Code that measures or animates the list must cope with zero sizes while it is hidden.
