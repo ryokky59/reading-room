@@ -97,6 +97,8 @@ export function isTyping(e: KeyboardEvent) {
 type InboxNav = {
   /** Unread article ids in the order the list shows them; null until the list has rendered. */
   ids: number[] | null;
+  /** The ids of the list's own cards, without the articles after it; null as `ids`. */
+  cardIds: number[] | null;
   /** `unseen` are the ids the list or the Board came with as unread. */
   setIds: (ids: number[], unseen: number[]) => void;
   /**
@@ -106,7 +108,7 @@ type InboxNav = {
   addPast: (id: number) => void;
 };
 
-const InboxNavContext = createContext<InboxNav>({ ids: null, setIds: () => {}, addPast: () => {} });
+const InboxNavContext = createContext<InboxNav>({ ids: null, cardIds: null, setIds: () => {}, addPast: () => {} });
 
 /**
  * The order of the list pane, for opening the next / previous article. Cards leaving the list
@@ -115,6 +117,14 @@ const InboxNavContext = createContext<InboxNav>({ ids: null, setIds: () => {}, a
  */
 export function useInboxIds() {
   return useContext(InboxNavContext).ids;
+}
+
+/**
+ * The list's own cards (or the Board column's rows), without the articles opened past its end
+ * that useInboxIds puts after them.
+ */
+export function useInboxCardIds() {
+  return useContext(InboxNavContext).cardIds;
 }
 
 /** Notes an article opened past the end of the list (see useInboxIds). */
@@ -855,7 +865,7 @@ export function InboxShell({
   // list: an open article is a sheet over it.
   const board = useBoardUrl() !== null;
   return (
-    <InboxNavContext.Provider value={{ ids: shownIds, setIds: syncIds, addPast }}>
+    <InboxNavContext.Provider value={{ ids: shownIds, cardIds: ids, setIds: syncIds, addPast }}>
       <LeavingContext.Provider value={leavingValue}>
         <OpenedContext.Provider value={openedValue}>
         <UncountedContext.Provider value={uncounted}>
