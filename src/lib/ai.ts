@@ -252,7 +252,7 @@ ${body || "(本文なし)"}
 - summary: 記事の要点を日本語 1 文(40〜60 字)で。本文がなければタイトルから分かる範囲で 1 文`,
       },
     ],
-  }, { signal: AbortSignal.timeout(PICKS_TIMEOUT_MS) });
+  });
   const msg = await stream.finalMessage();
   if (msg.stop_reason === "refusal") throw new Error("refused");
   const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
