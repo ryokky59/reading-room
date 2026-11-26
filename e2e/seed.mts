@@ -47,6 +47,15 @@ const inserted = await db
     article(5, { title: "対話のある記事", titleJa: "対話のある記事" }),
     // e2e/digest.spec.ts: a reply cut off by the length limit. Read, so it stays off the Board.
     article(138, { title: "対話が切れる記事", titleJa: "対話が切れる記事", status: "read", readAt: new Date(now) }),
+    // e2e/digest.spec.ts: a chat reply and a translation the page is closed in the middle of.
+    article(145, { title: "離れても返答が残る記事", titleJa: "離れても返答が残る記事", status: "read", readAt: new Date(now) }),
+    article(146, {
+      title: "Translation leave test",
+      titleJa: "離れると訳をやめる記事",
+      lang: "other",
+      status: "read",
+      readAt: new Date(now),
+    }),
   ])
   .returning({ id: schema.articles.id, title: schema.articles.title });
 
