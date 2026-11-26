@@ -258,11 +258,12 @@ test.describe("選ぶ(/api/cron)", () => {
     ]
       .map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`)
       .join("");
+  const send = (res: ServerResponse, picks: { id: number; reason: string }[]) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end(sse("end_turn", JSON.stringify({ picks })));
+  };
   const answer = (picks: (ids: Record<string, number>) => { id: number; reason: string }[]) =>
-    replies.push((res, ids) => {
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.end(sse("end_turn", JSON.stringify({ picks: picks(ids) })));
-    });
+    replies.push((res, ids) => send(res, picks(ids)));
   const refuse = () => replies.push((res) => {
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.end(sse("refusal"));
@@ -279,6 +280,12 @@ test.describe("選ぶ(/api/cron)", () => {
   const quiet: Reply = (res) => {
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.write(sse("end_turn").split("\n\n")[0] + "\n\n");
+  };
+
+  // Calls left unanswered for the test to answer, in the order they came (#153).
+  const held: { res: ServerResponse; ids: Record<string, number> }[] = [];
+  const hold: Reply = (res, ids) => {
+    held.push({ res, ids });
   };
 
   /** The candidate ids in a picks call, by title. */
@@ -311,6 +318,7 @@ test.describe("選ぶ(/api/cron)", () => {
   test.beforeEach(() => {
     calls.length = 0;
     replies.length = 0;
+    held.length = 0;
   });
 
   test("行のない日に叩くと AI を 1 回呼んで、返した順に保存して返す。同じ日にもう一度叩くと呼ばずに同じ行を返す", async ({ page }) => {
@@ -422,5 +430,43 @@ test.describe("選ぶ(/api/cron)", () => {
     expect(Array.isArray(body.failedFeeds)).toBe(true);
     expect(took).toBeGreaterThanOrEqual(PICKS_TIMEOUT_MS);
     expect(took).toBeLessThan(PICKS_TIMEOUT_MS + 15_000);
+  });
+
+  test("同じ日に 2 つ同時に叩くと、先に保存した 1 回分だけが残る。後の回は何も足さず、同じ行を返す", async ({ page }) => {
+    // Both runs find the day empty and ask the AI. The stub holds both calls, answers the first with
+    // one pick, and answers the second, with two, only after the first request has returned: so the
+    // second saves after the first, whatever the speed of the machine.
+    replies.push(hold, hold);
+    const day = "2001-01-07";
+    const one = page.request.get(onlyPicks(day), { headers: auth });
+    const two = page.request.get(onlyPicks(day), { headers: auth });
+    await expect.poll(() => held.length).toBe(2);
+
+    const a = held[0].ids["選ぶ候補 A"];
+    const b = held[1].ids["選ぶ候補 B"];
+    expect(a).toBeGreaterThan(0);
+    expect(held[1].ids["選ぶ候補 A"]).toBe(a);
+    send(held[0].res, [{ id: a, reason: "1 回目の A" }]);
+    // The other request cannot return before its call is answered, so the first to return is the one
+    // answered.
+    const [firstRes, other] = await Promise.race([
+      one.then((r) => [r, two] as const),
+      two.then((r) => [r, one] as const),
+    ]);
+    const expected = { picks: [{ day, position: 0, articleId: a, reason: "1 回目の A" }] };
+    expect(firstRes.status()).toBe(200);
+    expect(await firstRes.json()).toEqual(expected);
+
+    send(held[1].res, [
+      { id: b, reason: "2 回目の B" },
+      { id: a, reason: "2 回目の A" },
+    ]);
+    const secondRes = await other;
+    expect(secondRes.status()).toBe(200);
+    expect(await secondRes.json()).toEqual(expected);
+
+    const again = await page.request.get(onlyPicks(day), { headers: auth });
+    expect(await again.json()).toEqual(expected);
+    expect(calls).toHaveLength(2);
   });
 });
