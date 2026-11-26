@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, desc, eq, gte, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { chooseMorningPicks } from "./ai";
 import { articles, feeds, getDb, picks } from "./db";
 import { pickDay, readingMinutes } from "./format";
@@ -91,11 +91,28 @@ export async function ensurePicks(day = pickDay()): Promise<SavedPick[]> {
     })
     .slice(0, PICKS);
   if (kept.length === 0) return [];
-  // (day, position) is unique, so a run that chose at the same time cannot double the set.
-  await db
-    .insert(picks)
-    .values(kept.map((c, position) => ({ day, position, articleId: c.id, reason: c.reason })))
-    .onConflictDoNothing();
+  // Two runs can both find the day empty and choose while the other does. Every set has a position
+  // 0 and (day, position) is unique, so the run that saves position 0 first claims the day, and the
+  // rest of its set goes in with it in the same statement (Neon over HTTP has no interactive
+  // transactions). A run that loses saves nothing, not even its other positions, and returns the
+  // winner's set.
+  const [first, ...rest] = kept;
+  const claim = sql`insert into ${picks} (day, position, article_id, reason)
+    values (${day}, 0, ${first.id}, ${first.reason})
+    on conflict do nothing
+    returning day`;
+  if (rest.length === 0) {
+    await db.execute(claim);
+  } else {
+    const values = sql.join(
+      rest.map((c, i) => sql`(${i + 1}::integer, ${c.id}::integer, ${c.reason}::text)`),
+      sql`, `,
+    );
+    await db.execute(sql`with claim as (${claim})
+      insert into ${picks} (day, position, article_id, reason)
+      select claim.day, v.position, v.article_id, v.reason
+      from claim cross join (values ${values}) as v(position, article_id, reason)`);
+  }
   return savedPicks(day);
 }
 

@@ -115,7 +115,9 @@ export const events = pgTable(
 );
 
 // 「今朝の N 本」: the articles chosen for the top of the Board each morning (lib/picks.ts). `day` is
-// the pick day (pickDay in lib/format.ts); one set a day, so a second run adds nothing.
+// the pick day (pickDay in lib/format.ts). One set a day: the run that saves the day's position 0
+// saves the rest of its set in the same statement, and a run that finds position 0 taken saves
+// nothing (ensurePicks).
 export const picks = pgTable(
   "picks",
   {
