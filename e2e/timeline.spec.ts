@@ -45,8 +45,13 @@ async function expectAllTimeline(page: Page) {
  */
 async function homeStaysOnTimeline(page: Page) {
   const folder = "E2E 時系列";
+  await openTimeline(page, folder);
   for (const link of [inboxTab, logo]) {
-    await openTimeline(page, folder);
+    // On the timeline the tab keeps it. Not openTab: `/` is the timeline by now, and a tab
+    // pressed there goes to the timeline or the Board as the replace races it.
+    await folderNav(page).getByRole("link", { name: new RegExp(`^${folder}\\s*\\d+$`) }).click();
+    await expect(page).toHaveURL(/\/\?f=\d+&v=t$/);
+    await expect(list(page)).toBeVisible();
     await link(page).click();
     await expectAllTimeline(page);
   }
