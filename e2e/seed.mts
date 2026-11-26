@@ -851,11 +851,12 @@ const timelineFolders = await db
       "E2E 時系列と別のタブ",
       "E2E 時系列でスキップ失敗",
       "E2E 時系列の記録",
+      "E2E 時系列から新着",
     ].map((name, i) => ({ name, position: 210 + i })),
   )
   .returning();
 // More than a page of the list (30) in the first two; the phone's scrolls.
-const timelineCounts = [34, 32, 4, 4, 16, 4, 4, 4];
+const timelineCounts = [34, 32, 4, 4, 16, 4, 4, 4, 2];
 const timelineFeeds = await db
   .insert(schema.feeds)
   .values(timelineFolders.flatMap((f, i) => ["A", "B"].map((s) => feed(`timeline-${i}-${s}`, `${f.name} ${s}`, f.id))))

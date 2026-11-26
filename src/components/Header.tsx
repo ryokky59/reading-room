@@ -7,12 +7,14 @@ export function Header({
   panes,
   controls,
   inert,
+  home = "/",
 }: {
   active?: "inbox" | "read" | "feeds";
   className?: string;
   panes?: boolean; // spans the list / article / chat panes from `split` up
   controls?: React.ReactNode; // the inbox's 今すぐ取得 and URL を追加
   inert?: boolean; // behind the article sheet (InboxShell)
+  home?: string; // where the logo and 新着 lead; the timeline's is `/?v=t` (InboxShell)
 }) {
   const tab = (href: string, label: string, on: boolean) => (
     <Link
@@ -34,12 +36,12 @@ export function Header({
       <div
         className={`mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 py-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] ${panes ? "split:max-w-none" : ""}`}
       >
-        <Link href="/" className="font-bold tracking-tight">
+        <Link href={home} className="font-bold tracking-tight">
           Reading Room
         </Link>
         {controls && <div className="order-last w-full split:order-none split:w-auto split:min-w-0 split:flex-1">{controls}</div>}
         <nav className="ml-auto flex gap-1 split:ml-0">
-          {tab("/", "新着", active === "inbox")}
+          {tab(home, "新着", active === "inbox")}
           {tab("/read", "読了", active === "read")}
           {tab("/feeds", "フィード", active === "feeds")}
         </nav>
