@@ -59,6 +59,28 @@ export function formatAgo(date: Date, now = new Date()): string {
   return `${Math.floor(minutes / (24 * 60))} 日前`;
 }
 
+/** What the header says about fetching: 「12 分前に取得」, or 「新着が N 時間入っていません」 when stale. */
+export type FetchedLabel = { text: string; stale: boolean };
+
+/**
+ * How long the newest feed article may be before the header says new articles have stopped. The
+ * longest gap in production over 10/25-11/23 was two hours; six is three times that (#168).
+ */
+export const STALE_AFTER_MS = 6 * 3600_000;
+
+/**
+ * 「新着が 7 時間入っていません」 once the newest article from a feed is STALE_AFTER_MS old, null
+ * before that or with no such article. A feed's `lastFetchedAt` moves on even when every article
+ * fails to save, so this is what shows that saving has stopped (#168).
+ */
+export function staleLabel(newest: Date | null, now = new Date()): string | null {
+  if (!newest) return null;
+  const ms = now.getTime() - newest.getTime();
+  if (ms < STALE_AFTER_MS) return null;
+  const hours = Math.floor(ms / 3600_000);
+  return hours < 24 ? `新着が ${hours} 時間入っていません` : `新着が ${Math.floor(hours / 24)} 日入っていません`;
+}
+
 export function hostname(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");

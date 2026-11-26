@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, count, desc, eq, isNotNull, lte, max, sql } from "drizzle-orm";
 import { articles, feeds, folders, getDb } from "./db";
 import { faviconUrl } from "./favicon";
-import { formatAgo } from "./format";
+import { formatAgo, staleLabel, type FetchedLabel } from "./format";
 import { inboxQuery, inboxWhere, listedWhere, runningWhere, type InboxFilter, type ListedRows } from "./inbox";
 
 /** Rows a column shows on PCs; the rest are behind 「あと N 件」. */
@@ -52,11 +52,23 @@ export async function folderList() {
   return db.select({ id: folders.id, name: folders.name }).from(folders).orderBy(asc(folders.position), asc(folders.id));
 }
 
-/** 「12 分前に取得」 for the header; null before the first fetch. */
-export async function lastFetchedLabel() {
+/**
+ * 「12 分前に取得」 for the header; null before the first fetch. When the newest article from a
+ * feed is older than STALE_AFTER_MS while a feed is enabled, 「新着が N 時間入っていません」
+ * instead: feeds that are read but whose articles fail to save still move `lastFetchedAt` (#168).
+ * Articles added by URL do not count.
+ */
+export async function lastFetchedLabel(): Promise<FetchedLabel | null> {
   const db = await getDb();
-  const [{ last }] = await db.select({ last: max(feeds.lastFetchedAt) }).from(feeds);
-  return last ? `${formatAgo(last)}に取得` : null;
+  const [[{ last, anyEnabled }], [{ newest }]] = await Promise.all([
+    db
+      .select({ last: max(feeds.lastFetchedAt), anyEnabled: sql<boolean | null>`bool_or(${feeds.enabled})` })
+      .from(feeds),
+    db.select({ newest: max(articles.fetchedAt) }).from(articles).where(isNotNull(articles.feedId)),
+  ]);
+  const stale = anyEnabled ? staleLabel(newest) : null;
+  if (stale) return { text: stale, stale: true };
+  return last ? { text: `${formatAgo(last)}に取得`, stale: false } : null;
 }
 
 export type BoardRowData = {

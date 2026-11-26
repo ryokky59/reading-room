@@ -3,9 +3,13 @@
 import { unstable_rethrow, useRouter } from "next/navigation";
 import { useActionState, useState } from "react";
 import { addArticle, fetchNow, type ActionState } from "@/lib/actions";
+import type { FetchedLabel } from "@/lib/format";
 
-/** 今すぐ取得 and URL を追加, in the header; `lastFetched` reads like 「12 分前に取得」. */
-export function InboxControls({ lastFetched }: { lastFetched: string | null }) {
+/**
+ * 今すぐ取得 and URL を追加, in the header; `lastFetched` reads like 「12 分前に取得」, or
+ * 「新着が N 時間入っていません」 in the accent color when new articles have stopped (#168).
+ */
+export function InboxControls({ lastFetched }: { lastFetched: FetchedLabel | null }) {
   const router = useRouter();
   // A failed request shows a message under the button instead of the error page, so it can be
   // pressed again.
@@ -56,7 +60,9 @@ export function InboxControls({ lastFetched }: { lastFetched: string | null }) {
         >
           URL を追加
         </button>
-        {lastFetched && <p className="text-xs text-muted">{lastFetched}</p>}
+        {lastFetched && (
+          <p className={`text-xs ${lastFetched.stale ? "font-semibold text-accent" : "text-muted"}`}>{lastFetched.text}</p>
+        )}
       </div>
       {fetchState.message && <p className="text-sm text-muted">{fetchState.message}</p>}
       {fetchState.error && (
