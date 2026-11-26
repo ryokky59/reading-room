@@ -17,6 +17,8 @@ const TRANSLATION_FAILED = "(日本語にまとめられませんでした。や
 const TRANSLATION_CUT = "(記事が長く、ここまでで切れました。やり直してください)";
 const REVIEW_FAILED = "(この月の振り返りは作れませんでした。作り直してください)";
 const REVIEW_CUT = "(振り返りが長くなり、ここまでで切れました。作り直してください)";
+const REDO_FAILED = "作り直せませんでした。前の振り返りを表示しています。";
+const REDO_CUT = "作り直しは途中で切れました。前の振り返りを表示しています。";
 const CHAT_CUT = "(返答が長くなり、ここまでで切れました)";
 // The widths the owner reads on: a phone upright and on its side, and a PC.
 const VIEWPORTS = [
@@ -521,19 +523,82 @@ test.describe("要約と翻訳の失敗", () => {
     await view.click();
     await expect(month).toContainText(COMPLETE);
 
-    // Cut off over a complete one: after a reload the complete one is still there.
+    // Cut off over a complete one: the complete one comes back with a line saying so, and
+    // what came of the redo is dropped. After a reload the complete one is still there.
     await again.click();
-    await expect(month).toContainText(PARTIAL_AGAIN);
-    await expect(month).toContainText(REVIEW_CUT);
+    await expect(month.getByText(REDO_CUT)).toBeVisible();
+    await expect(month).toContainText(COMPLETE);
+    await expect(month).not.toContainText(PARTIAL_AGAIN);
+    await expect(month).not.toContainText(REVIEW_CUT);
     await expect(again).toBeVisible();
+    await expect(month.getByRole("button", { name: "振り返りを閉じる" })).toBeVisible();
+    await expectFits(page, REDO_CUT);
     await page.reload();
     await view.click();
     await expect(month).toContainText(COMPLETE);
     await expect(month).not.toContainText(PARTIAL_AGAIN);
     await expect(month).not.toContainText(REVIEW_CUT);
+    await expect(month).not.toContainText(REDO_CUT);
     expect(calls.review["(month)"] - before).toBe(4);
     expect(reviewReplies).toHaveLength(0);
   });
+
+  test("振り返りがある月で作り直しが拒否されたり通信が切れたりすると、前の振り返りと注意が出て、作り直すと注意が消える", async ({
+    page,
+  }) => {
+    const OLD = "前からある振り返りです。";
+    const NEW = "作り直した振り返りです。";
+    reviewReplies.splice(0, reviewReplies.length, sse("end_turn", OLD), sse("refusal"), sse("end_turn", NEW));
+    const before = calls.review["(month)"] ?? 0;
+    // The seed has articles read this month, and its section comes first. An earlier test may
+    // have kept a look-back for it, so the first press is either button.
+    await page.goto("/read");
+    const month = page.getByRole("main").locator("section").first();
+    const again = month.getByRole("button", { name: "作り直す" });
+    const view = month.getByRole("button", { name: "振り返りを見る" });
+    const close = month.getByRole("button", { name: "振り返りを閉じる" });
+    const notice = month.getByText(REDO_FAILED);
+    await month.getByRole("button", { name: /^(この月を振り返る|作り直す)$/ }).click();
+    await expect(month).toContainText(OLD);
+    await expect(again).toBeVisible();
+
+    // Refused: the kept one and the notice, not the failure, with the panel still open.
+    await again.click();
+    await expect(notice).toBeVisible();
+    await expect(month).toContainText(OLD);
+    await expect(month).not.toContainText(REVIEW_FAILED);
+    await expect(close).toBeVisible();
+    await expect(again).toBeVisible();
+    await expectFits(page, REDO_FAILED);
+
+    // A reload shows the same kept one, and no notice.
+    await page.reload();
+    await view.click();
+    await expect(month).toContainText(OLD);
+    await expect(notice).toHaveCount(0);
+
+    // The connection drops: the same.
+    await page.route("**/api/review", (route) => route.abort());
+    await again.click();
+    await expect(notice).toBeVisible();
+    await expect(month).toContainText(OLD);
+    await expect(month).not.toContainText("(振り返りを作れませんでした)");
+    await expect(close).toBeVisible();
+    await page.unroute("**/api/review");
+
+    // A redo that completes: the notice goes, and the new one is shown and kept.
+    await again.click();
+    await expect(month).toContainText(NEW);
+    await expect(again).toBeVisible();
+    await expect(notice).toHaveCount(0);
+    await expect(month).not.toContainText(OLD);
+    await page.reload();
+    await view.click();
+    await expect(month).toContainText(NEW);
+    expect(calls.review["(month)"] - before).toBe(3);
+    expect(reviewReplies).toHaveLength(0);
+  });
+
   test("対話の返答が長さの上限で切れると、途中までの返答の下に切れた旨の文が出て保存され、次の返答には付かない", async ({
     page,
   }) => {
