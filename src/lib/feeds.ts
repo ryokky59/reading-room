@@ -20,6 +20,8 @@ export type FetchResult = { added: number; failedFeeds: string[] };
 
 // A fresh parser for each parse: after a parse error, rss-parser's next parse of the same bad
 // XML returns one empty item instead of failing, so the retry below hid broken feeds.
+// rss-parser follows up to 5 redirects and cannot be told not to (`maxRedirects: 0` becomes 5).
+// That is wanted (#175): feeds move, and their URL already comes from outside.
 const parseFeed = (url: string) =>
   new Parser({ timeout: 15_000, headers: { "User-Agent": "reading-room/1.0" } }).parseURL(url);
 
@@ -289,6 +291,8 @@ export async function discoverFeed(input: string): Promise<DiscoveredFeed | null
   try {
     const res = await fetch(input, {
       headers: { "User-Agent": "Mozilla/5.0 reading-room/1.0" },
+      // Followed on purpose (#175): a site's page often moves, and the URL is the owner's input.
+      redirect: "follow",
       signal: AbortSignal.timeout(15_000),
     });
     if (res.ok) {
