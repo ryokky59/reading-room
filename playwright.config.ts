@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { DIGEST_RETRY_INTERVAL_MS, PGLITE_DIR, PORT, STUB_PORT } from "./e2e/env";
+import { CRON_SECRET, DIGEST_RETRY_INTERVAL_MS, PGLITE_DIR, PORT, STUB_PORT } from "./e2e/env";
 
 // The AI digest runs when a test imports a feed; a local base URL keeps it from ever reaching the
 // Anthropic API. e2e/digest.spec.ts listens there to play the API; elsewhere nothing does, and
@@ -14,6 +14,8 @@ const env = {
   FAVICON_SERVICE: `http://localhost:${STUB_PORT}/favicons`,
   // Long enough for e2e/digest.spec.ts to press 「今すぐ取得」 once and add a site within it.
   DIGEST_RETRY_INTERVAL_MS: String(DIGEST_RETRY_INTERVAL_MS),
+  // e2e/picks.spec.ts calls /api/cron with it.
+  CRON_SECRET,
 };
 
 // Tests share one seeded database, so they run one at a time. After a test fails, the next one

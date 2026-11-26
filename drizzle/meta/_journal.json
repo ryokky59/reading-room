@@ -78,6 +78,13 @@
       "when": 1795431725534,
       "tag": "0010_digest_tried_at",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795522810679,
+      "tag": "0011_picks",
+      "breakpoints": true
     }
   ]
 }

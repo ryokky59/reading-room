@@ -23,6 +23,15 @@ function reset() {
   });
 }
 
+/**
+ * For a test that leaves rows changed which other tests read, and cannot give each test rows of
+ * its own (one set of 「今朝の 5 本」 a day): the next test starts from the seed again, as after a
+ * failure. Call it at the end of the test; it costs a restart of the app.
+ */
+export function resetAfterThis(title: string) {
+  writeFileSync(DIRTY_FILE, title);
+}
+
 export const test = base.extend<{ cleanSeed: void }>({
   cleanSeed: [
     async ({}, use, testInfo) => {

@@ -7,6 +7,17 @@ export const DIGEST_FAILED = "AI 要約できませんでした";
 // Dates are shown and grouped in Japan time regardless of the server's zone.
 const JST_OFFSET_MS = 9 * 3600_000;
 
+/** When the morning picks change over (lib/picks.ts), in hours after midnight JST. */
+const PICK_DAY_STARTS_HOUR = 6;
+
+/**
+ * The pick day `date` falls in, as YYYY-MM-DD: a day in JST that starts at 6:00, so 0:00-5:59 is
+ * still the day before. The cron that chooses the picks and the Board that shows them both use it.
+ */
+export function pickDay(date = new Date()): string {
+  return new Date(date.getTime() + JST_OFFSET_MS - PICK_DAY_STARTS_HOUR * 3600_000).toISOString().slice(0, 10);
+}
+
 export function monthKey(date: Date): string {
   return new Date(date.getTime() + JST_OFFSET_MS).toISOString().slice(0, 7);
 }

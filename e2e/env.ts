@@ -25,3 +25,6 @@ export const RESET_SOCKET = `${PGLITE_DIR}-reset.sock`;
  * Long enough for a slow CI runner to fetch and add a site within it.
  */
 export const DIGEST_RETRY_INTERVAL_MS = 20_000;
+
+/** The bearer token /api/cron takes in the E2E runs (e2e/picks.spec.ts). */
+export const CRON_SECRET = "e2e-cron-secret";
