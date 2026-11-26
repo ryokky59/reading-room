@@ -2,7 +2,8 @@
 # Precheck for the Orca automation 「イシューを自動で進める」 (see pick-issue.md).
 # Exit 0 starts the agent; exit 1 skips this run without starting it (no cost).
 #   - an `auto` Issue is already `in-progress` (an earlier run is still working) → skip
-#   - no open `auto` Issue without `auto:blocked` and `in-progress` → skip
+#   - no open `auto` Issue without `auto:blocked` and `in-progress`, and no open `idea` Issue
+#     without `auto` (step 1 labels or stops those) → skip
 set -euo pipefail
 REPO=ryokky59/reading-room
 ORCA=/Applications/Orca.app/Contents/Resources/bin/orca
@@ -39,6 +40,8 @@ if [ "$busy" -gt 0 ]; then echo "作業中の auto イシューがあるので�
 
 ready=$(gh issue list --repo "$REPO" --state open --label auto --json number,labels \
   -q '[.[] | select(all(.labels[]; .name != "auto:blocked" and .name != "in-progress"))] | length')
-if [ "$ready" -eq 0 ]; then echo "拾える auto のイシューが無いので飛ばす"; exit 1; fi
+ideas=$(gh issue list --repo "$REPO" --state open --label idea --json number,labels \
+  -q '[.[] | select(all(.labels[]; .name != "auto" and .name != "auto:blocked" and .name != "in-progress" and .name != "report"))] | length')
+if [ "$ready" -eq 0 ] && [ "$ideas" -eq 0 ]; then echo "拾える auto のイシューも、まだ見ていない idea も無いので飛ばす"; exit 1; fi
 
-echo "拾える auto のイシューが ${ready} 件ある"
+echo "拾える auto のイシューが ${ready} 件、まだ見ていない idea が ${ideas} 件ある"
