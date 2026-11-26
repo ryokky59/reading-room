@@ -26,5 +26,11 @@ export const RESET_SOCKET = `${PGLITE_DIR}-reset.sock`;
  */
 export const DIGEST_RETRY_INTERVAL_MS = 20_000;
 
+/**
+ * How long the AI may take to choose the morning picks (PICKS_TIMEOUT_MS in src/lib/ai.ts). Far over
+ * what a picks call to the stub takes (0.1 s in CI), and short enough for e2e/picks.spec.ts to wait it out.
+ */
+export const PICKS_TIMEOUT_MS = 3000;
+
 /** The bearer token /api/cron takes in the E2E runs (e2e/picks.spec.ts). */
 export const CRON_SECRET = "e2e-cron-secret";

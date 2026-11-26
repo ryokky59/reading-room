@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { CRON_SECRET, DIGEST_RETRY_INTERVAL_MS, PGLITE_DIR, PORT, STUB_PORT } from "./e2e/env";
+import { CRON_SECRET, DIGEST_RETRY_INTERVAL_MS, PGLITE_DIR, PICKS_TIMEOUT_MS, PORT, STUB_PORT } from "./e2e/env";
 
 // The AI digest runs when a test imports a feed; a local base URL keeps it from ever reaching the
 // Anthropic API. e2e/digest.spec.ts listens there to play the API; elsewhere nothing does, and
@@ -16,6 +16,8 @@ const env = {
   DIGEST_RETRY_INTERVAL_MS: String(DIGEST_RETRY_INTERVAL_MS),
   // e2e/picks.spec.ts calls /api/cron with it.
   CRON_SECRET,
+  // e2e/picks.spec.ts waits it out when the stub does not answer.
+  PICKS_TIMEOUT_MS: String(PICKS_TIMEOUT_MS),
 };
 
 // Tests share one seeded database, so they run one at a time. After a test fails, the next one
