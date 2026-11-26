@@ -2,7 +2,16 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { FeedBadge } from "@/components/FeedBadge";
 import { FolderTabs } from "@/components/FolderTabs";
-import { BoardPane, BoardRow, ColumnUnread, ListedSince, ListLink, MarkAllSeenButton, UnreadCount } from "@/components/InboxShell";
+import {
+  BoardPane,
+  BoardRow,
+  ColumnUnread,
+  ListedSince,
+  ListLink,
+  MarkAllSeenButton,
+  UnreadCount,
+  ViewSwitch,
+} from "@/components/InboxShell";
 import { LinkPending } from "@/components/NavPending";
 import { PickLink } from "@/components/PickLink";
 import { SeenOnScroll } from "@/components/SeenOnScroll";
@@ -53,6 +62,7 @@ export async function Board({
       <div className="shrink-0 px-4 pt-3">
         <FolderTabs folders={folders} buckets={buckets} selected={selected} />
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+          <ViewSwitch timeline={false} boardQuery={inboxQuery({ f: filter.f })} timelineQuery={inboxQuery({ f: filter.f, v: "t" })} />
           <ListLink
             query={inboxQuery({ f: filter.f, a: "1" })}
             scroll={false}

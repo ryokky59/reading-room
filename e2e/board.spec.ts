@@ -113,7 +113,10 @@ test.describe("PC 幅", () => {
     // scroll sideways.
     const title = row(page, "E2E 列 たくさん", "E2E 列 たくさん 1").first().getByText("E2E 列 たくさん 1", { exact: true });
     await widen(title);
-    expect(await sideOverflows(page), "a row kept from wrapping").not.toEqual([]);
+    // Caught by the column's list of rows (the px vary with the width).
+    expect(await sideOverflows(page), "a row kept from wrapping").toContainEqual(
+      expect.stringMatching(/^ul\.board:min-h-0\.board:flex-1\.board:overflow-y-auto \d+px$/),
+    );
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     await unwiden(title);
     expect(await sideOverflows(page)).toEqual([]);
@@ -209,10 +212,11 @@ test.describe("PC 幅", () => {
   });
 
   test("見出しを押すと記事がボードの上のシートで開き、j / k はそのフィードの中で動く。閉じるとボードに戻り、薄く残る", async ({ page }) => {
-    await slowCpu(page);
     // The folder's tab, not the whole Board at `/`: under the slow CPU, Playwright's own lookups
     // through a thousand visible rows behind the sheet outlast its timeouts on CI.
     await openTab(page, "E2E ボードで開く");
+    // Slow from here, for back / forward: slowed from `/`, the first move off its every row outlasts 5s on CI.
+    await slowCpu(page);
     const tabUrl = page.url();
     await row(page, "E2E 開く A", "E2E 開く A 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 開く A 1");
@@ -716,7 +720,6 @@ test.describe("横向きのスマホ 844×390 @mobile", () => {
   test.use({ viewport: { width: 844, height: 390 } });
 
   test("ボードから開いて「戻る」のあと、ブラウザの戻る→進むでボードが出る @mobile", async ({ page }) => {
-    await slowCpu(page);
     await page.goto("/");
     await row(page, "E2E 横向きで開く", "E2E 横向きで開く 1").getByRole("link").click();
     await expect(heading(page)).toHaveText("E2E 横向きで開く 1");
@@ -727,6 +730,8 @@ test.describe("横向きのスマホ 844×390 @mobile", () => {
     await expect(page).toHaveURL("/");
     await expect(heading(page)).toHaveCount(0);
 
+    // Slow from here, for back / forward: slowed from the start, the first move off `/`'s every row outlasts 5s on CI.
+    await slowCpu(page);
     await page.goBack();
     await expect(heading(page)).toHaveText("E2E 横向きで開く 2");
     await page.goForward();

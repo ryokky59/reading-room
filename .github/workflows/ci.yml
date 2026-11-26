@@ -23,14 +23,30 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
-      # Every spec in e2e/ must be in exactly one group of the e2e job below.
+      # Shows which awk runs here: the one check-e2e-groups.sh and its test (#191) run with below.
+      # Prints the path and the first line of the version only. `--version` goes first: macOS's awk
+      # ignores `-W` and exits 0 with no output. The output goes into a variable, not `| head`, so
+      # awk cannot get SIGPIPE.
+      - run: |
+          readlink -f "$(command -v awk)"
+          version=$(awk --version 2>/dev/null </dev/null || awk -W version 2>/dev/null </dev/null)
+          printf '%s\n' "${version%%$'\n'*}"
+      # Every test file Playwright runs (from `playwright test --list`, subfolders of e2e/ included)
+      # must be in exactly one group of the e2e job below. Each e2e job then checks that Playwright
+      # runs exactly the files of its group.
       - run: bash .github/scripts/check-e2e-groups.sh
+      # Runs check-e2e-groups.sh on changed copies of this file, with this job's awk (the step above
+      # shows which): the same awk that runs check-e2e-groups.sh in CI.
+      - run: bash .github/scripts/test-check-e2e-groups.sh
 
   # The E2E suite runs in three jobs, each on its own runner with its own seeded database and
   # server. The groups are balanced by hand from the time each spec took in CI (both projects,
   # desktop and @mobile, run in the group of their file). From main's run 45475398926 (249 tests,
   # 1236 s): group 1 about 424 s, group 2 about 414 s, group 3 about 400 s. A new spec goes in the
   # group that is shortest then; the check job fails while a spec is in no group or in two.
+  # A group holds file names only, one per line: inside `>-` a `#` line is not a YAML comment but
+  # part of the value, and the shell drops everything after it from the command line. Playwright
+  # reads each name as a case-insensitive regular expression; each job checks what it selects.
   e2e:
     name: e2e ${{ matrix.group }}
     runs-on: ubuntu-latest
@@ -68,6 +84,7 @@ jobs:
               e2e/picks.spec.ts
               e2e/scroll-seen.spec.ts
               e2e/seen.spec.ts
+              e2e/timeline.spec.ts
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -75,6 +92,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Fails within a minute when the group's names select other files than the group lists. The
+      # specs are not quoted, so the shell splits them exactly as in the test step below.
+      - run: bash .github/scripts/check-e2e-groups.sh --group ${{ matrix.group }} ${{ matrix.specs }}
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       # The E2E server uses a seeded local database; no API keys are needed.

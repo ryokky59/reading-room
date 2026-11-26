@@ -61,7 +61,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 | `layout` | `single`(一覧と記事が別画面)/ `split`(幅 600px 以上で横に並ぶ) |
 | `vw` / `vh` | 送った時の画面の幅と高さ(CSS px)。端末を後から分け直すのに使う |
 | `standalone` | ホーム画面から起動したか |
-| `screen` | 送った時の画面: `board` / `list` / `article` / `read` / `feeds`。`open` と `leave` は `article`。操作のイベントは押したボタンのある画面(PC で記事の横の一覧で押したものは `list`) |
+| `screen` | 送った時の画面: `board` / `list` / `timeline`(新着の時系列、`/?v=t`)/ `article` / `read` / `feeds`。`open` と `leave` は `article`。操作のイベントは押したボタンのある画面(PC で記事の横の一覧で押したものは `list`、横が時系列なら `timeline`) |
 | `article_id` | 記事(`articles.id`)。記事が消えると null |
 | `source` | 記事をどこから開いたか(`open` のみ、下の表) |
 | `view_id` | 記事を 1 回開くごとの乱数。同じ閲覧中のイベントは同じ値を持つ。一覧の切り替えや再取得では変わらない。操作のイベントでは記事の画面で押したものだけに付く |
@@ -77,12 +77,13 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 | `board` | ボードの行から |
 | `picks` | ボードの先頭の「今朝の N 本」の行から(ピックの行から開いたものは `board` ではなく `picks`) |
 | `list` | フィード一覧のカードから(PC で記事の横の一覧から選んだ場合も) |
+| `timeline` | 時系列のカードから(PC で記事の横の時系列から選んだ場合も) |
 | `next` | 読了・スキップの後に自動で開いた次の記事(自分で選んだ記事ではない) |
 | `key` | j / k で移った |
 | `read` | 読了一覧から |
 | `direct` | URL を直接開いた、再読み込み |
 
-`next`・`key`・`picks` 以外は直前の画面で決まる。ブラウザの戻る・進むで記事に入った場合も同じで、別の記事からなら `list` になる。「URL を追加」から開いた記事は `board` か `list` になる(`articles.feed_id IS NULL` で見分ける)。
+`next`・`key`・`picks` 以外は直前の画面で決まる。ブラウザの戻る・進むで記事に入った場合も同じで、別の記事からなら `list`(その記事の URL が時系列のもの、`v=t` なら `timeline`)になる。「URL を追加」から開いた記事は `board` か `list` になる(`articles.feed_id IS NULL` で見分ける)。
 
 `leave` は記事を離れた時(別の記事へ、一覧へ、読了・スキップ、ブラウザの戻る)と、タブが隠れた時(`visibilitychange`)、ページが閉じられる時(`pagehide`)に、その閲覧の `open` と同じ `view_id` で送る。値は開いてからの累積なので、**同じ `view_id` の `leave` が何行かあれば最後の行を使う(`created_at` が最も新しい行。ほぼ同時に届いた行は `dwell_ms` が大きい方)**。iPhone でアプリを終了した時などは届かないことがあり、その閲覧は `open` だけが残る。
 
@@ -91,11 +92,11 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
 | `type` | 操作 | `screen` | `props` |
 | --- | --- | --- | --- |
 | `read` | 「読了にする」 | `article` | `via`: `button`(ボタン)/ `key`(PC の e) |
-| `skip` | 「スキップ」 | `article`(記事の中)/ `list`(一覧のカード、`view_id` なし) | `via`: `button` / `key`(PC の s) |
+| `skip` | 「スキップ」 | `article`(記事の中)/ `list` / `timeline`(一覧・時系列のカード、`view_id` なし) | `via`: `button` / `key`(PC の s) |
 | `undo` | トーストの「元に戻す」 | 押した時の画面(当てにならない)。`of` が `seen_all` の時は「すべて既読」を押した画面 | `of`: 元に戻した操作(`read` / `skip` / `seen_all`)。`seen_all` の時は `article_id` なしで、その `seen_all` と同じ `feedId` / `folderId` と `seenAt` が付く |
 | `restore` | 読了済みの記事の「未読に戻す」 | `article` | なし |
-| `unsee` | 既読のカードの「未読に戻す」 | `list` | なし |
-| `seen_all` | 「すべて既読」 | `board`(ボードの列・フォルダ)/ `list` | `feedId` か `folderId` のどちらか 1 つ。null は「フィードなし」「未分類」。`seenAt`: 既読にした記事に付けた `seen_at`(ms の整数)。`article_id` なし |
+| `unsee` | 既読のカードの「未読に戻す」 | `list` / `timeline` | なし |
+| `seen_all` | 「すべて既読」 | `board`(ボードの列・フォルダ)/ `list` / `timeline` | `feedId` か `folderId` のどちらか 1 つ。null は「フィードなし」「未分類」。`seenAt`: 既読にした記事に付けた `seen_at`(ms の整数)。`article_id` なし |
 | `chat` | AI への送信(応答を待たずに記録。AI が失敗しても 1 行) | `article` | `kind`: `summary`(要約してもらう)/ `message`(質問)。本文は入れない |
 | `original` | 「元記事を開く」(クリックと中クリックだけ。長押しのメニューからは残らない) | `article` | なし |
 | `feed_pause` / `feed_resume` | 記事ページからサイトの取得を止める / 再開する | `article` | `feedId` |

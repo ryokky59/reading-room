@@ -1,9 +1,9 @@
 import "server-only";
-import { and, asc, count, desc, eq, isNotNull, isNull, lte, max, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, lte, max, sql } from "drizzle-orm";
 import { articles, feeds, folders, getDb } from "./db";
 import { faviconUrl } from "./favicon";
 import { formatAgo } from "./format";
-import { inboxQuery, inboxWhere, listedWhere, type InboxFilter, type ListedRows } from "./inbox";
+import { inboxQuery, inboxWhere, listedWhere, runningWhere, type InboxFilter, type ListedRows } from "./inbox";
 
 /** Rows a column shows on PCs; the rest are behind 「あと N 件」. */
 export const COLUMN_ROWS = 50;
@@ -107,7 +107,6 @@ export type StoppedFeed = {
  */
 export async function loadBoard(filter: InboxFilter, listed: ListedRows, columnRows = COLUMN_ROWS) {
   const db = await getDb();
-  const running = or(isNull(articles.feedId), and(eq(feeds.enabled, true), isNull(feeds.lastError)));
   const ranked = db
     .select({
       id: articles.id,
@@ -130,7 +129,7 @@ export async function loadBoard(filter: InboxFilter, listed: ListedRows, columnR
     })
     .from(articles)
     .leftJoin(feeds, eq(feeds.id, articles.feedId))
-    .where(and(listedWhere({ f: filter.f }, listed), running))
+    .where(and(listedWhere({ f: filter.f }, listed), runningWhere))
     .as("ranked");
   const [rows, feedRows, latest, folderRows, buckets] = await Promise.all([
     db.select().from(ranked).where(lte(ranked.place, columnRows)).orderBy(ranked.place),
