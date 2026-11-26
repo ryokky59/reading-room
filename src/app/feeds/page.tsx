@@ -1,6 +1,6 @@
 import { asc, count, isNotNull } from "drizzle-orm";
 import { AddFeedForm } from "@/components/AddFeedForm";
-import { FeedFolderSelect } from "@/components/FeedFolderSelect";
+import { FeedFolderSelect, FeedFoldersProvider } from "@/components/FeedFolderSelect";
 import { Header } from "@/components/Header";
 import { FolderHeader } from "@/components/FolderHeader";
 import { createFolder, deleteFeed, setFeedEnabled } from "@/lib/actions";
@@ -44,7 +44,7 @@ export default async function FeedsPage() {
               )}
               {` · 記事 ${articleCount.get(f.id) ?? 0} 本`}
             </p>
-            <FeedFolderSelect feedId={f.id} feedName={f.name} folderId={f.folderId} folders={folderOptions} />
+            <FeedFolderSelect feedId={f.id} feedName={f.name} folderId={f.folderId} />
           </div>
           <form action={setFeedEnabled.bind(null, f.id, !f.enabled)}>
             <button className="pressable rounded-full border border-line px-3 py-1 text-xs">
@@ -63,7 +63,7 @@ export default async function FeedsPage() {
   );
 
   return (
-    <>
+    <FeedFoldersProvider folders={folderOptions}>
       <Header active="feeds" />
       <main className="mx-auto flex max-w-3xl flex-col gap-6 px-4 pb-16 pt-4">
         <AddFeedForm folders={folderOptions} />
@@ -104,6 +104,6 @@ export default async function FeedsPage() {
           </section>
         )}
       </main>
-    </>
+    </FeedFoldersProvider>
   );
 }

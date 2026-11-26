@@ -1043,6 +1043,45 @@ test.describe("一覧に載っていない記事", () => {
     await expect(page).toHaveURL(new RegExp(`/articles/\\d+\\${query}$`));
   });
 
+  test("一覧の横で、一覧の先に進んだ記事でも j で続きに進み、k で戻る", async ({ page }) => {
+    const { query } = await openUnlisted(page, "j 7", { filtered: true });
+    const at = (n: string) => async () => {
+      await expect(heading(page)).toHaveText(title(n));
+      await expect(page).toHaveURL(new RegExp(`/articles/\\d+\\${query}$`));
+    };
+    // 読了 opens j 8 past the list's 30 cards, as one more after them.
+    await page.keyboard.press("e");
+    await at("j 8")();
+    const j8 = page.url();
+
+    // Looking for the next one fails (the action is aborted, as offline): the article stays.
+    let sent = 0;
+    const failing = (route: Route) => {
+      if (!("next-action" in route.request().headers())) return route.fallback();
+      sent++;
+      return route.abort();
+    };
+    await page.route("**/*", failing);
+    await page.keyboard.press("j");
+    await expect.poll(() => sent).toBeGreaterThan(0);
+    await page.waitForTimeout(500);
+    await at("j 8")();
+    expect(page.url()).toBe(j8);
+    await expect(page.getByText("This page couldn't load")).toHaveCount(0);
+    await page.unroute("**/*", failing);
+
+    // j goes on from an article past the list, and again from the one it opened (it stopped at j 8).
+    await page.keyboard.press("j");
+    await at("j 9")();
+    await page.keyboard.press("j");
+    await at("j 10")();
+    await expect(page.getByText(/^\d+ \/ \d+$/)).toHaveText("33 / 33");
+    await page.keyboard.press("k");
+    await at("j 9")();
+    await page.keyboard.press("k");
+    await at("j 8")();
+  });
+
   test("シートの幅で開いて j を押しても、その絞り込みの中の次が開く", async ({ page }) => {
     const { query } = await openUnlisted(page, "j 5", { filtered: true, viewport: SHEET });
     await expect(page.getByRole("dialog", { name: "記事" })).toBeVisible();
