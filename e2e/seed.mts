@@ -90,6 +90,7 @@ const seededFeeds = await db
   .values([
     feed("move", "E2E 移動するフィード", tech.id),
     feed("move-mobile", "E2E スマホで移動するフィード", tech.id),
+    feed("move-keys", "E2E キーで移動するフィード", tech.id),
     feed("keep", "E2E 残るフィード", toDelete.id),
   ])
   .returning();
@@ -821,7 +822,7 @@ const unlistedArticles = [
   }),
   // For j (e2e/leave.spec.ts): rows between 30 and 31, so the feed's list does not show them and
   // the rows above stay as they are. Pairs that tests open with j, the other feed's row between
-  // the filtered ones.
+  // the filtered ones; j 7 to j 10 for j past an article already opened past the list (#164).
   ...(
     [
       ["j 1", unlistedFeed],
@@ -832,6 +833,10 @@ const unlistedArticles = [
       ["j 5", unlistedFeed],
       ["j と j の間 2", unlistedOther],
       ["j 6", unlistedFeed],
+      ["j 7", unlistedFeed],
+      ["j 8", unlistedFeed],
+      ["j 9", unlistedFeed],
+      ["j 10", unlistedFeed],
     ] as const
   ).map(([name, f], i) =>
     article(8200 + i, {
@@ -839,7 +844,7 @@ const unlistedArticles = [
       titleJa: `載っていない記事 ${name}`,
       source: f.name,
       feedId: f.id,
-      fetchedAt: old(8000 + 29 * 2 + (i + 1) * 0.2),
+      fetchedAt: old(8000 + 29 * 2 + (i + 1) * 0.15),
     }),
   ),
 ];
@@ -910,6 +915,45 @@ timelineArticles.push(
     feedId: timelineStopped.id,
     fetchedAt: fetchedA,
     publishedAt: new Date(publishedFrom + 60_000),
+  }),
+);
+// 「すべて既読」 on the timeline (#193): two unread of a running feed, and one each of a paused feed
+// and a failing one, which the timeline does not show.
+const [markAllFolder] = await db
+  .insert(schema.folders)
+  .values({ name: "E2E 時系列ですべて既読", position: 220 })
+  .returning();
+const markAllFeeds = await db
+  .insert(schema.feeds)
+  .values([
+    feed("timeline-all-running", "E2E 時系列すべて 動く", markAllFolder.id),
+    { ...feed("timeline-all-paused", "E2E 時系列すべて 止めた", markAllFolder.id), enabled: false },
+    // On a closed port, so 「今すぐ取得」 keeps its error.
+    {
+      ...feed("timeline-all-error", "E2E 時系列すべて エラー", markAllFolder.id),
+      url: "http://localhost:9/e2e/feeds/timeline-all-error",
+      lastError: "fetch failed",
+    },
+  ])
+  .returning();
+timelineArticles.push(
+  ...(
+    [
+      [0, 1],
+      [0, 2],
+      [1, 1],
+      [2, 1],
+    ] as const
+  ).map(([i, k]) => {
+    const f = markAllFeeds[i];
+    return article(timelineN++, {
+      title: `${f.name} ${k}`,
+      titleJa: `${f.name} ${k}`,
+      source: f.name,
+      feedId: f.id,
+      fetchedAt: fetchedA,
+      publishedAt: new Date(publishedFrom - k * 60_000),
+    });
   }),
 );
 await db.insert(schema.articles).values(timelineArticles);

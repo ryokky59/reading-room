@@ -26,6 +26,7 @@ import {
   SheetCloseButton,
   useAddPast,
   useForgetOpened,
+  useInboxCardIds,
   useInboxIds,
   useLeaveHref,
   useLeftInbox,
@@ -162,6 +163,7 @@ export function ArticleView({
 
   // With the list beside the article (`split` and up), reading or skipping opens the next one in it.
   const listIds = useInboxIds();
+  const cardIds = useInboxCardIds();
   const search = inboxHref.slice(1);
   // ←, and 読了 / スキップ with nothing next: the Board, if the article was opened from it.
   const leaveHref = useLeaveHref(inboxHref);
@@ -326,7 +328,8 @@ export function ArticleView({
         if (id !== undefined) {
           markOpenSource("key");
           router.push(`/articles/${id}${search}`);
-        } else if (e.key === "j" && listIds && (isSheet() || !listIds.includes(article.id))) {
+        } else if (e.key === "j" && listIds && (isSheet() || !cardIds?.includes(article.id))) {
+          // Beside the list, only past its cards: the last card has 「もっと見る」 below it (#164).
           void openAfter();
         }
       } else if (e.key === "e" && !done) {
