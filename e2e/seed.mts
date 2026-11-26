@@ -812,7 +812,7 @@ const unlistedArticles = [
   }),
   // For j (e2e/leave.spec.ts): rows between 30 and 31, so the feed's list does not show them and
   // the rows above stay as they are. Pairs that tests open with j, the other feed's row between
-  // the filtered ones.
+  // the filtered ones; j 7 to j 10 for j past an article already opened past the list (#164).
   ...(
     [
       ["j 1", unlistedFeed],
@@ -823,6 +823,10 @@ const unlistedArticles = [
       ["j 5", unlistedFeed],
       ["j と j の間 2", unlistedOther],
       ["j 6", unlistedFeed],
+      ["j 7", unlistedFeed],
+      ["j 8", unlistedFeed],
+      ["j 9", unlistedFeed],
+      ["j 10", unlistedFeed],
     ] as const
   ).map(([name, f], i) =>
     article(8200 + i, {
@@ -830,7 +834,7 @@ const unlistedArticles = [
       titleJa: `載っていない記事 ${name}`,
       source: f.name,
       feedId: f.id,
-      fetchedAt: old(8000 + 29 * 2 + (i + 1) * 0.2),
+      fetchedAt: old(8000 + 29 * 2 + (i + 1) * 0.15),
     }),
   ),
 ];
