@@ -854,6 +854,8 @@ export function InboxShell({
   // The Board takes the whole width; nothing goes beside it. From `lg` up neither does a feed
   // list: an open article is a sheet over it.
   const board = useBoardUrl() !== null;
+  // On the timeline, and beside an article opened from it, 新着 and the logo stay on the timeline.
+  const home = listScreenOf(new URLSearchParams(search)) === "timeline" ? "/?v=t" : "/";
   return (
     <InboxNavContext.Provider value={{ ids: shownIds, setIds: syncIds, addPast }}>
       <LeavingContext.Provider value={leavingValue}>
@@ -873,6 +875,7 @@ export function InboxShell({
               className={open ? "hidden split:block" : undefined}
               inert={asDialog || undefined}
               panes
+              home={home}
               controls={<InboxControls lastFetched={lastFetched} />}
             />
             <div className="split:flex split:min-h-0 split:flex-1">
